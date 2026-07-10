@@ -35,6 +35,8 @@ import {
   sourceImportContextFailure,
   validateDroppedSourceRequest,
 } from "./source-import.js";
+import { registerWorkspaceIpcHandlers } from "./workspace-ipc.js";
+import { createWorkspaceStore, WORKSPACE_ROOT_NAME } from "./workspace-store.js";
 
 const IPC_CHANNELS = Object.freeze({
   openSource: "panel:open-source",
@@ -427,6 +429,16 @@ void app.whenReady().then(() => {
     app.dock?.setIcon(developmentIconPath);
   }
   registerIpcHandlers();
+  registerWorkspaceIpcHandlers({
+    ipcMain,
+    store: createWorkspaceStore(
+      !app.isPackaged && process.env.PANEL_WORKSPACE_ROOT !== undefined
+        ? process.env.PANEL_WORKSPACE_ROOT
+        : join(app.getPath("documents"), WORKSPACE_ROOT_NAME),
+    ),
+    authorize: (event) => void requireTrustedSenderWindow(event),
+    isShuttingDown: () => isShuttingDown,
+  });
   createMainWindow();
 });
 

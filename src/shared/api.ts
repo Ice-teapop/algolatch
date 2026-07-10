@@ -1,3 +1,12 @@
+import type {
+  CreateWorkspaceDocumentRequest,
+  OpenWorkspaceDocumentRequest,
+  SaveWorkspaceDocumentRequest,
+  WorkspaceDocumentResult,
+  WorkspaceListResult,
+  WorkspaceSaveResult,
+} from "./workspace.js";
+
 export type RunnerMode = "seatbelt-best-effort" | "trusted-only" | "disabled";
 
 export type SeatbeltProbeStatus = "not-checked" | "probe-succeeded" | "unavailable";
@@ -122,6 +131,12 @@ export type SourceImportResult =
 export interface PanelApi {
   openSource(): Promise<SourceImportResult>;
   openDroppedSource(file: File): Promise<SourceImportResult>;
+  listWorkspaceDocuments(): Promise<WorkspaceListResult>;
+  createWorkspaceDocument(
+    request: CreateWorkspaceDocumentRequest,
+  ): Promise<WorkspaceDocumentResult>;
+  openWorkspaceDocument(request: OpenWorkspaceDocumentRequest): Promise<WorkspaceDocumentResult>;
+  saveWorkspaceDocument(request: SaveWorkspaceDocumentRequest): Promise<WorkspaceSaveResult>;
   capabilities(): Promise<Capabilities>;
   compile(request: CompileRequest): Promise<CompileResult>;
   run(request: RunRequest): Promise<RunResult>;

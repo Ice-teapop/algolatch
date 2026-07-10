@@ -8,10 +8,22 @@ import type {
   RunResult,
   SourceImportResult,
 } from "../../src/shared/api.js";
+import type {
+  CreateWorkspaceDocumentRequest,
+  OpenWorkspaceDocumentRequest,
+  SaveWorkspaceDocumentRequest,
+  WorkspaceDocumentResult,
+  WorkspaceListResult,
+  WorkspaceSaveResult,
+} from "../../src/shared/workspace.js";
 
 const IPC_CHANNELS = Object.freeze({
   openSource: "panel:open-source",
   openDroppedSource: "panel:open-dropped-source",
+  listWorkspaceDocuments: "workspace:list",
+  createWorkspaceDocument: "workspace:create",
+  openWorkspaceDocument: "workspace:open",
+  saveWorkspaceDocument: "workspace:save-source",
   capabilities: "panel:capabilities",
   compile: "panel:compile",
   run: "panel:run",
@@ -49,6 +61,26 @@ const panelApi: PanelApi = Object.freeze({
       path,
     })) as SourceImportResult;
   },
+  listWorkspaceDocuments: async (): Promise<WorkspaceListResult> =>
+    (await ipcRenderer.invoke(IPC_CHANNELS.listWorkspaceDocuments)) as WorkspaceListResult,
+  createWorkspaceDocument: async (
+    request: CreateWorkspaceDocumentRequest,
+  ): Promise<WorkspaceDocumentResult> =>
+    (await ipcRenderer.invoke(
+      IPC_CHANNELS.createWorkspaceDocument,
+      request,
+    )) as WorkspaceDocumentResult,
+  openWorkspaceDocument: async (
+    request: OpenWorkspaceDocumentRequest,
+  ): Promise<WorkspaceDocumentResult> =>
+    (await ipcRenderer.invoke(
+      IPC_CHANNELS.openWorkspaceDocument,
+      request,
+    )) as WorkspaceDocumentResult,
+  saveWorkspaceDocument: async (
+    request: SaveWorkspaceDocumentRequest,
+  ): Promise<WorkspaceSaveResult> =>
+    (await ipcRenderer.invoke(IPC_CHANNELS.saveWorkspaceDocument, request)) as WorkspaceSaveResult,
   capabilities: async (): Promise<Capabilities> =>
     copyCapabilitiesSnapshot((await ipcRenderer.invoke(IPC_CHANNELS.capabilities)) as Capabilities),
   compile: async (request: CompileRequest): Promise<CompileResult> =>
