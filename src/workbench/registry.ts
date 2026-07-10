@@ -1,13 +1,17 @@
 import type {
   AlgorithmElementDefinition,
   CommandContribution,
+  DockGroupContribution,
   InspectorViewContribution,
   RegisteredAlgorithmElement,
   RegisteredCommand,
+  RegisteredDockGroup,
   RegisteredInspectorView,
+  RegisteredWorkbenchPage,
   WorkbenchModuleDefinition,
   WorkbenchModuleManifest,
   WorkbenchModuleSnapshot,
+  WorkbenchPageContribution,
   WorkbenchRegistryConflictKind,
   WorkbenchRegistrySnapshot,
 } from "./contracts.js";
@@ -37,6 +41,8 @@ export class WorkbenchRegistryConflictError extends Error {
 export class WorkbenchModuleRegistry {
   readonly #modules = new Map<string, WorkbenchModuleSnapshot>();
   readonly #inspectorViewOwners = new Map<string, string>();
+  readonly #dockGroupOwners = new Map<string, string>();
+  readonly #pageOwners = new Map<string, string>();
   readonly #commandOwners = new Map<string, string>();
   readonly #algorithmElementOwners = new Map<string, string>();
 
@@ -49,6 +55,8 @@ export class WorkbenchModuleRegistry {
 
     const moduleIds = new Set(this.#modules.keys());
     const inspectorViewIds = new Set(this.#inspectorViewOwners.keys());
+    const dockGroupIds = new Set(this.#dockGroupOwners.keys());
+    const pageIds = new Set(this.#pageOwners.keys());
     const commandIds = new Set(this.#commandOwners.keys());
     const algorithmElementTypes = new Set(this.#algorithmElementOwners.keys());
 
@@ -56,6 +64,12 @@ export class WorkbenchModuleRegistry {
       claim(moduleIds, "module-id", module.manifest.id);
       for (const view of module.inspectorViews) {
         claim(inspectorViewIds, "inspector-view-id", view.id);
+      }
+      for (const group of module.dockGroups) {
+        claim(dockGroupIds, "dock-group-id", group.id);
+      }
+      for (const page of module.pages) {
+        claim(pageIds, "page-id", page.id);
       }
       for (const command of module.commands) {
         claim(commandIds, "command-id", command.id);
@@ -66,9 +80,23 @@ export class WorkbenchModuleRegistry {
     }
 
     for (const module of modules) {
+      for (const page of module.pages) {
+        if (!dockGroupIds.has(page.groupId)) {
+          throw new TypeError(`工作台页面 “${page.id}” 引用了未注册 Dock 分组 “${page.groupId}”`);
+        }
+      }
+    }
+
+    for (const module of modules) {
       this.#modules.set(module.manifest.id, module);
       for (const view of module.inspectorViews) {
         this.#inspectorViewOwners.set(view.id, module.manifest.id);
+      }
+      for (const group of module.dockGroups) {
+        this.#dockGroupOwners.set(group.id, module.manifest.id);
+      }
+      for (const page of module.pages) {
+        this.#pageOwners.set(page.id, module.manifest.id);
       }
       for (const command of module.commands) {
         this.#commandOwners.set(command.id, module.manifest.id);
@@ -109,6 +137,23 @@ export class WorkbenchModuleRegistry {
         )
         .sort(compareOrderedContribution),
     );
+    const dockGroups: readonly RegisteredDockGroup[] = Object.freeze(
+      modules
+        .flatMap((module) =>
+          module.dockGroups.map((group) =>
+            Object.freeze({ moduleId: module.manifest.id, ...group }),
+          ),
+        )
+        .sort(compareOrderedContribution),
+    );
+    const dockGroupOrder = new Map(dockGroups.map((group) => [group.id, group.order]));
+    const pages: readonly RegisteredWorkbenchPage[] = Object.freeze(
+      modules
+        .flatMap((module) =>
+          module.pages.map((page) => Object.freeze({ moduleId: module.manifest.id, ...page })),
+        )
+        .sort((left, right) => comparePages(left, right, dockGroupOrder)),
+    );
     const commands = Object.freeze(
       modules
         .flatMap((module) =>
@@ -138,6 +183,8 @@ export class WorkbenchModuleRegistry {
     return Object.freeze({
       modules,
       inspectorViews,
+      dockGroups,
+      pages,
       commands,
       algorithmElements,
       capabilities,
@@ -154,6 +201,12 @@ function normalizeModule(definition: WorkbenchModuleDefinition): WorkbenchModule
   const inspectorViews = Object.freeze(
     (definition.inspectorViews ?? []).map(normalizeInspectorView).sort(compareOrderedContribution),
   );
+  const dockGroups = Object.freeze(
+    (definition.dockGroups ?? []).map(normalizeDockGroup).sort(compareOrderedContribution),
+  );
+  const pages = Object.freeze(
+    (definition.pages ?? []).map(normalizePage).sort(comparePageMetadata),
+  );
   const commands = Object.freeze(
     (definition.commands ?? []).map(normalizeCommand).sort(compareOrderedContribution),
   );
@@ -167,7 +220,14 @@ function normalizeModule(definition: WorkbenchModuleDefinition): WorkbenchModule
       ),
   );
 
-  return Object.freeze({ manifest, inspectorViews, commands, algorithmElements });
+  return Object.freeze({
+    manifest,
+    inspectorViews,
+    dockGroups,
+    pages,
+    commands,
+    algorithmElements,
+  });
 }
 
 function normalizeManifest(manifest: WorkbenchModuleManifest): WorkbenchModuleManifest {
@@ -198,6 +258,23 @@ function normalizeInspectorView(view: InspectorViewContribution): InspectorViewC
     id: assertStableIdentifier(view.id, "inspector view id"),
     label: assertLabel(view.label, "inspector view label"),
     order: assertOrder(view.order),
+  });
+}
+
+function normalizeDockGroup(group: DockGroupContribution): DockGroupContribution {
+  return Object.freeze({
+    id: assertStableIdentifier(group.id, "dock group id"),
+    label: assertLabel(group.label, "dock group label"),
+    order: assertOrder(group.order),
+  });
+}
+
+function normalizePage(page: WorkbenchPageContribution): WorkbenchPageContribution {
+  return Object.freeze({
+    id: assertStableIdentifier(page.id, "workbench page id"),
+    label: assertLabel(page.label, "workbench page label"),
+    groupId: assertStableIdentifier(page.groupId, "workbench page group id"),
+    order: assertOrder(page.order),
   });
 }
 
@@ -273,11 +350,51 @@ function sortedModules(modules: Iterable<WorkbenchModuleSnapshot>): WorkbenchMod
 
 function compareOrderedContribution(
   left:
-    InspectorViewContribution | CommandContribution | RegisteredInspectorView | RegisteredCommand,
+    | InspectorViewContribution
+    | DockGroupContribution
+    | CommandContribution
+    | RegisteredInspectorView
+    | RegisteredDockGroup
+    | RegisteredCommand,
   right:
-    InspectorViewContribution | CommandContribution | RegisteredInspectorView | RegisteredCommand,
+    | InspectorViewContribution
+    | DockGroupContribution
+    | CommandContribution
+    | RegisteredInspectorView
+    | RegisteredDockGroup
+    | RegisteredCommand,
 ): number {
   return left.order - right.order || left.id.localeCompare(right.id, "en");
+}
+
+function comparePageMetadata(
+  left: WorkbenchPageContribution,
+  right: WorkbenchPageContribution,
+): number {
+  return (
+    left.groupId.localeCompare(right.groupId, "en") ||
+    left.order - right.order ||
+    left.id.localeCompare(right.id, "en")
+  );
+}
+
+function comparePages(
+  left: RegisteredWorkbenchPage,
+  right: RegisteredWorkbenchPage,
+  groupOrder: ReadonlyMap<string, number>,
+): number {
+  return (
+    requireGroupOrder(groupOrder, left.groupId) - requireGroupOrder(groupOrder, right.groupId) ||
+    left.groupId.localeCompare(right.groupId, "en") ||
+    left.order - right.order ||
+    left.id.localeCompare(right.id, "en")
+  );
+}
+
+function requireGroupOrder(groupOrder: ReadonlyMap<string, number>, groupId: string): number {
+  const order = groupOrder.get(groupId);
+  if (order === undefined) throw new Error(`缺少 Dock 分组顺序：${groupId}`);
+  return order;
 }
 
 function compareText(left: string, right: string): number {
