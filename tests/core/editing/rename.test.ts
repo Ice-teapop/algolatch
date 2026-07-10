@@ -46,6 +46,7 @@ describe("M3b conservative function-local rename planner", () => {
         symbolId: target.id,
         oldName: "count",
         newName: "total",
+        requiresConfirmation: true,
         semanticValidationRequired: true,
       });
       expect(plan.patches).toHaveLength(4);

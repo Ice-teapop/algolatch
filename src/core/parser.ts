@@ -1,5 +1,10 @@
 import { Language, Parser } from "web-tree-sitter";
 import type { SourceDoc } from "./model.js";
+import { planConservativeLocalRename, type ConservativeLocalRenamePlan } from "./editing/rename.js";
+import {
+  extractStatementEditTargets,
+  type StatementEditTargetSnapshot,
+} from "./editing/statements.js";
 import { extractEditTargets, type EditTargetSnapshot } from "./editing/targets.js";
 import { projectCst } from "./projector.js";
 
@@ -11,6 +16,14 @@ export interface CParserAssets {
 export interface CAnalysisSnapshot {
   readonly document: SourceDoc;
   readonly editTargets: EditTargetSnapshot;
+  readonly statementEdits: StatementEditTargetSnapshot;
+}
+
+/** Pure-value input for a parser-owned local rename analysis. */
+export interface LocalRenamePlanningRequest {
+  readonly symbolId: string;
+  readonly expectedOldName: string;
+  readonly newName: string;
 }
 
 let initializedRuntimeUrl: string | undefined;
@@ -54,6 +67,37 @@ export class CParser {
       return Object.freeze({
         document: projectCst(source, tree.rootNode),
         editTargets: extractEditTargets(tree.rootNode, source, revision),
+        statementEdits: extractStatementEditTargets(tree.rootNode, source, revision),
+      });
+    } finally {
+      tree.delete();
+    }
+  }
+
+  /**
+   * Plans a conservative local rename without allowing a Tree-sitter Node to
+   * escape the parser-owned tree lifetime.
+   */
+  planLocalRename(
+    source: string,
+    analysis: CAnalysisSnapshot,
+    request: LocalRenamePlanningRequest,
+  ): ConservativeLocalRenamePlan {
+    if (this.#disposed) {
+      throw new Error("CParser 已释放，不能继续解析");
+    }
+    const tree = this.#parser.parse(source);
+    if (tree === null) {
+      throw new Error("tree-sitter 未返回语法树");
+    }
+    try {
+      return planConservativeLocalRename({
+        source,
+        rootNode: tree.rootNode,
+        analysis: analysis.document,
+        symbolId: request.symbolId,
+        expectedOldName: request.expectedOldName,
+        newName: request.newName,
       });
     } finally {
       tree.delete();

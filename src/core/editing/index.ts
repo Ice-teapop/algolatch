@@ -30,3 +30,38 @@ export {
   type LiteralEditTarget,
   type LiteralKind,
 } from "./targets.js";
+export {
+  extractStatementEditTargets,
+  planStatementOperation,
+  StatementOperationError,
+  type DeleteStatementRequest,
+  type InsertStatementRequest,
+  type StatementEditBlocker,
+  type StatementEditTarget,
+  type StatementEditTargetSnapshot,
+  type StatementOperationErrorCode,
+  type StatementOperationPlan,
+  type StatementOperationRequest,
+  type StatementParentMode,
+  type SwapAdjacentStatementsRequest,
+} from "./statements.js";
+export {
+  LocalRenameError,
+  planConservativeLocalRename,
+  type ConservativeLocalRenamePlan,
+  type ConservativeLocalRenameRequest,
+  type LocalRenameAnalysis,
+  type LocalRenameErrorCode,
+} from "./rename.js";
+export {
+  M3bEditError,
+  planM3bEdit,
+  type LocalRenameEditRequest,
+  type M3bEditAnalyzer,
+  type M3bEditContext,
+  type M3bEditErrorCode,
+  type M3bEditPlan,
+  type M3bEditRequest,
+  type ValidatedLocalRenameEditPlan,
+  type ValidatedStatementEditPlan,
+} from "./m3b-engine.js";

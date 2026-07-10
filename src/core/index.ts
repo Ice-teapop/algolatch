@@ -26,7 +26,12 @@ export type {
   Utf16Offset,
 } from "./model.js";
 export { textRange, utf16Offset } from "./model.js";
-export { CParser, type CAnalysisSnapshot, type CParserAssets } from "./parser.js";
+export {
+  CParser,
+  type CAnalysisSnapshot,
+  type CParserAssets,
+  type LocalRenamePlanningRequest,
+} from "./parser.js";
 export {
   applyEditPlan,
   applyTextPatches,
@@ -35,9 +40,16 @@ export {
   createEditPlan,
   createTextPatch,
   extractEditTargets,
+  extractStatementEditTargets,
+  LocalRenameError,
+  M3bEditError,
   planBinaryOperatorPatches,
+  planConservativeLocalRename,
+  planM3bEdit,
+  planStatementOperation,
   planStructuredEdit,
   precedence,
+  StatementOperationError,
   StructuredEditError,
   type BinaryExpressionEditTarget,
   type BinaryOperator,
@@ -51,6 +63,7 @@ export {
   type ForStatementEditTarget,
   type IfConditionEditRequest,
   type IfStatementEditTarget,
+  type InsertStatementRequest,
   type LiteralEditRequest,
   type LiteralEditTarget,
   type LiteralKind,
@@ -59,7 +72,28 @@ export {
   type StructuredEditErrorCode,
   type StructuredEditPlan,
   type StructuredEditRequest,
+  type ConservativeLocalRenamePlan,
+  type ConservativeLocalRenameRequest,
+  type DeleteStatementRequest,
+  type LocalRenameAnalysis,
+  type LocalRenameEditRequest,
+  type LocalRenameErrorCode,
+  type M3bEditAnalyzer,
+  type M3bEditContext,
+  type M3bEditErrorCode,
+  type M3bEditPlan,
+  type M3bEditRequest,
+  type StatementEditBlocker,
+  type StatementEditTarget,
+  type StatementEditTargetSnapshot,
+  type StatementOperationErrorCode,
+  type StatementOperationPlan,
+  type StatementOperationRequest,
+  type StatementParentMode,
+  type SwapAdjacentStatementsRequest,
   type TextPatch,
+  type ValidatedLocalRenameEditPlan,
+  type ValidatedStatementEditPlan,
 } from "./editing/index.js";
 export { projectCst } from "./projector.js";
 export { projectStatementBlocks } from "./statement-projector.js";

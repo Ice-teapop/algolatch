@@ -1,0 +1,8 @@
+{
+  "seed": 12628236,
+  "mutation": {
+    "kind": "delete-line",
+    "sample": 1,
+    "line": 0
+  }
+}

@@ -431,15 +431,32 @@ function assertExtractionInputs(rootNode: Node, source: string, revision: number
   }
   let rootMatchesSource = false;
   try {
+    const startIndex = rootNode.startIndex;
+    const endIndex = rootNode.endIndex;
     rootMatchesSource =
-      rootNode.type === "translation_unit" &&
-      (rootNode.startIndex === 0 || (rootNode.startIndex === 1 && source.startsWith("\uFEFF"))) &&
-      rootNode.endIndex === source.length &&
-      rootNode.text === source.slice(rootNode.startIndex, rootNode.endIndex);
+      // Tree-sitter C may return an EOF-spanning ERROR as the actual root for
+      // malformed preprocessor input; it is still the live full-source tree.
+      (rootNode.type === "translation_unit" || rootNode.type === "ERROR") &&
+      Number.isSafeInteger(startIndex) &&
+      Number.isSafeInteger(endIndex) &&
+      startIndex >= 0 &&
+      endIndex >= startIndex &&
+      endIndex <= source.length &&
+      isUncoveredRootPrefix(source.slice(0, startIndex)) &&
+      isUncoveredRootSuffix(source.slice(endIndex)) &&
+      rootNode.text === source.slice(startIndex, endIndex);
   } catch (error) {
     throw new TypeError("rootNode 已释放或无法读取", { cause: error });
   }
   if (!rootMatchesSource) throw new TypeError("rootNode 与 source 不属于同一源码快照");
+}
+
+function isUncoveredRootPrefix(prefix: string): boolean {
+  return /^(?:\uFEFF)?[ \t\r\n\f\v]*$/u.test(prefix);
+}
+
+function isUncoveredRootSuffix(suffix: string): boolean {
+  return /^[ \t\r\n\f\v]*$/u.test(suffix);
 }
 
 function assertPlanningInputs(

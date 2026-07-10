@@ -35,7 +35,9 @@ export interface ConservativeLocalRenamePlan {
   readonly newName: string;
   readonly functionRange: TextRange;
   readonly patches: readonly TextPatch[];
-  /** R10: integration must still enforce reparse, clang and byte-exact I/O gates. */
+  /** Rename is never auto-applied; the exact diff must be shown and confirmed. */
+  readonly requiresConfirmation: true;
+  /** Runtime enforces reparse/shape only; corpus acceptance separately checks semantic equivalence. */
   readonly semanticValidationRequired: true;
 }
 
@@ -182,6 +184,7 @@ export function planConservativeLocalRename(
     newName: request.newName,
     functionRange: nodeRange(treeFacts.targetFunction),
     patches,
+    requiresConfirmation: true,
     semanticValidationRequired: true,
   });
 }
