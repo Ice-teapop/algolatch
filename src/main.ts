@@ -1,10 +1,11 @@
 import * as core from "./core/index.js";
 import * as editTargetSelection from "./app/edit-target-selection.js";
 import { sourceMetadata } from "./app/source-display.js";
+import { createSourceImportController } from "./app/source-import-controller.js";
 import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
 import { createBrowserCParser } from "./renderer/c-parser.js";
-import { importPastedSource, validateSourceText } from "./shared/source-import.js";
-import type { ImportedSource, SourceImportResult } from "./shared/api.js";
+import { validateSourceText } from "./shared/source-import.js";
+import type { ImportedSource } from "./shared/api.js";
 import { createBlockTree } from "./ui/block-tree.js";
 import { createCodePane, type CodeHighlight, type CodeSourceChangeReason } from "./ui/code-pane.js";
 import { createEditPanel, type EditPanel, type EditPanelRequest } from "./ui/edit-panel.js";
@@ -37,8 +38,6 @@ const { elements } = runtime;
 const explanationHost = elements.getInspectorHost("explanation");
 let parser: core.CParser | null = null;
 let session: ReadySession | null = null;
-let importRequestId = 0;
-let dragDepth = 0;
 let destroyed = false;
 let editPanel: EditPanel<core.StructuredEditPlan> | null = null;
 
@@ -66,15 +65,7 @@ editPanel = createEditPanel<core.StructuredEditPlan>(elements.getInspectorHost("
   },
 });
 let runPanel = createCurrentRunPanel();
-
-elements.openButton.addEventListener("click", openNativeSource);
-elements.pasteButton.addEventListener("click", showPasteDialog);
-elements.pasteConfirm.addEventListener("click", confirmPaste);
-elements.pasteDialog.addEventListener("close", clearPasteError);
-elements.shell.addEventListener("dragenter", onDragEnter);
-elements.shell.addEventListener("dragover", onDragOver);
-elements.shell.addEventListener("dragleave", onDragLeave);
-elements.shell.addEventListener("drop", onDrop);
+const sourceImport = createSourceImportController(elements, { load: loadSource });
 
 void initialize();
 
@@ -86,14 +77,13 @@ async function initialize(): Promise<void> {
       return;
     }
     parser = loadedParser;
-    elements.openButton.disabled = false;
-    elements.pasteButton.disabled = false;
+    sourceImport.setEnabled(true);
     loadSource({ source: INITIAL_SOURCE, displayName: "algorithm-demo.c", origin: "paste" });
-    setImportStatus("示例已载入；可打开、拖入或粘贴自己的 .c 文件。", "ready");
+    sourceImport.setStatus("示例已载入；可打开、拖入或粘贴自己的 .c 文件。", "ready");
   } catch (error: unknown) {
     elements.parserStatus.textContent = `C 解析器不可用：${errorMessage(error)}`;
     elements.parserStatus.dataset.state = "error";
-    setImportStatus("解析器初始化失败，源码工作台已停用。", "error");
+    sourceImport.setStatus("解析器初始化失败，源码工作台已停用。", "error");
   }
 }
 
@@ -223,7 +213,7 @@ function commitPanelEdit(plan: core.StructuredEditPlan): void {
   const imported = Object.freeze({ ...current.imported, source: plan.candidateSource });
   adoptAnalysis(imported, plan.candidateAnalysis, false, preferredTarget);
   editPanel?.setStatus({ kind: "success", message: "修改已提交；可随时撤销。" });
-  setImportStatus("修改已提交；可使用撤销恢复上一版本。", "ready");
+  sourceImport.setStatus("修改已提交；可使用撤销恢复上一版本。", "ready");
 }
 
 function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): void {
@@ -243,11 +233,11 @@ function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): voi
     adoptAnalysis(imported, analysis, false, null);
     const action = reason === "undo" ? "撤销" : reason === "redo" ? "重做" : "修改";
     editPanel?.setStatus(`${action}完成。`);
-    setImportStatus(`${action}完成；当前源码已重新解析。`, "ready");
+    sourceImport.setStatus(`${action}完成；当前源码已重新解析。`, "ready");
   } catch (error: unknown) {
     const message = `无法同步编辑历史：${errorMessage(error)}`;
     editPanel?.setStatus(new Error(message));
-    setImportStatus(message, "error");
+    sourceImport.setStatus(message, "error");
   }
 }
 
@@ -334,113 +324,11 @@ function selectBlock(
   renderExplanationView(explanationHost, sourceDocument, entry?.block ?? null, symbol);
 }
 
-async function openNativeSource(): Promise<void> {
-  const requestId = ++importRequestId;
-  setImportStatus("正在等待系统文件选择器…", "loading");
-  try {
-    const result = await window.panelApi.openSource();
-    if (requestId === importRequestId) applyImportResult(result);
-  } catch {
-    if (requestId === importRequestId) setImportStatus("文件选择器 IPC 调用失败。", "error");
-  }
-}
-
-function showPasteDialog(): void {
-  clearPasteError();
-  elements.pasteSource.value = "";
-  elements.pasteDialog.showModal();
-  elements.pasteSource.focus();
-}
-
-function confirmPaste(): void {
-  const result = importPastedSource(elements.pasteSource.value);
-  if (result.status === "failed") {
-    elements.pasteError.textContent = result.error.message;
-    return;
-  }
-  if (result.status === "opened") {
-    importRequestId += 1;
-    applyImportResult(result);
-    elements.pasteDialog.close("loaded");
-  }
-}
-
 function createCurrentRunPanel() {
   return createRunPanel(elements.getInspectorHost("run"), {
     getSource: () => session?.imported.source ?? "",
     getDisplayName: () => session?.imported.displayName ?? "main.c",
   });
-}
-
-function clearPasteError(): void {
-  elements.pasteError.textContent = "";
-}
-
-function onDragEnter(event: DragEvent): void {
-  if (!hasFiles(event)) return;
-  event.preventDefault();
-  dragDepth += 1;
-  elements.dropOverlay.hidden = false;
-}
-
-function onDragOver(event: DragEvent): void {
-  if (!hasFiles(event)) return;
-  event.preventDefault();
-  if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
-}
-
-function onDragLeave(event: DragEvent): void {
-  if (!hasFiles(event)) return;
-  dragDepth = Math.max(0, dragDepth - 1);
-  if (dragDepth === 0) elements.dropOverlay.hidden = true;
-}
-
-function onDrop(event: DragEvent): void {
-  if (!hasFiles(event)) return;
-  event.preventDefault();
-  dragDepth = 0;
-  elements.dropOverlay.hidden = true;
-  const files = event.dataTransfer?.files;
-  if (files === undefined || files.length !== 1 || files[0] === undefined) {
-    setImportStatus("请一次只拖入一个 .c 文件。", "error");
-    return;
-  }
-  const requestId = ++importRequestId;
-  setImportStatus("正在读取拖入的 C 文件…", "loading");
-  void window.panelApi
-    .openDroppedSource(files[0])
-    .then((result) => {
-      if (requestId === importRequestId) applyImportResult(result);
-    })
-    .catch(() => {
-      if (requestId === importRequestId) setImportStatus("拖拽导入 IPC 调用失败。", "error");
-    });
-}
-
-function applyImportResult(result: SourceImportResult): void {
-  if (result.status === "cancelled") {
-    setImportStatus("已取消文件选择，当前文档保持不变。", "ready");
-    return;
-  }
-  if (result.status === "failed") {
-    setImportStatus(`${result.error.code}：${result.error.message}`, "error");
-    return;
-  }
-  try {
-    loadSource(result.document);
-    setImportStatus(`已载入 ${result.document.displayName}。`, "ready");
-  } catch (error: unknown) {
-    setImportStatus(`源码解析失败：${errorMessage(error)}；当前文档保持不变。`, "error");
-  }
-}
-
-function setImportStatus(message: string, state: "loading" | "ready" | "error"): void {
-  elements.importStatus.textContent = message;
-  elements.importStatus.dataset.state = state;
-}
-
-function hasFiles(event: DragEvent): boolean {
-  return event.dataTransfer?.types.includes("Files") === true;
 }
 
 function symbolTooltip(symbol: core.SymbolRecord, role: "declaration" | "use"): string {
@@ -470,7 +358,7 @@ window.addEventListener(
   "beforeunload",
   () => {
     destroyed = true;
-    importRequestId += 1;
+    sourceImport.destroy();
     parser?.dispose();
     parser = null;
     blockTree.destroy();
