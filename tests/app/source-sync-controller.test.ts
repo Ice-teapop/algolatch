@@ -83,6 +83,20 @@ describe("source sync controller", () => {
     expect(harness.pending).toEqual(["pending:edit"]);
   });
 
+  it("resets pending work after an external source replacement", () => {
+    vi.useFakeTimers();
+    const harness = createHarness(20);
+    harness.setCurrent("typed");
+    harness.controller.handleSourceChange("typed", "edit");
+
+    harness.controller.reset("recovery");
+    vi.runAllTimers();
+
+    expect(harness.analyzed).toEqual([]);
+    expect(harness.controller.getMode()).toBe("recovery");
+    expect(() => harness.controller.reset("held" as never)).toThrow(/reset mode/u);
+  });
+
   it("holds on host validation or analyzer failure", () => {
     const harness = createHarness(0);
     harness.rejectSource("bad");
@@ -90,10 +104,20 @@ describe("source sync controller", () => {
     harness.controller.handleSourceChange("bad", "redo");
     expect(harness.held).toEqual(["bad:analysis-failed:redo"]);
   });
+
+  it("turns a current-source lookup failure into a held analysis failure", () => {
+    const harness = createHarness(0);
+    harness.failCurrentLookup();
+    harness.controller.handleSourceChange("lookup", "undo");
+
+    expect(harness.held).toEqual(["lookup:analysis-failed:undo"]);
+    expect(harness.controller.getMode()).toBe("held");
+  });
 });
 
 function createHarness(delayMs: number) {
   let current = "";
+  let currentLookupError: Error | null = null;
   let displayed: string | null = null;
   const analyses = new Map<string, ParseSummary>();
   const rejected = new Set<string>();
@@ -103,7 +127,10 @@ function createHarness(delayMs: number) {
   const held: string[] = [];
   const controller = createSourceSyncController({
     delayMs,
-    getCurrentSource: () => current,
+    getCurrentSource: () => {
+      if (currentLookupError !== null) throw currentLookupError;
+      return current;
+    },
     getDisplayedSource: () => displayed,
     validateSource(source) {
       if (rejected.has(source)) throw new Error("rejected");
@@ -133,6 +160,9 @@ function createHarness(delayMs: number) {
     },
     setAnalysis: (source: string, value: ParseSummary) => analyses.set(source, value),
     rejectSource: (source: string) => rejected.add(source),
+    failCurrentLookup: () => {
+      currentLookupError = new Error("lookup failed");
+    },
   };
 }
 

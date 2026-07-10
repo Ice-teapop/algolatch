@@ -36,6 +36,8 @@ export interface SourceSyncControllerOptions<A extends SourceAnalysisLike> {
 
 export interface SourceSyncController {
   handleSourceChange(source: string, reason: SourceSyncReason): void;
+  /** Cancels stale direct-input work after an import or other host-owned replacement. */
+  reset(mode?: Extract<SourceProjectionMode, "synced" | "recovery">): void;
   getMode(): SourceProjectionMode;
   destroy(): void;
 }
@@ -64,10 +66,9 @@ export function createSourceSyncController<A extends SourceAnalysisLike>(
 
   const process = (source: string, reason: SourceSyncReason, requestGeneration: number): void => {
     timer = undefined;
-    if (destroyed || requestGeneration !== generation || options.getCurrentSource() !== source) {
-      return;
-    }
+    if (destroyed || requestGeneration !== generation) return;
     try {
+      if (options.getCurrentSource() !== source) return;
       options.validateSource(source);
       const analysis = options.analyze(source);
       if (analysis.document.source !== source) {
@@ -105,6 +106,15 @@ export function createSourceSyncController<A extends SourceAnalysisLike>(
       } else {
         process(source, reason, requestGeneration);
       }
+    },
+    reset(nextMode: Extract<SourceProjectionMode, "synced" | "recovery"> = "synced"): void {
+      if (destroyed) return;
+      if (nextMode !== "synced" && nextMode !== "recovery") {
+        throw new TypeError("source sync reset mode 必须是 synced 或 recovery");
+      }
+      generation += 1;
+      clearPendingTimer();
+      mode = nextMode;
     },
     getMode(): SourceProjectionMode {
       return mode;
