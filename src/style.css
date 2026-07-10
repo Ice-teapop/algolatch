@@ -1814,6 +1814,166 @@ h2 {
   line-height: 1.5;
 }
 
+.block-library-manager {
+  display: grid;
+  min-height: 100%;
+  grid-template-columns: minmax(280px, 0.72fr) minmax(420px, 1.28fr);
+  grid-template-rows: 32px auto minmax(0, 1fr);
+  background: var(--surface);
+}
+
+.block-library-manager__heading {
+  display: flex;
+  align-items: center;
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-secondary);
+  font-size: 11px;
+}
+
+.block-library-manager__form {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  grid-row: 2 / 4;
+}
+
+.block-library-manager__field {
+  display: grid;
+  gap: 3px;
+}
+
+.block-library-manager__field-label {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.block-library-manager__field-control,
+.block-library-manager__source {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--code-ink);
+  background: var(--input-surface);
+  font-size: 10px;
+}
+
+.block-library-manager__source {
+  min-height: 150px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.block-library-manager__save,
+.block-library-manager__action {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--ink-secondary);
+  background: var(--surface-raised);
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.block-library-manager__save {
+  border-color: var(--accent);
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.block-library-manager__status {
+  min-height: 30px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.block-library-manager__status[data-state="success"] {
+  color: var(--success);
+}
+
+.block-library-manager__status[data-state="error"] {
+  color: var(--danger);
+}
+
+.block-library-manager__list {
+  min-height: 0;
+  overflow: auto;
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.block-library-manager__group {
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.block-library-manager__group h3 {
+  margin: 0;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--surface-soft);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.block-library-manager__entry {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(120px, 0.7fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+}
+
+.block-library-manager__entry-meta,
+.block-library-manager__entry-state {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.block-library-manager__entry-source,
+.block-library-manager__entry p {
+  grid-column: 1 / -1;
+  margin: 0;
+  overflow: auto;
+  color: var(--code-ink);
+  font-size: 9px;
+  white-space: pre-wrap;
+}
+
+.block-library-manager__entry[data-lifecycle="deprecated"] {
+  border-left: 2px solid var(--warning);
+}
+
+.block-library-manager__entry[data-lifecycle="retired"] {
+  border-left: 2px solid var(--muted-subtle);
+  opacity: 0.72;
+}
+
+.block-library-manager__empty {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--muted-subtle);
+  font-size: 9px;
+}
+
 @media (max-width: 1000px) {
   .workbench {
     grid-template-columns: 188px minmax(390px, 1.8fr) minmax(260px, 0.72fr);
@@ -1827,6 +1987,14 @@ h2 {
   .button {
     padding-right: 7px;
     padding-left: 7px;
+  }
+
+  .block-library-manager {
+    grid-template-columns: minmax(260px, 0.8fr) minmax(360px, 1.2fr);
+  }
+
+  .dock-group__label {
+    display: none;
   }
 }
 

@@ -87,6 +87,19 @@ describe("onboarding dialog", () => {
     expect(later.getState()).toMatchObject({ status: "open", stepId: "welcome" });
   });
 
+  it("can suppress automatic presentation for automation while preserving Dock reopen", () => {
+    const fixture = fakeHost();
+    const onboarding = createOnboardingDialog(fixture.host as unknown as HTMLElement, {
+      storage: new MemoryStorage(),
+      autoOpen: false,
+    });
+
+    expect((onboarding.element as unknown as FakeElement).open).toBe(false);
+    expect(onboarding.getState().status).toBe("open");
+    onboarding.openFromDock();
+    expect((onboarding.element as unknown as FakeElement).open).toBe(true);
+  });
+
   it("completes through choices, persists the result and tears down idempotently", () => {
     const storage = new MemoryStorage();
     const fixture = fakeHost();

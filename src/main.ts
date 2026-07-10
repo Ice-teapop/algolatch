@@ -1,6 +1,7 @@
 import * as core from "./core/index.js";
 import * as editTargetSelection from "./app/edit-target-selection.js";
 import { INITIAL_SOURCE } from "./app/initial-source.js";
+import { createLearningSurface, type LearningSurface } from "./app/learning-surface.js";
 import { createProjectionPresenter, type ProjectionPresenter } from "./app/projection-presenter.js";
 import { sourceMetadata } from "./app/source-display.js";
 import { createSourceImportController } from "./app/source-import-controller.js";
@@ -46,6 +47,7 @@ let editPanel: EditPanel<core.StructuredEditPlan> | null = null;
 let structureEditPanel: StructureEditPanel | null = null;
 let structureEdits: StructureEditController | null = null;
 let projectionPresenter: ProjectionPresenter | null = null;
+let learningSurface: LearningSurface | null = null;
 
 const projectionStatus = createProjectionStatus(elements.codePane);
 const codePane = createCodePane(elements.codePane, {
@@ -76,6 +78,9 @@ const blockTree = createBlockTree(
   (sourceEntry, targetEntry) => {
     elements.showInspector("edit");
     void requireStructureEdits().move(sourceEntry, targetEntry);
+  },
+  (intent) => {
+    void learningSurface?.insert(intent);
   },
 );
 editPanel = createEditPanel<core.StructuredEditPlan>(elements.getInspectorHost("edit"), {
@@ -135,6 +140,17 @@ structureEdits = createStructureEditController({
     editPanel?.setStatus({ kind: "success", message: "结构修改已提交；可随时撤销。" });
     sourceImport.setStatus("结构修改已提交；可使用撤销恢复上一版本。", "ready");
   },
+  onError: (error) => {
+    editPanel?.setStatus(error);
+    sourceImport.setStatus(error.message, "error");
+  },
+});
+learningSurface = createLearningSurface({
+  elements,
+  blockTree,
+  structureEdits: requireStructureEdits(),
+  getAnalysis: () => session?.analysis ?? null,
+  getAnalyzer: () => parser,
   onError: (error) => {
     editPanel?.setStatus(error);
     sourceImport.setStatus(error.message, "error");
@@ -378,11 +394,15 @@ function selectBlock(
 ): void {
   if (session === null) return;
   const sourceDocument = session.analysis.document;
-  elements.showInspector(inspector);
+  if (reveal || elements.currentPage !== "build") elements.showInspector(inspector);
   blockTree.select(entry);
   editPanel?.setTarget(editTarget);
   structureEditPanel?.setSelection(
     sourceSync.getMode() === "synced" && !sourceDocument.parse.hasError ? structureSelection : null,
+  );
+  learningSurface?.setSelectedInsertEnabled(
+    structureSelection?.statement?.parentMode === "statement-list" &&
+      structureSelection.statement.blocker === null,
   );
   editPanel?.setHistoryDepth(codePane.getHistoryDepth());
   if (sourceDocument.parse.hasError) {
@@ -441,6 +461,8 @@ window.addEventListener(
     projectionPresenter?.destroy();
     projectionPresenter = null;
     sourceImport.destroy();
+    learningSurface?.destroy();
+    learningSurface = null;
     runPanel.destroy();
     structureEditPanel?.destroy();
     structureEditPanel = null;

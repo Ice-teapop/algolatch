@@ -7,6 +7,7 @@ import {
 
 export interface OnboardingDialogOptions {
   readonly storage?: OnboardingStorage | undefined;
+  readonly autoOpen?: boolean;
 }
 
 export interface OnboardingDialog {
@@ -146,7 +147,7 @@ export function createOnboardingDialog(
   dialog.addEventListener("cancel", onCancel);
   dialog.addEventListener("close", onClose);
 
-  if (flow.getState().status === "open") show();
+  if (flow.getState().status === "open" && options.autoOpen !== false) show();
 
   return Object.freeze({
     element: dialog,
