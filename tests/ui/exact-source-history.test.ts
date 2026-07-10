@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { createTextPatch } from "../../src/core/editing/index.js";
 import { textRange } from "../../src/core/model.js";
 import {
+  allowExactSourceInput,
   createExactSourceEdit,
   createExactSourceState,
   exactSourceExtension,
@@ -128,6 +129,38 @@ describe("M3a exact CodeMirror source history", () => {
     expect(transaction.state.doc.toString()).toBe(normalizeSourceForCodeMirror(source));
     expect(getExactSource(transaction.state)).toBe(source);
     expect(undoDepth(transaction.state)).toBe(0);
+  });
+
+  it("translates opted-in typing into exact CRLF patches and shared history", () => {
+    const source = "int value = 1;\r\nreturn value;\r\n";
+    let state = createExactSourceState(source, allowExactSourceInput.of(true));
+    const one = state.doc.toString().indexOf("1");
+
+    state = state.update({
+      changes: { from: one, to: one + 2, insert: "42;\n  value += 1;" },
+      userEvent: "input.type",
+    }).state;
+
+    expect(getExactSource(state)).toBe("int value = 42;\r\n  value += 1;\r\nreturn value;\r\n");
+    expect(state.doc.toString()).toBe("int value = 42;\n  value += 1;\nreturn value;\n");
+    expect(undoDepth(state)).toBe(1);
+    state = runCommand(state, undo);
+    expect(getExactSource(state)).toBe(source);
+    state = runCommand(state, redo);
+    expect(getExactSource(state)).toContain("42;\r\n  value += 1;");
+  });
+
+  it("uses the nearest existing newline convention for mixed-source insertions", () => {
+    const source = "a\r\nb\nc\r";
+    let state = createExactSourceState(source, allowExactSourceInput.of(true));
+    const beforeB = state.doc.toString().indexOf("b");
+
+    state = state.update({
+      changes: { from: beforeB, insert: "x\n" },
+      userEvent: "input.paste",
+    }).state;
+
+    expect(getExactSource(state)).toBe("a\r\nx\nb\nc\r");
   });
 
   it("rejects a forged effect whose raw candidate disagrees with the CodeMirror change", () => {

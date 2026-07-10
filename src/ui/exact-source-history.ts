@@ -10,6 +10,7 @@ import {
 } from "@codemirror/state";
 
 import { applyTextPatches, createTextPatch, type TextPatch } from "../core/editing/index.js";
+import { textRange } from "../core/model.js";
 
 export interface ExactSourceEditOptions {
   /** CodeMirror selection coordinates after the edit. */
@@ -29,6 +30,11 @@ const initialExactSource = Facet.define<string, string | undefined>({
     }
     return first;
   },
+});
+
+/** Opt-in gate for translating ordinary CodeMirror document edits into exact raw-source patches. */
+export const allowExactSourceInput = Facet.define<boolean, boolean>({
+  combine: (values) => values.some(Boolean),
 });
 
 /**
@@ -70,6 +76,16 @@ export const exactSourceField = StateField.define<string>({
 
 const exactSourceGuard = EditorState.transactionFilter.of((transaction) => {
   const batches = rawPatchBatches(transaction);
+  if (
+    transaction.docChanged &&
+    batches.length === 0 &&
+    transaction.startState.facet(allowExactSourceInput)
+  ) {
+    const patches = directInputPatches(transaction);
+    if (patches !== null && patches.length > 0) {
+      return [transaction, { effects: rawSourcePatchesEffect.of(patches) }];
+    }
+  }
   if (!transaction.docChanged && batches.length === 0) {
     return transaction;
   }
@@ -237,6 +253,89 @@ function rawToEditorBoundaries(source: string): readonly number[] {
   }
 
   return boundaries;
+}
+
+function directInputPatches(transaction: Transaction): readonly TextPatch[] | null {
+  const source = getExactSource(transaction.startState);
+  const boundaries = editorToRawBoundaries(source);
+  const patches: TextPatch[] = [];
+  let valid = true;
+
+  transaction.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+    const rawFrom = boundaries[fromA];
+    const rawTo = boundaries[toA];
+    if (rawFrom === undefined || rawTo === undefined) {
+      valid = false;
+      return;
+    }
+    const lineBreak = preferredInsertedLineBreak(source, rawFrom);
+    const newText = inserted.toString().replaceAll("\n", lineBreak);
+    patches.push(createTextPatch(textRange(rawFrom, rawTo), newText));
+  });
+
+  if (!valid || patches.length === 0) return null;
+  try {
+    const candidate = applyTextPatches(source, patches).source;
+    if (normalizeSourceForCodeMirror(candidate) !== transaction.newDoc.toString()) return null;
+  } catch {
+    return null;
+  }
+  return copyPatches(patches);
+}
+
+function editorToRawBoundaries(source: string): readonly number[] {
+  const boundaries: number[] = [0];
+  let rawOffset = 0;
+  let editorOffset = 0;
+  while (rawOffset < source.length) {
+    rawOffset +=
+      source.charCodeAt(rawOffset) === 0x0d && source.charCodeAt(rawOffset + 1) === 0x0a ? 2 : 1;
+    editorOffset += 1;
+    boundaries[editorOffset] = rawOffset;
+  }
+  return boundaries;
+}
+
+function preferredInsertedLineBreak(source: string, rawOffset: number): string {
+  const breaks = sourceLineBreaks(source);
+  if (breaks.length === 0) return "\n";
+  const distinct = new Set(breaks.map((lineBreak) => lineBreak.text));
+  if (distinct.size === 1) return breaks[0]?.text ?? "\n";
+
+  let nearest = breaks[0];
+  for (const lineBreak of breaks.slice(1)) {
+    if (nearest === undefined) {
+      nearest = lineBreak;
+      continue;
+    }
+    const distance = Math.abs(lineBreak.from - rawOffset);
+    const nearestDistance = Math.abs(nearest.from - rawOffset);
+    if (
+      distance < nearestDistance ||
+      (distance === nearestDistance && lineBreak.from >= rawOffset)
+    ) {
+      nearest = lineBreak;
+    }
+  }
+  return nearest?.text ?? "\n";
+}
+
+function sourceLineBreaks(
+  source: string,
+): readonly { readonly from: number; readonly text: string }[] {
+  const breaks: { from: number; text: string }[] = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    if (code === 0x0d && source.charCodeAt(index + 1) === 0x0a) {
+      breaks.push({ from: index, text: "\r\n" });
+      index += 1;
+    } else if (code === 0x0d) {
+      breaks.push({ from: index, text: "\r" });
+    } else if (code === 0x0a) {
+      breaks.push({ from: index, text: "\n" });
+    }
+  }
+  return breaks;
 }
 
 function isConsistentExactSourceTransition(
