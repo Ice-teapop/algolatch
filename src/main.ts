@@ -138,6 +138,7 @@ function selectBlock(
   symbol: SymbolRecord | null,
 ): void {
   if (session === null) return;
+  elements.showInspector("explanation");
   selectedEntry = entry;
   selectedSymbol = symbol;
   blockTree.select(entry);

@@ -16,6 +16,7 @@ export interface WorkbenchElements {
   readonly pasteError: HTMLElement;
   readonly pasteConfirm: HTMLButtonElement;
   readonly pasteCancel: HTMLButtonElement;
+  readonly showInspector: (view: "explanation" | "run") => void;
 }
 
 export function mountWorkbench(app: HTMLElement): WorkbenchElements {
@@ -23,19 +24,15 @@ export function mountWorkbench(app: HTMLElement): WorkbenchElements {
     <div id="workbench-shell" class="workbench-shell">
       <header class="app-bar">
         <div class="brand" aria-labelledby="app-title">
-          <span class="brand__mark" aria-hidden="true">C</span>
-          <div>
-            <p class="brand__kicker">ALGORITHM WORKBENCH</p>
-            <h1 id="app-title">C 积木算法面板</h1>
-          </div>
+          <img class="brand__mark" src="./app-icon.png" alt="" />
+          <h1 id="app-title">C 积木算法面板</h1>
         </div>
         <div class="document-identity" aria-label="当前文档">
-          <span class="document-identity__dot" aria-hidden="true"></span>
           <span id="file-name">正在准备示例…</span>
         </div>
         <nav class="app-actions" aria-label="源码导入">
-          <button id="open-source" class="button button--primary" type="button" disabled>
-            <span aria-hidden="true">↗</span> 打开 C 文件
+          <button id="open-source" class="button button--quiet" type="button" disabled>
+            打开 C 文件
           </button>
           <button id="open-paste" class="button button--quiet" type="button" disabled>
             粘贴源码
@@ -46,46 +43,31 @@ export function mountWorkbench(app: HTMLElement): WorkbenchElements {
       <main class="workbench" aria-label="C 算法工作台">
         <section class="panel panel--blocks" aria-labelledby="blocks-title">
           <header class="panel__header">
-            <div>
-              <p class="panel__eyebrow">STRUCTURE</p>
-              <h2 id="blocks-title">积木结构</h2>
-            </div>
-            <span class="panel__hint">语句级</span>
+            <h2 id="blocks-title">结构</h2>
           </header>
           <div id="block-tree" class="block-tree"></div>
         </section>
 
         <section class="panel panel--code" aria-labelledby="code-title">
           <header class="panel__header panel__header--code">
-            <div>
-              <p class="panel__eyebrow">SOURCE</p>
-              <h2 id="code-title">只读 C 代码</h2>
-            </div>
+            <h2 id="code-title">C 代码</h2>
             <span id="source-meta" class="source-meta">—</span>
           </header>
           <div id="code-pane" class="code-pane" aria-label="只读 C 代码编辑器"></div>
         </section>
 
-        <aside class="inspector" aria-label="解释与运行">
-          <section class="panel panel--explanation" aria-labelledby="explanation-title">
-            <header class="panel__header">
-              <div>
-                <p class="panel__eyebrow">WHY</p>
-                <h2 id="explanation-title">作用与原理</h2>
-              </div>
-              <span class="deterministic-badge">确定性</span>
-            </header>
+        <aside class="panel panel--inspector inspector" aria-labelledby="inspector-title">
+          <h2 id="inspector-title" class="visually-hidden">检查器</h2>
+          <div class="inspector-tabs" role="tablist" aria-label="检查器">
+            <button id="explanation-tab" class="inspector-tab" type="button" role="tab" aria-selected="true" aria-controls="explanation-panel">解释</button>
+            <button id="run-tab" class="inspector-tab" type="button" role="tab" aria-selected="false" aria-controls="runner-panel" tabindex="-1">运行</button>
+          </div>
+          <section id="explanation-panel" class="inspector-pane" role="tabpanel" aria-labelledby="explanation-tab">
             <div id="explanation" class="explanation" aria-live="polite">
               <p class="empty-state">选择一块代码，查看它在算法中的作用。</p>
             </div>
           </section>
-          <section class="panel panel--runner" aria-labelledby="runner-title">
-            <header class="panel__header">
-              <div>
-                <p class="panel__eyebrow">EXECUTE</p>
-                <h2 id="runner-title">本地运行</h2>
-              </div>
-            </header>
+          <section id="runner-panel" class="inspector-pane" role="tabpanel" aria-labelledby="run-tab" hidden>
             <div id="run-panel"></div>
           </section>
         </aside>
@@ -98,24 +80,20 @@ export function mountWorkbench(app: HTMLElement): WorkbenchElements {
         <output id="import-status" class="status-message" aria-live="polite">
           解析器就绪后可打开、拖入或粘贴 .c 文件
         </output>
-        <span class="status-bar__local">本地 App · 文件不会上传</span>
       </footer>
 
       <div id="drop-overlay" class="drop-overlay" hidden aria-hidden="true">
         <div class="drop-overlay__card">
           <span class="drop-overlay__icon" aria-hidden="true">↓</span>
           <strong>放下 .c 文件</strong>
-          <span>将在本机读取，原始换行与 BOM 保持不变</span>
+          <span>仅在本机读取</span>
         </div>
       </div>
 
       <dialog id="paste-dialog" class="paste-dialog" aria-labelledby="paste-title">
         <form method="dialog" class="paste-dialog__surface">
           <div class="paste-dialog__header">
-            <div>
-              <p class="panel__eyebrow">PASTE SOURCE</p>
-              <h2 id="paste-title">粘贴 C 源码</h2>
-            </div>
+            <h2 id="paste-title">粘贴 C 源码</h2>
             <button id="paste-cancel" class="icon-button" value="cancel" aria-label="关闭">×</button>
           </div>
           <label class="paste-dialog__label" for="paste-source">UTF-8 C 源码，最大 512 KiB</label>
@@ -129,6 +107,39 @@ export function mountWorkbench(app: HTMLElement): WorkbenchElements {
       </dialog>
     </div>
   `;
+
+  const explanationTab = required(app, "#explanation-tab", HTMLButtonElement);
+  const runTab = required(app, "#run-tab", HTMLButtonElement);
+  const inspectorTabs = required(app, ".inspector-tabs", HTMLElement);
+  const explanationPanel = required(app, "#explanation-panel", HTMLElement);
+  const runnerPanel = required(app, "#runner-panel", HTMLElement);
+  const showInspector = (view: "explanation" | "run"): void => {
+    const explanationActive = view === "explanation";
+    explanationTab.setAttribute("aria-selected", String(explanationActive));
+    runTab.setAttribute("aria-selected", String(!explanationActive));
+    explanationTab.tabIndex = explanationActive ? 0 : -1;
+    runTab.tabIndex = explanationActive ? -1 : 0;
+    explanationPanel.hidden = !explanationActive;
+    runnerPanel.hidden = explanationActive;
+  };
+  explanationTab.addEventListener("click", () => showInspector("explanation"));
+  runTab.addEventListener("click", () => showInspector("run"));
+  inspectorTabs.addEventListener("keydown", (event) => {
+    if (!(event instanceof KeyboardEvent)) return;
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const explanationActive = explanationTab.getAttribute("aria-selected") === "true";
+    const view =
+      event.key === "Home"
+        ? "explanation"
+        : event.key === "End"
+          ? "run"
+          : explanationActive
+            ? "run"
+            : "explanation";
+    showInspector(view);
+    (view === "run" ? runTab : explanationTab).focus();
+  });
 
   return Object.freeze({
     shell: required(app, "#workbench-shell", HTMLElement),
@@ -148,6 +159,7 @@ export function mountWorkbench(app: HTMLElement): WorkbenchElements {
     pasteError: required(app, "#paste-error", HTMLElement),
     pasteConfirm: required(app, "#paste-confirm", HTMLButtonElement),
     pasteCancel: required(app, "#paste-cancel", HTMLButtonElement),
+    showInspector,
   });
 }
 

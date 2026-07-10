@@ -136,7 +136,6 @@ function renderBlock(
   item.append(button);
 
   if (block.children.length > 0) {
-    button.setAttribute("aria-expanded", "true");
     const group = window.document.createElement("ul");
     group.className = "block-tree-children";
     group.setAttribute("role", "group");

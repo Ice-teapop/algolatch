@@ -6,6 +6,9 @@ coverage/
 release/
 playwright-report/
 test-results/
+/build/*
+!/build/icon.png
+!/build/icon.icns
 .DS_Store
 *.log
 .env

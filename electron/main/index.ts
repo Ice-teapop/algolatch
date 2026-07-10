@@ -47,6 +47,7 @@ const IPC_CHANNELS = Object.freeze({
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const preloadPath = resolve(currentDirectory, "../../preload/index.cjs");
 const rendererFilePath = join(app.getAppPath(), "dist", "index.html");
+const developmentIconPath = join(app.getAppPath(), "build", "icon.png");
 const developmentServerUrl = parseDevelopmentServerUrl(process.env.VITE_DEV_SERVER_URL);
 let isShuttingDown = false;
 let cleanupComplete = false;
@@ -389,7 +390,7 @@ function createMainWindow(): BrowserWindow {
     minWidth: 860,
     minHeight: 600,
     show: true,
-    backgroundColor: "#f3f0e8",
+    backgroundColor: "#eef1f4",
     title: "C 积木算法面板",
     webPreferences,
   }) as PanelBrowserWindow;
@@ -422,6 +423,9 @@ function createMainWindow(): BrowserWindow {
 }
 
 void app.whenReady().then(() => {
+  if (process.platform === "darwin" && !app.isPackaged) {
+    app.dock?.setIcon(developmentIconPath);
+  }
   registerIpcHandlers();
   createMainWindow();
 });

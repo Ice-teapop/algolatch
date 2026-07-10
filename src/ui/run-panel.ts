@@ -40,16 +40,13 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   const panelId = nextRunPanelId;
   nextRunPanelId += 1;
 
-  const root = createElement("section", "run-panel");
+  const root = createElement("div", "run-panel");
   root.dataset.state = "loading";
-  const heading = createElement("h2", "run-panel__title", "运行面板");
-  heading.id = `run-panel-title-${panelId}`;
-  root.setAttribute("aria-labelledby", heading.id);
 
   const safetyNotice = createElement(
     "p",
     "run-panel__safety-notice",
-    "只运行你自己编写或已经逐行审阅过的 C 代码。可信代码模式不提供 Seatbelt 文件或网络隔离。",
+    "仅运行你编写或逐行审阅过的代码。可信模式没有 Seatbelt 文件或网络隔离。",
   );
   const runButton = createElement("button", "run-panel__run-button", "编译并运行");
   runButton.type = "button";
@@ -60,7 +57,11 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     "正在检查本地运行能力…",
   );
   operationStatus.setAttribute("aria-live", "polite");
+  const action = createElement("div", "run-panel__action");
+  action.append(runButton, operationStatus);
 
+  const capabilityDetails = createElement("details", "run-panel__capability-details");
+  const capabilitySummary = createElement("summary", "run-panel__capability-summary", "运行环境");
   const capabilityList = createElement("dl", "run-panel__capabilities");
   const modeValue = appendDescriptionRow(capabilityList, "安全模式", "mode");
   const seatbeltValue = appendDescriptionRow(capabilityList, "Seatbelt", "seatbelt");
@@ -68,10 +69,12 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   modeValue.textContent = "正在检查";
   seatbeltValue.textContent = "正在检查";
   trustValue.textContent = "正在检查";
+  capabilityDetails.append(capabilitySummary, capabilityList);
 
-  const resultHeading = createElement("h3", "run-panel__result-title", "本次运行");
+  const result = createElement("section", "run-panel__result");
+  result.hidden = true;
+  const resultHeading = createElement("h3", "run-panel__result-title", "结果");
   const resultStatus = createElement("output", "run-panel__result-status", "尚未运行");
-  resultStatus.setAttribute("aria-live", "polite");
 
   const diagnosticsHeading = createElement("h4", "run-panel__section-title", "编译诊断");
   const diagnostics = createOutputBlock("diagnostics", diagnosticsHeading, panelId);
@@ -81,18 +84,17 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
   const stderr = createOutputBlock("stderr", stderrHeading, panelId);
 
   const processList = createElement("dl", "run-panel__process-result");
+  processList.hidden = true;
   const exitValue = appendDescriptionRow(processList, "退出码", "exit-code");
   const signalValue = appendDescriptionRow(processList, "信号", "signal");
   const terminationValue = appendDescriptionRow(processList, "终止原因", "termination");
   const durationValue = appendDescriptionRow(processList, "耗时", "duration");
   resetProcessDetails();
+  setOutput(diagnosticsHeading, diagnostics, "");
+  setOutput(stdoutHeading, stdout, "");
+  setOutput(stderrHeading, stderr, "");
 
-  root.append(
-    heading,
-    safetyNotice,
-    runButton,
-    operationStatus,
-    capabilityList,
+  result.append(
     resultHeading,
     resultStatus,
     diagnosticsHeading,
@@ -103,6 +105,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     stderr,
     processList,
   );
+  root.append(safetyNotice, action, capabilityDetails, result);
   host.append(root);
 
   let destroyed = false;
@@ -187,9 +190,11 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     delete root.dataset.failureReason;
     operationStatus.textContent = "正在编译…";
     resultStatus.textContent = "正在编译…";
-    diagnostics.textContent = "";
-    stdout.textContent = "";
-    stderr.textContent = "";
+    result.hidden = false;
+    setOutput(diagnosticsHeading, diagnostics, "");
+    setOutput(stdoutHeading, stdout, "");
+    setOutput(stderrHeading, stderr, "");
+    processList.hidden = true;
     resetProcessDetails();
     updateRunButton();
 
@@ -219,7 +224,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       if (!isCurrentRun(requestId)) {
         return;
       }
-      diagnostics.textContent = compileResult.diagnostics;
+      setOutput(diagnosticsHeading, diagnostics, compileResult.diagnostics);
       if (!compileResult.ok) {
         finishFailure(
           requestId,
@@ -236,12 +241,13 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
         return;
       }
 
-      stdout.textContent = decodeOutput(runResult.stdout);
-      stderr.textContent = decodeOutput(runResult.stderr);
+      setOutput(stdoutHeading, stdout, decodeOutput(runResult.stdout));
+      setOutput(stderrHeading, stderr, decodeOutput(runResult.stderr));
       exitValue.textContent = runResult.exitCode === null ? "—" : String(runResult.exitCode);
       signalValue.textContent = runResult.signal ?? "—";
       terminationValue.textContent = terminationLabel(runResult.termination);
       durationValue.textContent = `${runResult.durationMs} ms`;
+      processList.hidden = false;
 
       if (runResult.ok) {
         root.dataset.state = "success";
@@ -270,6 +276,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     }
     root.dataset.state = "failure";
     root.dataset.failureReason = reason;
+    result.hidden = false;
     operationStatus.textContent = message;
     resultStatus.textContent = message;
   }
@@ -345,6 +352,13 @@ function createOutputBlock(
   heading.id = headingId;
   block.setAttribute("aria-labelledby", headingId);
   return block;
+}
+
+function setOutput(heading: HTMLHeadingElement, block: HTMLPreElement, text: string): void {
+  block.textContent = text;
+  const empty = text.length === 0;
+  heading.hidden = empty;
+  block.hidden = empty;
 }
 
 function runnerModeLabel(capabilities: Capabilities): string {

@@ -231,6 +231,7 @@ test("clicks a CodeMirror variable and links declaration, uses, and the selected
 
 test("compiles and runs from the UI after exactly two accepted native trust prompts", async () => {
   await loadFixtureThroughOpenButton();
+  await page.getByRole("tab", { name: "运行" }).click();
   await getElectronApplication().evaluate(({ dialog }) => {
     const state = globalThis as typeof globalThis & { __m2TrustDialogCount?: number };
     state.__m2TrustDialogCount = 0;
@@ -296,7 +297,7 @@ test("keeps CodeMirror read-only and injects nonce-bearing styles without CSP vi
   expect(violations).toEqual([]);
 });
 
-test("keeps the status bar and all workbench regions reachable at the minimum window size", async () => {
+test("keeps the compact three-column workbench usable at the minimum window size", async () => {
   await getElectronApplication().evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.setSize(860, 600);
   });
@@ -306,19 +307,23 @@ test("keeps the status bar and all workbench regions reachable at the minimum wi
     await expect(page.locator("#block-tree")).toBeVisible();
     await expect(page.locator("#code-pane")).toBeVisible();
     await expect(page.locator("#explanation")).toBeVisible();
+    await page.getByRole("tab", { name: "运行" }).click();
     await expect(page.getByRole("button", { name: "编译并运行" })).toBeVisible();
     const viewport = await page.evaluate(() => {
       const statusBar = document.querySelector(".status-bar")?.getBoundingClientRect();
+      const codePane = document.querySelector("#code-pane")?.getBoundingClientRect();
       return {
         clientHeight: document.documentElement.clientHeight,
         scrollHeight: document.documentElement.scrollHeight,
+        codePaneHeight: codePane?.height,
         statusTop: statusBar?.top,
         statusBottom: statusBar?.bottom,
         statusHeight: statusBar?.height,
       };
     });
     expect(viewport.scrollHeight).toBe(viewport.clientHeight);
-    expect(viewport.statusHeight).toBe(34);
+    expect(viewport.codePaneHeight).toBeGreaterThan(400);
+    expect(viewport.statusHeight).toBe(26);
     expect(viewport.statusTop).toBeGreaterThanOrEqual(0);
     expect(viewport.statusBottom).toBeLessThanOrEqual(viewport.clientHeight);
   } finally {
@@ -326,6 +331,36 @@ test("keeps the status bar and all workbench regions reachable at the minimum wi
       BrowserWindow.getAllWindows()[0]?.setSize(1180, 780);
     });
   }
+});
+
+test("switches the inspector tabs with the keyboard", async () => {
+  const explanationTab = page.getByRole("tab", { name: "解释" });
+  const runTab = page.getByRole("tab", { name: "运行" });
+  await explanationTab.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(runTab).toBeFocused();
+  await expect(runTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#runner-panel")).toBeVisible();
+  await page.keyboard.press("ArrowLeft");
+  await expect(explanationTab).toBeFocused();
+  await expect(page.locator("#explanation-panel")).toBeVisible();
+  await page.keyboard.press("ArrowLeft");
+  await expect(runTab).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(explanationTab).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(runTab).toBeFocused();
+});
+
+test("renders the application icon from the packaged renderer path", async () => {
+  const icon = page.locator(".brand__mark");
+  await expect(icon).toBeVisible();
+  expect(
+    await icon.evaluate((element) => {
+      const image = element as HTMLImageElement;
+      return image.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+    }),
+  ).toBe(true);
 });
 
 test.afterAll(async () => {
