@@ -1,7 +1,20 @@
 import * as core from "./core/index.js";
 import * as editTargetSelection from "./app/edit-target-selection.js";
+import { INITIAL_SOURCE } from "./app/initial-source.js";
+import { createProjectionPresenter, type ProjectionPresenter } from "./app/projection-presenter.js";
 import { sourceMetadata } from "./app/source-display.js";
 import { createSourceImportController } from "./app/source-import-controller.js";
+import {
+  createStructureEditController,
+  type StructureEditController,
+  type StructureEditSession,
+} from "./app/structure-edit-controller.js";
+import { createSourceSyncController } from "./app/source-sync-controller.js";
+import {
+  canSelectAnalyzedSource,
+  structureEditSelectionAtOffset,
+  structureEditSelectionForBlock,
+} from "./app/structure-edit-selection.js";
 import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
 import { createBrowserCParser } from "./renderer/c-parser.js";
 import { validateSourceText } from "./shared/source-import.js";
@@ -10,25 +23,15 @@ import { createBlockTree } from "./ui/block-tree.js";
 import { createCodePane, type CodeHighlight, type CodeSourceChangeReason } from "./ui/code-pane.js";
 import { createEditPanel, type EditPanel, type EditPanelRequest } from "./ui/edit-panel.js";
 import { renderExplanationView } from "./ui/explanation-view.js";
+import { createProjectionStatus } from "./ui/projection-status.js";
 import { createRunPanel } from "./ui/run-panel.js";
+import {
+  createStructureEditPanel,
+  type StructureEditPanel,
+  type StructureEditSelection,
+} from "./ui/structure-edit-panel.js";
 
-const INITIAL_SOURCE = `#include <stdio.h>
-
-int main(void) {
-  int total = 0;
-  for (int i = 0; i < 3; i++) {
-    total += i;
-  }
-  printf("%d\\n", total);
-  return 0;
-}
-`;
-
-interface ReadySession {
-  readonly imported: ImportedSource;
-  readonly analysis: core.CAnalysisSnapshot;
-  readonly blockIndex: core.BlockIndex;
-}
+type ReadySession = StructureEditSession & { readonly blockIndex: core.BlockIndex };
 
 const app = document.querySelector<HTMLElement>("#app");
 if (app === null) throw new Error("缺少应用挂载节点 #app");
@@ -40,18 +43,40 @@ let parser: core.CParser | null = null;
 let session: ReadySession | null = null;
 let destroyed = false;
 let editPanel: EditPanel<core.StructuredEditPlan> | null = null;
+let structureEditPanel: StructureEditPanel | null = null;
+let structureEdits: StructureEditController | null = null;
+let projectionPresenter: ProjectionPresenter | null = null;
 
+const projectionStatus = createProjectionStatus(elements.codePane);
 const codePane = createCodePane(elements.codePane, {
+  editable: true,
+  validateSource: assertEditableSource,
+  onInputRejected: onDirectInputRejected,
   onSourceOffset: selectFromCode,
   onSourceChange: onCodeSourceChange,
 });
-const blockTree = createBlockTree(elements.blockTree, (entry) => {
-  const target =
-    session === null
-      ? null
-      : editTargetSelection.editTargetForBlock(session.analysis.editTargets, entry);
-  selectBlock(entry, true, null, target, target === null ? "explanation" : "edit");
-});
+const blockTree = createBlockTree(
+  elements.blockTree,
+  (entry) => {
+    const target =
+      session === null
+        ? null
+        : editTargetSelection.editTargetForBlock(session.analysis.editTargets, entry);
+    const structureSelection =
+      session === null ? null : structureEditSelectionForBlock(session.analysis, entry);
+    selectBlock(
+      entry,
+      true,
+      null,
+      target,
+      target === null && structureSelection === null ? "explanation" : "edit",
+      structureSelection,
+    );
+  },
+  (sourceEntry, targetEntry) => {
+    void requireStructureEdits().move(sourceEntry, targetEntry);
+  },
+);
 editPanel = createEditPanel<core.StructuredEditPlan>(elements.getInspectorHost("edit"), {
   plan: planPanelEdit,
   commit: commitPanelEdit,
@@ -64,8 +89,56 @@ editPanel = createEditPanel<core.StructuredEditPlan>(elements.getInspectorHost("
     editPanel?.setHistoryDepth(codePane.getHistoryDepth());
   },
 });
-let runPanel = createCurrentRunPanel();
+structureEditPanel = createStructureEditPanel<core.M3bEditPlan>(elements.getInspectorHost("edit"), {
+  plan: (request) => requireStructureEdits().plan(request),
+  confirm: (plan) => requireEditPanel().confirmExternal(plan),
+  commit: (plan) => requireStructureEdits().commit(plan),
+});
+const runPanel = createCurrentRunPanel();
 const sourceImport = createSourceImportController(elements, { load: loadSource });
+projectionPresenter = createProjectionPresenter({
+  elements,
+  blockTree,
+  editPanel: requireEditPanel(),
+  structureEditPanel: requireStructureEditPanel(),
+  projectionStatus,
+  sourceImport,
+  adopt: (source, analysis) => {
+    const current = session;
+    if (current === null) throw new Error("源码会话尚未就绪");
+    adoptAnalysis(Object.freeze({ ...current.imported, source }), analysis, false, null);
+  },
+  getProjectionMode: () => sourceSync.getMode(),
+});
+const sourceSync = createSourceSyncController<core.CAnalysisSnapshot>({
+  getCurrentSource: () => codePane.getSource(),
+  getDisplayedSource: () => session?.imported.source ?? null,
+  validateSource: assertEditableSource,
+  analyze: analyzeCurrentSource,
+  onPending: (source, reason) => requireProjectionPresenter().pending(source, reason),
+  onAdopt: (source, analysis, mode, reason) =>
+    requireProjectionPresenter().adopted(source, analysis, mode, reason),
+  onHold: (source, detail) => requireProjectionPresenter().held(source, detail),
+});
+structureEdits = createStructureEditController({
+  getSession: () => session,
+  getAnalyzer: () => parser,
+  getCurrentSource: () => codePane.getSource(),
+  getProjectionMode: () => sourceSync.getMode(),
+  resetProjection: () => sourceSync.reset("synced"),
+  validateSource: assertEditableSource,
+  applyPatches: (patches) => codePane.applyPatches(patches),
+  confirm: (plan) => requireEditPanel().confirmExternal(plan),
+  adopt: (imported, analysis) => adoptAnalysis(imported, analysis, false, null),
+  onSuccess: () => {
+    editPanel?.setStatus({ kind: "success", message: "结构修改已提交；可随时撤销。" });
+    sourceImport.setStatus("结构修改已提交；可使用撤销恢复上一版本。", "ready");
+  },
+  onError: (error) => {
+    editPanel?.setStatus(error);
+    sourceImport.setStatus(error.message, "error");
+  },
+});
 
 void initialize();
 
@@ -90,7 +163,11 @@ async function initialize(): Promise<void> {
 function loadSource(imported: ImportedSource): void {
   if (parser === null) throw new Error("C 解析器尚未加载");
   const analysis = parser.analyze(imported.source, nextSessionRevision());
+  const projectionMode = analysis.document.parse.hasError ? "recovery" : "synced";
+  sourceSync.reset(projectionMode);
+  blockTree.setInteractionEnabled(true);
   adoptAnalysis(imported, analysis, true, null);
+  projectionStatus.setState(projectionMode);
 }
 
 function adoptAnalysis(
@@ -111,8 +188,6 @@ function adoptAnalysis(
   }
   const blockIndex = core.createBlockIndex(document);
   session = Object.freeze({ imported, analysis, blockIndex });
-  runPanel.destroy();
-  runPanel = createCurrentRunPanel();
 
   if (resetEditor) codePane.setSource(imported.source);
   blockTree.setDocument(document, blockIndex);
@@ -120,31 +195,41 @@ function adoptAnalysis(
   elements.sourceMeta.textContent = sourceMetadata(imported.source);
   editPanel?.setHistoryDepth(codePane.getHistoryDepth());
 
-  const functions = flattenBlocks(document.blocks).filter(
-    (block) => block.kind === "syntax" && block.role === "function",
-  );
+  const functionCount = blockIndex.entries.filter(
+    (entry) => entry.block?.kind === "syntax" && entry.block.role === "function",
+  ).length;
   elements.parserStatus.textContent = document.parse.hasError
     ? `C 解析器就绪 · ${document.issues.length} 个恢复提示`
     : "C 解析器已加载 · 语句级无损投影可用";
   elements.parserStatus.dataset.state = document.parse.hasError ? "warning" : "ready";
   elements.parserStatus.dataset.rootType = "translation_unit";
-  elements.parserStatus.dataset.functionCount = String(functions.length);
+  elements.parserStatus.dataset.functionCount = String(functionCount);
   elements.parserStatus.dataset.roundtrip = "true";
 
   if (preferredTarget !== null) {
     const preferredEntry = editTargetSelection.blockEntryForTarget(blockIndex, preferredTarget);
-    selectBlock(preferredEntry, false, null, preferredTarget, "edit");
+    selectBlock(
+      preferredEntry,
+      false,
+      null,
+      preferredTarget,
+      "edit",
+      structureEditSelectionForBlock(analysis, preferredEntry),
+    );
   } else {
     const firstFunction = blockIndex.entries.find(
       (entry) => entry.block?.kind === "syntax" && entry.block.role === "function",
     );
     const firstBlock = blockIndex.entries.find((entry) => entry.kind === "block");
+    const initialEntry = firstFunction ?? firstBlock ?? blockIndex.entries[0] ?? null;
+    const structureSelection = structureEditSelectionForBlock(analysis, initialEntry);
     selectBlock(
-      firstFunction ?? firstBlock ?? blockIndex.entries[0] ?? null,
+      initialEntry,
       false,
       null,
       null,
-      "explanation",
+      structureSelection === null ? "explanation" : "edit",
+      structureSelection,
     );
   }
 }
@@ -163,13 +248,14 @@ function planPanelEdit(request: EditPanelRequest): core.StructuredEditPlan {
   if (current === null || currentParser === null) {
     throw new Error("C 解析器或源码会话尚未就绪");
   }
+  requireStructureEdits().assertReady();
   const target = editTargetSelection
     .allEditTargets(current.analysis.editTargets)
     .find((candidate) => candidate.id === request.targetId);
   if (target === undefined) {
     throw new Error("编辑目标已经过期，请重新选择代码");
   }
-  const structuredRequest = toStructuredEditRequest(request, target);
+  const structuredRequest = editTargetSelection.toStructuredEditRequest(request, target);
   return core.planStructuredEdit(
     {
       source: current.imported.source,
@@ -185,6 +271,7 @@ function commitPanelEdit(plan: core.StructuredEditPlan): void {
   const current = session;
   if (
     current === null ||
+    sourceSync.getMode() !== "synced" ||
     current.analysis.editTargets.revision !== plan.baseRevision ||
     codePane.getSource() !== current.imported.source
   ) {
@@ -211,6 +298,7 @@ function commitPanelEdit(plan: core.StructuredEditPlan): void {
   }
 
   const imported = Object.freeze({ ...current.imported, source: plan.candidateSource });
+  sourceSync.reset("synced");
   adoptAnalysis(imported, plan.candidateAnalysis, false, preferredTarget);
   editPanel?.setStatus({ kind: "success", message: "修改已提交；可随时撤销。" });
   sourceImport.setStatus("修改已提交；可使用撤销恢复上一版本。", "ready");
@@ -219,53 +307,36 @@ function commitPanelEdit(plan: core.StructuredEditPlan): void {
 function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): void {
   if (destroyed) return;
   editPanel?.setHistoryDepth(codePane.getHistoryDepth());
-  const current = session;
-  const currentParser = parser;
-  if (current === null || currentParser === null || current.imported.source === source) return;
-
-  try {
-    assertEditableSource(source);
-    const analysis = currentParser.analyze(source, nextSessionRevision());
-    if (analysis.document.parse.hasError) {
-      throw new Error("历史记录产生了含解析错误的版本");
-    }
-    const imported = Object.freeze({ ...current.imported, source });
-    adoptAnalysis(imported, analysis, false, null);
-    const action = reason === "undo" ? "撤销" : reason === "redo" ? "重做" : "修改";
-    editPanel?.setStatus(`${action}完成。`);
-    sourceImport.setStatus(`${action}完成；当前源码已重新解析。`, "ready");
-  } catch (error: unknown) {
-    const message = `无法同步编辑历史：${errorMessage(error)}`;
-    editPanel?.setStatus(new Error(message));
-    sourceImport.setStatus(message, "error");
-  }
+  sourceSync.handleSourceChange(source, reason);
 }
 
-function toStructuredEditRequest(
-  request: EditPanelRequest,
-  target: core.EditTarget,
-): core.StructuredEditRequest {
-  const base = {
-    baseRevision: request.baseRevision,
-    targetId: request.targetId,
-    expectedTargetText: target.text,
-  };
-  switch (request.kind) {
-    case "replace-literal":
-      return { ...base, kind: "literal", newText: request.newText };
-    case "replace-binary-operator":
-      return { ...base, kind: "binary-operator", newOperator: request.newOperator };
-    case "replace-for-fields":
-      return {
-        ...base,
-        kind: "for-fields",
-        newInitializer: request.initializerText,
-        newCondition: request.conditionText,
-        newUpdate: request.updateText,
-      };
-    case "replace-if-condition":
-      return { ...base, kind: "if-condition", newCondition: request.conditionText };
-  }
+function analyzeCurrentSource(source: string): core.CAnalysisSnapshot {
+  if (parser === null) throw new Error("C 解析器尚未加载");
+  return parser.analyze(source, nextSessionRevision());
+}
+
+function onDirectInputRejected(error: unknown): void {
+  requireProjectionPresenter().inputRejected(error);
+}
+
+function requireEditPanel(): EditPanel<core.StructuredEditPlan> {
+  if (editPanel === null) throw new Error("编辑检查器不可用");
+  return editPanel;
+}
+
+function requireStructureEditPanel(): StructureEditPanel {
+  if (structureEditPanel === null) throw new Error("结构编辑面板不可用");
+  return structureEditPanel;
+}
+
+function requireStructureEdits(): StructureEditController {
+  if (structureEdits === null) throw new Error("结构编辑控制器不可用");
+  return structureEdits;
+}
+
+function requireProjectionPresenter(): ProjectionPresenter {
+  if (projectionPresenter === null) throw new Error("投影状态 presenter 不可用");
+  return projectionPresenter;
 }
 
 function assertEditableSource(source: string): void {
@@ -276,11 +347,24 @@ function assertEditableSource(source: string): void {
 }
 
 function selectFromCode(sourceOffset: number): void {
-  if (session === null) return;
+  if (
+    session === null ||
+    !canSelectAnalyzedSource(sourceSync.getMode(), codePane.getSource(), session.imported.source)
+  ) {
+    return;
+  }
   const symbol = core.symbolAt(session.analysis.document.symbols, sourceOffset);
   const entry = core.offsetToBlock(session.blockIndex, sourceOffset);
   const target = editTargetSelection.editTargetAtOffset(session.analysis.editTargets, sourceOffset);
-  selectBlock(entry, false, symbol, target, target === null ? "explanation" : "edit");
+  const structureSelection = structureEditSelectionAtOffset(session.analysis, sourceOffset);
+  selectBlock(
+    entry,
+    false,
+    symbol,
+    target,
+    target === null && structureSelection === null ? "explanation" : "edit",
+    structureSelection,
+  );
 }
 
 function selectBlock(
@@ -289,12 +373,16 @@ function selectBlock(
   symbol: core.SymbolRecord | null,
   editTarget: core.EditTarget | null,
   inspector: "explanation" | "edit",
+  structureSelection: StructureEditSelection | null,
 ): void {
   if (session === null) return;
   const sourceDocument = session.analysis.document;
   elements.showInspector(inspector);
   blockTree.select(entry);
   editPanel?.setTarget(editTarget);
+  structureEditPanel?.setSelection(
+    sourceSync.getMode() === "synced" && !sourceDocument.parse.hasError ? structureSelection : null,
+  );
   editPanel?.setHistoryDepth(codePane.getHistoryDepth());
   if (sourceDocument.parse.hasError) {
     editPanel?.setStatus({
@@ -326,7 +414,7 @@ function selectBlock(
 
 function createCurrentRunPanel() {
   return createRunPanel(elements.getInspectorHost("run"), {
-    getSource: () => session?.imported.source ?? "",
+    getSource: () => codePane.getSource(),
     getDisplayName: () => session?.imported.displayName ?? "main.c",
   });
 }
@@ -338,18 +426,6 @@ function symbolTooltip(symbol: core.SymbolRecord, role: "declaration" | "use"): 
     : `${symbol.name} = ${symbol.valueText} · ${roleText}`;
 }
 
-function flattenBlocks(blocks: readonly core.Block[]): readonly core.Block[] {
-  const flattened: core.Block[] = [];
-  const stack = [...blocks].reverse();
-  while (stack.length > 0) {
-    const block = stack.pop();
-    if (block === undefined) continue;
-    flattened.push(block);
-    stack.push(...[...block.children].reverse());
-  }
-  return flattened;
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "未知错误";
 }
@@ -358,14 +434,22 @@ window.addEventListener(
   "beforeunload",
   () => {
     destroyed = true;
+    sourceSync.destroy();
+    structureEdits?.destroy();
+    structureEdits = null;
+    projectionPresenter?.destroy();
+    projectionPresenter = null;
     sourceImport.destroy();
-    parser?.dispose();
-    parser = null;
-    blockTree.destroy();
-    codePane.destroy();
+    runPanel.destroy();
+    structureEditPanel?.destroy();
+    structureEditPanel = null;
     editPanel?.destroy();
     editPanel = null;
-    runPanel.destroy();
+    projectionStatus.destroy();
+    blockTree.destroy();
+    codePane.destroy();
+    parser?.dispose();
+    parser = null;
     runtime.destroy();
   },
   { once: true },

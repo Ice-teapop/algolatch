@@ -1,6 +1,8 @@
 import { offsetToBlock, type BlockIndex, type BlockIndexEntry } from "../core/block-index.js";
 import type { TextRange } from "../core/model.js";
+import type { StructuredEditRequest } from "../core/editing/engine.js";
 import type { EditTarget, EditTargetSnapshot } from "../core/editing/targets.js";
+import type { EditPanelRequest } from "../ui/edit-panel.js";
 
 /** The target-mapping subset supplied by a validated structured edit plan. */
 export interface CandidateTargetPlan {
@@ -12,6 +14,34 @@ export interface CandidateTargetPlan {
   readonly candidateAnalysis: {
     readonly editTargets: EditTargetSnapshot;
   };
+}
+
+/** Adds the exact live target text required by the stale-safe M3a engine request. */
+export function toStructuredEditRequest(
+  request: EditPanelRequest,
+  target: EditTarget,
+): StructuredEditRequest {
+  const base = {
+    baseRevision: request.baseRevision,
+    targetId: request.targetId,
+    expectedTargetText: target.text,
+  };
+  switch (request.kind) {
+    case "replace-literal":
+      return { ...base, kind: "literal", newText: request.newText };
+    case "replace-binary-operator":
+      return { ...base, kind: "binary-operator", newOperator: request.newOperator };
+    case "replace-for-fields":
+      return {
+        ...base,
+        kind: "for-fields",
+        newInitializer: request.initializerText,
+        newCondition: request.conditionText,
+        newUpdate: request.updateText,
+      };
+    case "replace-if-condition":
+      return { ...base, kind: "if-condition", newCondition: request.conditionText };
+  }
 }
 
 /** Returns all snapshot targets in deterministic UI priority order. */

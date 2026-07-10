@@ -90,6 +90,8 @@ export interface EditPanel<P extends EditConfirmationPlan = EditConfirmationPlan
   setTarget(target: EditTarget | null): void;
   setHistoryDepth(depth: EditHistoryDepth): void;
   setStatus(status: EditPanelStatus | string | Error): void;
+  /** Opens the shared exact-diff dialog for non-M3a operations such as statement edits. */
+  confirmExternal(plan: EditConfirmationPlan): Promise<boolean>;
   confirm(plan: P): Promise<boolean>;
   destroy(): void;
 }
@@ -367,9 +369,12 @@ export function createEditPanel<P extends EditConfirmationPlan>(
   };
   confirmation.dialog.addEventListener("close", onConfirmationClose);
 
-  const confirmPlan = (plan: P): Promise<boolean> => {
+  const openConfirmation = (
+    plan: EditConfirmationPlan,
+    requireCurrentTarget: boolean,
+  ): Promise<boolean> => {
     assertActive(destroyed);
-    if (parseBlocked || currentTarget === null) {
+    if (parseBlocked || (requireCurrentTarget && currentTarget === null)) {
       applyStatus({
         kind: parseBlocked ? "parse-error" : "idle",
         message: parseBlocked
@@ -398,6 +403,7 @@ export function createEditPanel<P extends EditConfirmationPlan>(
       activeConfirmation = resolve;
     });
   };
+  const confirmPlan = (plan: P): Promise<boolean> => openConfirmation(plan, true);
 
   const invokeHistory = async (
     action: () => void | Promise<void>,
@@ -472,6 +478,9 @@ export function createEditPanel<P extends EditConfirmationPlan>(
         cancelActiveConfirmation();
       }
       applyStatus(normalized, true);
+    },
+    confirmExternal(plan: EditConfirmationPlan): Promise<boolean> {
+      return openConfirmation(plan, false);
     },
     confirm: confirmPlan,
     destroy(): void {
