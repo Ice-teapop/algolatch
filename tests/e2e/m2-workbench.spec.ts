@@ -267,17 +267,12 @@ test("compiles and runs from the UI after exactly two accepted native trust prom
   expect(trustDialogCount).toBe(2);
 });
 
-test("keeps CodeMirror read-only and injects nonce-bearing styles without CSP violations", async () => {
+test("keeps CodeMirror editable and injects nonce-bearing styles without CSP violations", async () => {
   await loadFixtureThroughOpenButton();
   const content = page.locator(".cm-content");
-  await expect(content).toHaveAttribute("contenteditable", "false");
-  await expect(content).toHaveAttribute("aria-readonly", "true");
-  const before = await editorText();
-
-  await content.click();
-  await page.keyboard.type("MUST_NOT_MUTATE");
-  await page.keyboard.insertText("_OR_INSERT_");
-  expect(await editorText()).toBe(before);
+  await expect(content).toHaveAttribute("contenteditable", "true");
+  await expect(content).toHaveAttribute("aria-readonly", "false");
+  await expect(content).toHaveAttribute("aria-label", "C 源码编辑器");
 
   const csp = await page
     .locator('meta[http-equiv="Content-Security-Policy"]')

@@ -224,17 +224,12 @@ test("a new import clears both history branches", async () => {
   await expectEditorSource(imported);
 });
 
-test("keeps CodeMirror non-editable through keyboard typing and text insertion", async () => {
+test("exposes CodeMirror as the editable exact-source surface", async () => {
   await pasteSource(LITERAL_SOURCE);
   const content = page.locator(".cm-content");
-  await expect(content).toHaveAttribute("contenteditable", "false");
-  await expect(content).toHaveAttribute("aria-readonly", "true");
-  const before = await editorText();
-
-  await content.click();
-  await page.keyboard.type("MUST_NOT_APPEAR");
-  await page.keyboard.insertText("_NOR_THIS_");
-  expect(await editorText()).toBe(before);
+  await expect(content).toHaveAttribute("contenteditable", "true");
+  await expect(content).toHaveAttribute("aria-readonly", "false");
+  await expect(content).toHaveAttribute("aria-label", "C 源码编辑器");
   await expect(historyButton("撤销")).toHaveAttribute("aria-label", "撤销，可用 0 步");
   await expect(historyButton("撤销")).toBeDisabled();
 });
