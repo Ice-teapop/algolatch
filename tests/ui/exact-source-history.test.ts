@@ -9,6 +9,7 @@ import {
   allowExactSourceInput,
   createExactSourceEdit,
   createExactSourceState,
+  exactSourceInputValidator,
   exactSourceExtension,
   getExactSource,
   normalizeSourceForCodeMirror,
@@ -161,6 +162,25 @@ describe("M3a exact CodeMirror source history", () => {
     }).state;
 
     expect(getExactSource(state)).toBe("a\r\nx\nb\nc\r");
+  });
+
+  it("rejects an opted-in direct input atomically when a source policy fails", () => {
+    const source = "int value = 1;\r\n";
+    const state = createExactSourceState(source, [
+      allowExactSourceInput.of(true),
+      exactSourceInputValidator.of((candidate) => {
+        if (candidate.includes("\0")) throw new Error("NUL is forbidden");
+      }),
+    ]);
+    const transaction = state.update({
+      changes: { from: state.doc.length, insert: "\0" },
+      userEvent: "input.type",
+    });
+
+    expect(transaction.docChanged).toBe(false);
+    expect(transaction.state.doc.toString()).toBe(normalizeSourceForCodeMirror(source));
+    expect(getExactSource(transaction.state)).toBe(source);
+    expect(undoDepth(transaction.state)).toBe(0);
   });
 
   it("rejects a forged effect whose raw candidate disagrees with the CodeMirror change", () => {

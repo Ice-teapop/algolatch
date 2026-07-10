@@ -37,6 +37,16 @@ export const allowExactSourceInput = Facet.define<boolean, boolean>({
   combine: (values) => values.some(Boolean),
 });
 
+export type ExactSourceInputValidator = (candidateSource: string) => void;
+
+/** Synchronous policies run before an opted-in direct input transaction can change state. */
+export const exactSourceInputValidator = Facet.define<
+  ExactSourceInputValidator,
+  readonly ExactSourceInputValidator[]
+>({
+  combine: (values) => Object.freeze([...values]),
+});
+
 /**
  * Carries replacements in the exact raw source's UTF-16 coordinate space.
  *
@@ -81,9 +91,9 @@ const exactSourceGuard = EditorState.transactionFilter.of((transaction) => {
     batches.length === 0 &&
     transaction.startState.facet(allowExactSourceInput)
   ) {
-    const patches = directInputPatches(transaction);
-    if (patches !== null && patches.length > 0) {
-      return [transaction, { effects: rawSourcePatchesEffect.of(patches) }];
+    const transition = directInputTransition(transaction);
+    if (transition !== null && validateDirectInput(transaction, transition.candidateSource)) {
+      return [transaction, { effects: rawSourcePatchesEffect.of(transition.patches) }];
     }
   }
   if (!transaction.docChanged && batches.length === 0) {
@@ -255,7 +265,9 @@ function rawToEditorBoundaries(source: string): readonly number[] {
   return boundaries;
 }
 
-function directInputPatches(transaction: Transaction): readonly TextPatch[] | null {
+function directInputTransition(
+  transaction: Transaction,
+): { readonly patches: readonly TextPatch[]; readonly candidateSource: string } | null {
   const source = getExactSource(transaction.startState);
   const boundaries = editorToRawBoundaries(source);
   const patches: TextPatch[] = [];
@@ -275,12 +287,24 @@ function directInputPatches(transaction: Transaction): readonly TextPatch[] | nu
 
   if (!valid || patches.length === 0) return null;
   try {
-    const candidate = applyTextPatches(source, patches).source;
-    if (normalizeSourceForCodeMirror(candidate) !== transaction.newDoc.toString()) return null;
+    const candidateSource = applyTextPatches(source, patches).source;
+    if (normalizeSourceForCodeMirror(candidateSource) !== transaction.newDoc.toString())
+      return null;
+    return Object.freeze({ patches: copyPatches(patches), candidateSource });
   } catch {
     return null;
   }
-  return copyPatches(patches);
+}
+
+function validateDirectInput(transaction: Transaction, candidateSource: string): boolean {
+  try {
+    for (const validator of transaction.startState.facet(exactSourceInputValidator)) {
+      validator(candidateSource);
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function editorToRawBoundaries(source: string): readonly number[] {
