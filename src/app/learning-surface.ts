@@ -45,7 +45,9 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     onTemplateDragStart: (templateId) => options.blockTree.setTemplateDrag(templateId),
     onTemplateDragEnd: () => options.blockTree.setTemplateDrag(null),
     onInsertSelected: (templateId) => {
-      void assembly.insertAfterSelected(templateId, options.blockTree.getSelectedEntry());
+      const target = options.blockTree.getSelectedEntry();
+      if (target !== null) options.elements.showInspector("edit");
+      void assembly.insertAfterSelected(templateId, target);
     },
   });
 
@@ -77,6 +79,7 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
   return Object.freeze({
     insert(intent: AssemblyInsertIntent): Promise<void> {
       if (destroyed) return Promise.resolve();
+      options.elements.showInspector("edit");
       return assembly.insert(intent);
     },
     setSelectedInsertEnabled(enabled: boolean): void {

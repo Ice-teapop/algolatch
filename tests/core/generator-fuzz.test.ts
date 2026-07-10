@@ -21,6 +21,7 @@ const projectRoot = resolve(import.meta.dirname, "../..");
 const configuredRuns = readPositiveInteger("M4_GENERATOR_RUNS", 500);
 const configuredSeed = readSafeInteger("M4_GENERATOR_SEED", 0x4c0de);
 const shouldWriteRegression = process.env.M4_GENERATOR_WRITE_REGRESSION === "cli-deep-run";
+const configuredTimeoutMs = Math.min(600_000, Math.max(5_000, configuredRuns * 5));
 const sourceByteLimit = 512 * 1024;
 
 let parser: CParser;
@@ -41,37 +42,41 @@ describe("M4 generated course-C fuzz", () => {
     expect(sample.some((program) => !program.features.hasFor)).toBe(true);
   });
 
-  it(`preserves projection and M3b edit invariants (${configuredRuns} runs, seed ${configuredSeed})`, () => {
-    const property = fc.property(courseCProgramArbitrary, (program) => {
-      verifyGeneratedProgram(program);
-    });
-    const result = fc.check(property, {
-      numRuns: configuredRuns,
-      seed: configuredSeed,
-      endOnFailure: false,
-      verbose: 2,
-    });
+  it(
+    `preserves projection and M3b edit invariants (${configuredRuns} runs, seed ${configuredSeed})`,
+    () => {
+      const property = fc.property(courseCProgramArbitrary, (program) => {
+        verifyGeneratedProgram(program);
+      });
+      const result = fc.check(property, {
+        numRuns: configuredRuns,
+        seed: configuredSeed,
+        endOnFailure: false,
+        verbose: 2,
+      });
 
-    const counterexample = result.counterexample?.[0] as GeneratedCourseProgram | undefined;
-    const regressionPath =
-      result.failed && shouldWriteRegression && counterexample !== undefined
-        ? writeRegression(counterexample, result.counterexamplePath)
-        : null;
-    const cause =
-      result.errorInstance instanceof Error
-        ? result.errorInstance.message
-        : String(result.errorInstance ?? "fast-check failed");
-    const failure = [
-      cause,
-      `seed=${String(configuredSeed)}`,
-      `path=${result.counterexamplePath ?? "<none>"}`,
-      regressionPath === null ? null : `regression=${regressionPath}`,
-    ]
-      .filter((part) => part !== null)
-      .join("; ");
+      const counterexample = result.counterexample?.[0] as GeneratedCourseProgram | undefined;
+      const regressionPath =
+        result.failed && shouldWriteRegression && counterexample !== undefined
+          ? writeRegression(counterexample, result.counterexamplePath)
+          : null;
+      const cause =
+        result.errorInstance instanceof Error
+          ? result.errorInstance.message
+          : String(result.errorInstance ?? "fast-check failed");
+      const failure = [
+        cause,
+        `seed=${String(configuredSeed)}`,
+        `path=${result.counterexamplePath ?? "<none>"}`,
+        regressionPath === null ? null : `regression=${regressionPath}`,
+      ]
+        .filter((part) => part !== null)
+        .join("; ");
 
-    expect(result.failed, failure).toBe(false);
-  });
+      expect(result.failed, failure).toBe(false);
+    },
+    configuredTimeoutMs,
+  );
 });
 
 function verifyGeneratedProgram(program: GeneratedCourseProgram): void {

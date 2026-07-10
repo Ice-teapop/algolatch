@@ -58,10 +58,12 @@ describe("workbench shell extension contract", () => {
     expect(source).toContain("next.tab.focus()");
   });
 
-  it("removes the decorative brand image but preserves functional top-bar controls", () => {
+  it("removes the top-left product brand but preserves functional top-bar controls", () => {
     expect(source).not.toContain("brand__mark");
     expect(source).not.toMatch(/<img\b/gu);
-    expect(source).toContain('<h1 id="app-title">C 积木算法面板</h1>');
+    expect(source).not.toContain('id="app-title"');
+    expect(source).not.toContain("C 积木算法面板");
+    expect(source).toContain('id="workbench-dock"');
     expect(source).toContain('id="file-name"');
     expect(source).toContain('id="open-source"');
     expect(source).toContain('id="open-paste"');

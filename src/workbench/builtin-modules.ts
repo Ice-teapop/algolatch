@@ -50,7 +50,7 @@ function builtinNavigationModule(): WorkbenchModuleDefinition {
       Object.freeze({ id: "explanation", label: "解释", groupId: "inspect", order: 10 }),
       Object.freeze({ id: "edit", label: "编辑", groupId: "inspect", order: 20 }),
       Object.freeze({ id: "run", label: "运行", groupId: "execute", order: 10 }),
-      Object.freeze({ id: "guide", label: "新手指导", groupId: "learn", order: 10 }),
+      Object.freeze({ id: "guide", label: "入门", groupId: "learn", order: 10 }),
     ]),
     commands: Object.freeze([]),
     algorithmElements: Object.freeze([]),

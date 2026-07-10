@@ -199,16 +199,20 @@ test("selects nested for and return blocks and paints the primary CodeMirror ran
   await loadFixtureThroughOpenButton();
   const primary = page.locator('[data-code-highlight-kind="primary"]');
 
-  const forBlock = page.locator('[data-node-type="for_statement"]').first();
+  const forBlock = page.locator('.block-card[data-node-type="for_statement"]').first();
   await forBlock.click();
   await expect(forBlock).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#edit-panel")).toBeVisible();
+  await page.getByRole("tab", { name: "搭建", exact: true }).click();
   await expect(primary.first()).toBeVisible();
   expect((await primary.allTextContents()).join(" ")).toContain("for (int i = 0");
 
-  const returnBlock = page.locator('[data-node-type="return_statement"]').first();
+  const returnBlock = page.locator('.block-card[data-node-type="return_statement"]').first();
   await returnBlock.click();
   await expect(returnBlock).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator('#block-tree [aria-selected="true"]')).toHaveCount(1);
+  await expect(page.locator('#block-tree .block-card[aria-selected="true"]')).toHaveCount(1);
+  await expect(page.locator("#edit-panel")).toBeVisible();
+  await page.getByRole("tab", { name: "搭建", exact: true }).click();
   await expect(primary.first()).toBeVisible();
   expect((await primary.allTextContents()).join(" ")).toContain("return 0;");
 });
@@ -224,7 +228,9 @@ test("clicks a CodeMirror variable and links declaration, uses, and the selected
   const useMarks = page.locator('[data-code-highlight-kind="symbol-use"][title^="total"]');
   await expect(declarationMarks.first()).toBeVisible();
   await expect(useMarks).toHaveCount(2);
-  const selectedDeclaration = page.locator('[data-node-type="declaration"][aria-selected="true"]');
+  const selectedDeclaration = page.locator(
+    '.block-card[data-node-type="declaration"][aria-selected="true"]',
+  );
   await expect(selectedDeclaration).toHaveCount(1);
   await expect(selectedDeclaration.locator(".block-card__excerpt")).toContainText("int total");
   await expect(page.locator('.symbol-card[data-focused="true"] code')).toHaveText("total");
@@ -302,10 +308,23 @@ test("keeps the compact three-column workbench usable at the minimum window size
     await expect(page.locator("#import-status")).toBeVisible();
     await expect(page.locator("#block-tree")).toBeVisible();
     await expect(page.locator("#code-pane")).toBeVisible();
+
+    await page.getByRole("tab", { name: "解释", exact: true }).click();
     await expect(page.locator("#explanation-host")).toBeVisible();
-    await page.getByRole("tab", { name: "运行" }).click();
+    await expect(page.locator("#explanation-panel")).toBeVisible();
+
+    await page.getByRole("tab", { name: "搭建", exact: true }).click();
+    await expect(page.locator("#block-tree")).toBeVisible();
+    await expect(page.locator("#code-pane")).toBeVisible();
+
+    await page.getByRole("tab", { name: "运行", exact: true }).click();
     await expect(page.locator("#run-panel")).toBeVisible();
     await expect(page.getByRole("button", { name: "编译并运行" })).toBeVisible();
+
+    await page.getByRole("tab", { name: "搭建", exact: true }).click();
+    await expect(page.locator("#block-palette")).toBeVisible();
+    await expect(page.locator("#block-tree")).toBeVisible();
+    await expect(page.locator("#code-pane")).toBeVisible();
     const viewport = await page.evaluate(() => {
       const statusBar = document.querySelector(".status-bar")?.getBoundingClientRect();
       const codePane = document.querySelector("#code-pane")?.getBoundingClientRect();
@@ -385,31 +404,41 @@ test("keeps the compact three-column workbench usable at the minimum window size
   }
 });
 
-test("switches the inspector tabs with the keyboard", async () => {
-  const explanationTab = page.getByRole("tab", { name: "解释" });
-  const editTab = page.getByRole("tab", { name: "编辑" });
-  const runTab = page.getByRole("tab", { name: "运行" });
-  await explanationTab.focus();
+test("switches every Dock page with global keyboard navigation", async () => {
+  const buildTab = page.getByRole("tab", { name: "搭建", exact: true });
+  const guideTab = page.getByRole("tab", { name: "入门", exact: true });
+  const forwardPages = [
+    { tab: page.getByRole("tab", { name: "积木库", exact: true }), panel: "#library-panel" },
+    { tab: page.getByRole("tab", { name: "解释", exact: true }), panel: "#explanation-panel" },
+    { tab: page.getByRole("tab", { name: "编辑", exact: true }), panel: "#edit-panel" },
+    { tab: page.getByRole("tab", { name: "运行", exact: true }), panel: "#run-panel" },
+    { tab: guideTab, panel: "#guide-panel" },
+  ] as const;
+
+  await buildTab.focus();
+  await expect(buildTab).toHaveAttribute("aria-selected", "true");
+  for (const dockPage of forwardPages) {
+    await page.keyboard.press("ArrowRight");
+    await expect(dockPage.tab).toBeFocused();
+    await expect(dockPage.tab).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(dockPage.panel)).toBeVisible();
+  }
+
   await page.keyboard.press("ArrowRight");
-  await expect(editTab).toBeFocused();
-  await expect(editTab).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#edit-panel")).toBeVisible();
-  await page.keyboard.press("ArrowRight");
-  await expect(runTab).toBeFocused();
-  await expect(runTab).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#run-panel")).toBeVisible();
+  await expect(buildTab).toBeFocused();
+  await expect(page.locator("#build-panel")).toBeVisible();
+
   await page.keyboard.press("ArrowLeft");
-  await expect(editTab).toBeFocused();
-  await expect(page.locator("#edit-panel")).toBeVisible();
-  await page.keyboard.press("ArrowLeft");
-  await expect(explanationTab).toBeFocused();
-  await expect(page.locator("#explanation-panel")).toBeVisible();
-  await page.keyboard.press("ArrowLeft");
-  await expect(runTab).toBeFocused();
+  await expect(guideTab).toBeFocused();
+  await expect(page.locator("#guide-panel")).toBeVisible();
+
   await page.keyboard.press("Home");
-  await expect(explanationTab).toBeFocused();
+  await expect(buildTab).toBeFocused();
+  await expect(page.locator("#build-panel")).toBeVisible();
+
   await page.keyboard.press("End");
-  await expect(runTab).toBeFocused();
+  await expect(guideTab).toBeFocused();
+  await expect(page.locator("#guide-panel")).toBeVisible();
 });
 
 test("switches and persists the industrial color theme", async () => {
@@ -458,15 +487,17 @@ test("switches and persists the industrial color theme", async () => {
   }
 });
 
-test("renders the application icon from the packaged renderer path", async () => {
-  const icon = page.locator(".brand__mark");
-  await expect(icon).toBeVisible();
-  expect(
-    await icon.evaluate((element) => {
-      const image = element as HTMLImageElement;
-      return image.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
-    }),
-  ).toBe(true);
+test("keeps the application icon packaged without rendering a top-left brand", async () => {
+  await expect(page.locator(".brand__mark")).toHaveCount(0);
+  const dimensions = await page.evaluate(async () => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (link === null) throw new Error("missing app icon link");
+    const image = new Image();
+    image.src = link.href;
+    await image.decode();
+    return { width: image.naturalWidth, height: image.naturalHeight };
+  });
+  expect(dimensions).toEqual({ width: 1024, height: 1024 });
 });
 
 test.afterAll(async () => {

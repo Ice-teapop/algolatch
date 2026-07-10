@@ -11,6 +11,7 @@ describe("workbench shell Dock behavior", () => {
     app = new FakeApp(document);
     vi.stubGlobal("HTMLElement", FakeElement);
     vi.stubGlobal("HTMLButtonElement", FakeButton);
+    vi.stubGlobal("HTMLProgressElement", FakeProgress);
     vi.stubGlobal("HTMLOutputElement", FakeOutput);
     vi.stubGlobal("HTMLDialogElement", FakeDialog);
     vi.stubGlobal("HTMLTextAreaElement", FakeTextArea);
@@ -24,13 +25,16 @@ describe("workbench shell Dock behavior", () => {
     const shell = mount();
     const tabs = app.findAllByClass("dock-tab");
 
+    expect(app.innerHTML).not.toContain("C 积木算法面板");
+    expect(app.innerHTML).not.toContain("app-title");
+    expect(shell.startupProgress.id).toBe("startup-progress");
     expect(tabs.map(({ textContent }) => textContent)).toEqual([
       "搭建",
       "积木库",
       "解释",
       "编辑",
       "运行",
-      "新手指导",
+      "入门",
     ]);
     expect(tabs.every((tab) => tab.getAttribute("role") === "tab")).toBe(true);
     expect(app.findAllByClass("dock-group__label").map(({ textContent }) => textContent)).toEqual([
@@ -132,6 +136,7 @@ class FakeDocument {
 
   createElement(tagName: string): FakeElement {
     if (tagName === "button") return new FakeButton(tagName, this);
+    if (tagName === "progress") return new FakeProgress(tagName, this);
     if (tagName === "output") return new FakeOutput(tagName, this);
     if (tagName === "dialog") return new FakeDialog(tagName, this);
     if (tagName === "textarea") return new FakeTextArea(tagName, this);
@@ -265,6 +270,9 @@ class FakeElement {
 }
 
 class FakeButton extends FakeElement {}
+class FakeProgress extends FakeElement {
+  value = 0;
+}
 class FakeOutput extends FakeElement {}
 class FakeDialog extends FakeElement {}
 class FakeTextArea extends FakeElement {}
@@ -297,11 +305,16 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   const code = element(document, "div", "code-pane", "code-pane");
   const fileName = element(document, "span", "file-name");
   const sourceMeta = element(document, "span", "source-meta");
+  const startupRoot = element(document, "div", "startup-loader", "startup-loader");
+  const startupProgress = identified(document.createElement("progress"), "startup-progress");
+  const startupStatus = identified(document.createElement("output"), "startup-status");
+  startupRoot.append(startupStatus, startupProgress);
   const dropOverlay = element(document, "div", "drop-overlay");
   const pasteError = element(document, "p", "paste-error");
   build.append(palette, tree, code);
   pageStack.append(build);
   shell.append(
+    startupRoot,
     dock,
     pageStack,
     fileName,

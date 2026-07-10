@@ -47,6 +47,16 @@ describe("block palette trust and accessibility contract", () => {
     expect(source).toContain("callbacks.onTemplateDragStart(template.id)");
   });
 
+  it("limits native dragging to a dedicated surface with stable shape metadata", () => {
+    expect(source).toContain("dragSurface.className = `block-palette__drag-surface");
+    expect(source).toContain("dragSurface.draggable = true");
+    expect(source).not.toContain("row.draggable = true");
+    expect(source).toContain("dragSurface.dataset.templateId = template.id");
+    expect(source).toContain("dragSurface.dataset.category = template.category");
+    expect(source).toContain("dragSurface.dataset.fragmentKind = template.fragmentKind");
+    expect(source).toContain("dragSurface.dataset.stage = template.stage");
+  });
+
   it("provides a button alternative to drag and writes catalog text via textContent", () => {
     expect(source).toContain('insert.textContent = "插入所选位置"');
     expect(source).toContain("button[data-template-action='insert']");

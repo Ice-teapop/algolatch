@@ -91,8 +91,20 @@ export function createBlockTree(
     return button !== null && button !== undefined ? button : null;
   };
   const slotForEvent = (event: Event): HTMLElement | null => {
-    const slot = (event.target as Element | null)?.closest<HTMLElement>("[data-assembly-slot]");
-    return slot ?? null;
+    const target = event.target as Element | null;
+    const explicitSlot = target?.closest<HTMLElement>("[data-assembly-slot]") ?? null;
+    if (explicitSlot !== null || draggedTemplateId === null) return explicitSlot;
+
+    // A native drag can retain the slot's pre-drag coordinates while CSS expands
+    // its hit area. If the enclosing tree node receives the pointer instead, use
+    // that node only as a geometric fallback; template identity still comes from
+    // the in-memory palette drag session.
+    const assemblyTarget = target?.closest<HTMLElement>("[data-assembly-target-index]") ?? null;
+    if (assemblyTarget === null) return null;
+    const index = assemblyTarget.dataset.assemblyTargetIndex;
+    if (index === undefined) return null;
+    const position = fallbackAssemblyPosition(event, assemblyTarget, index);
+    return directAssemblySlot(assemblyTarget, index, position);
   };
   const templateIntentForEvent = (event: Event): AssemblyInsertIntent | null => {
     const slot = slotForEvent(event);
@@ -364,6 +376,10 @@ function renderBlock(
   level: number,
 ): HTMLLIElement {
   const item = window.document.createElement("li");
+  const semanticKind = blockSemanticKind(block);
+  item.className = `block-tree-node block-tree-node--${semanticKind}`;
+  item.dataset.fragmentKind = semanticKind;
+  item.dataset.blockSemantic = semanticKind;
   item.setAttribute("role", "none");
   const button = window.document.createElement("button");
   button.type = "button";
@@ -398,6 +414,7 @@ function renderBlock(
     button.append(badge);
   }
   if (entry !== undefined && isMovableEntry(entry)) {
+    item.dataset.assemblyTargetIndex = String(entry.index);
     item.append(renderAssemblySlot(window.document, entry, "before"));
   }
   item.append(button);
@@ -427,7 +444,56 @@ function renderAssemblySlot(
   slot.dataset.blockIndex = String(entry.index);
   slot.dataset.assemblySlot = position;
   slot.setAttribute("aria-hidden", "true");
+  const track = ownerDocument.createElement("span");
+  track.className = "assembly-slot__track";
+  track.setAttribute("aria-hidden", "true");
+  slot.append(track);
   return slot;
+}
+
+function directAssemblySlot(
+  node: HTMLElement,
+  blockIndex: string,
+  position: AssemblyInsertPosition,
+): HTMLElement | null {
+  for (const child of Array.from(node.children)) {
+    const candidate = child as HTMLElement;
+    if (
+      candidate.dataset.blockIndex === blockIndex &&
+      candidate.dataset.assemblySlot === position
+    ) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function fallbackAssemblyPosition(
+  event: Event,
+  node: HTMLElement,
+  blockIndex: string,
+): AssemblyInsertPosition {
+  const button = Array.from(node.children).find((child) => {
+    const candidate = child as HTMLElement;
+    return (
+      candidate.tagName.toLocaleLowerCase() === "button" &&
+      candidate.dataset.blockIndex === blockIndex
+    );
+  }) as HTMLElement | undefined;
+  const pointerY = (event as DragEvent).clientY;
+  if (button === undefined || typeof button.getBoundingClientRect !== "function") return "before";
+  if (typeof pointerY !== "number" || !Number.isFinite(pointerY)) return "before";
+  const bounds = button.getBoundingClientRect();
+  return pointerY >= bounds.top + bounds.height / 2 ? "after" : "before";
+}
+
+type BlockSemanticKind = "control" | "declaration" | "function" | "raw" | "statement";
+
+function blockSemanticKind(block: Block): BlockSemanticKind {
+  if (block.kind === "raw") return "raw";
+  if (block.nodeType === "function_definition") return "function";
+  if (CONTROL_SHAPE_NODE_TYPES.has(block.nodeType)) return "control";
+  return block.role === "declaration" ? "declaration" : "statement";
 }
 
 function concernsForBlock(
@@ -481,3 +547,16 @@ const NODE_TITLES: Readonly<Record<string, string>> = Object.freeze({
   continue_statement: "继续下一轮",
   goto_statement: "跳转",
 });
+
+const CONTROL_SHAPE_NODE_TYPES: ReadonlySet<string> = new Set([
+  "if_statement",
+  "for_statement",
+  "while_statement",
+  "do_statement",
+  "switch_statement",
+  "case_statement",
+  "preproc_if",
+  "preproc_ifdef",
+  "preproc_ifndef",
+  "preproc_else",
+]);

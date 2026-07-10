@@ -156,9 +156,7 @@ describe("M3b whole-line insertion and deletion", () => {
     });
     const application = applyTextPatches(source, plan.patches);
 
-    expect(plan.insertedStatementText).toBe(
-      "for (int i = 0; i < 3; i++) {\r\n    tick();\r\n  }",
-    );
+    expect(plan.insertedStatementText).toBe("for (int i = 0; i < 3; i++) {\r\n    tick();\r\n  }");
     expect(application.source).toBe(
       "int value(void) {\r\n  for (int i = 0; i < 3; i++) {\r\n    tick();\r\n  }\r\n  return 1;\r\n}\r\n",
     );

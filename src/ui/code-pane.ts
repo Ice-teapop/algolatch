@@ -75,7 +75,7 @@ export interface CodePane {
   destroy(): void;
 }
 
-interface EditorRange {
+export interface EditorRange {
   readonly from: number;
   readonly to: number;
 }
@@ -233,7 +233,7 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
           throw new TypeError("highlight.title 必须是字符串");
         }
 
-        const range = toEditorRange(offsetMap, highlight.range, false);
+        const range = sourceRangeToEditorRange(offsetMap, highlight.range, false);
         const attributes: Record<string, string> = {
           "data-code-highlight": "true",
           "data-code-highlight-kind": highlight.kind,
@@ -253,7 +253,7 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
 
     reveal(sourceRange) {
       assertActive(destroyed);
-      const range = toEditorRange(offsetMap, sourceRange, true);
+      const range = sourceRangeToEditorRange(offsetMap, sourceRange, true);
       const selection = EditorSelection.range(range.from, range.to);
       view.dispatch({
         selection,
@@ -312,21 +312,21 @@ function sourceChangeReason(transactions: readonly Transaction[]): CodeSourceCha
   return "edit";
 }
 
-function toEditorRange(map: SourceOffsetMap, range: TextRange, allowEmpty: boolean): EditorRange {
-  const from = toExactEditorBoundary(map, range.from);
-  const to = toExactEditorBoundary(map, range.to);
+export function sourceRangeToEditorRange(
+  map: SourceOffsetMap,
+  range: TextRange,
+  allowEmpty: boolean,
+): EditorRange {
+  // CodeMirror represents CRLF as one logical newline. A parser-owned display
+  // range may end between CR and LF (for example a line comment including CR),
+  // so presentation must use the offset map's documented left bias. Exact
+  // source edits remain guarded independently by exact-source-history.
+  const from = sourceToEditor(map, range.from);
+  const to = sourceToEditor(map, range.to);
   if (from > to || (!allowEmpty && from === to)) {
     throw new RangeError("source range 必须按顺序且不能是空范围");
   }
   return { from, to };
-}
-
-function toExactEditorBoundary(map: SourceOffsetMap, sourceOffset: number): number {
-  const editorOffset = sourceToEditor(map, sourceOffset);
-  if (editorToSource(map, editorOffset) !== sourceOffset) {
-    throw new RangeError(`source offset ${String(sourceOffset)} 位于 CRLF 中间`);
-  }
-  return editorOffset;
 }
 
 function assertHighlightKind(kind: CodeHighlightKind): void {

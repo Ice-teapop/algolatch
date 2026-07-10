@@ -7,6 +7,9 @@ import type {
 
 export interface WorkbenchElements {
   readonly shell: HTMLElement;
+  readonly startupRoot: HTMLElement;
+  readonly startupProgress: HTMLProgressElement;
+  readonly startupStatus: HTMLOutputElement;
   readonly openButton: HTMLButtonElement;
   readonly pasteButton: HTMLButtonElement;
   readonly themeButton: HTMLButtonElement;
@@ -55,9 +58,29 @@ export function mountWorkbench(
 
   app.innerHTML = `
     <div id="workbench-shell" class="workbench-shell">
+      <div
+        id="startup-loader"
+        class="startup-loader"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        data-state="loading"
+      >
+        <div class="startup-loader__background" aria-hidden="true"></div>
+        <div class="startup-loader__surface">
+          <output id="startup-status" class="startup-loader__status">正在建立本地工作台…</output>
+          <progress
+            id="startup-progress"
+            class="startup-loader__progress"
+            max="100"
+            value="8"
+            aria-labelledby="startup-status"
+          ></progress>
+        </div>
+      </div>
+
       <header class="app-bar">
-        <div class="brand app-navigation" aria-labelledby="app-title">
-          <h1 id="app-title">C 积木算法面板</h1>
+        <div class="app-navigation">
           <nav id="workbench-dock" class="dock-bar" role="tablist" aria-label="工作台页面"></nav>
         </div>
         <div class="document-identity" aria-label="当前文档">
@@ -248,6 +271,9 @@ export function mountWorkbench(
 
   return Object.freeze({
     shell: required(app, "#workbench-shell", HTMLElement),
+    startupRoot: required(app, "#startup-loader", HTMLElement),
+    startupProgress: required(app, "#startup-progress", HTMLProgressElement),
+    startupStatus: required(app, "#startup-status", HTMLOutputElement),
     openButton: required(app, "#open-source", HTMLButtonElement),
     pasteButton: required(app, "#open-paste", HTMLButtonElement),
     themeButton: required(app, "#theme-toggle", HTMLButtonElement),

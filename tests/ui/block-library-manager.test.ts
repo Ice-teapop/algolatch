@@ -35,9 +35,7 @@ describe("block library manager", () => {
     expect(action(root, "custom.deprecated", "reactivate").textContent).toBe("恢复");
     expect(action(root, "custom.deprecated", "retire").textContent).toBe("退休");
     expect(byEntryId(root, "custom.retired").dataset.lifecycle).toBe("retired");
-    expect(treeText(byEntryId(root, "custom.retired"))).toContain(
-      "已生成 C 源码保持不变",
-    );
+    expect(treeText(byEntryId(root, "custom.retired"))).toContain("已生成 C 源码保持不变");
     expect(actionsWithin(byEntryId(root, "custom.retired"))).toHaveLength(0);
     expect(host.children).toContain(root);
   });
@@ -92,9 +90,7 @@ describe("block library manager", () => {
     const catalog = createFixtureCatalog();
     createCustom(catalog, "custom.lifecycle", "生命周期积木");
     let confirmation = false;
-    const confirmRetire = vi.fn<BlockLibraryManagerCallbacks["confirmRetire"]>(
-      () => confirmation,
-    );
+    const confirmRetire = vi.fn<BlockLibraryManagerCallbacks["confirmRetire"]>(() => confirmation);
     const onCatalogChange = vi.fn<BlockLibraryManagerCallbacks["onCatalogChange"]>();
     const { manager } = createFixtureManager(catalog, { confirmRetire, onCatalogChange });
     const root = manager.element as unknown as FakeElement;
@@ -123,9 +119,7 @@ describe("block library manager", () => {
       lifecycle: "retired",
     });
     expect(onCatalogChange).toHaveBeenCalledTimes(changesBeforeCancel + 1);
-    expect(treeText(byEntryId(root, "custom.lifecycle"))).toContain(
-      "已生成 C 源码保持不变",
-    );
+    expect(treeText(byEntryId(root, "custom.lifecycle"))).toContain("已生成 C 源码保持不变");
   });
 
   it("refreshes external changes, exposes status and destroys idempotently", () => {

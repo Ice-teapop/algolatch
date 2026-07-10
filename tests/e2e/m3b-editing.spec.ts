@@ -59,6 +59,7 @@ test.beforeEach(async () => {
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.getByRole("button", { name: "粘贴源码" })).toBeEnabled();
+  await showDock("搭建");
 });
 
 test.afterAll(async () => {
@@ -67,6 +68,7 @@ test.afterAll(async () => {
 });
 
 test("supports direct input, bracket pairing, and exact CRLF undo", async () => {
+  await showDock("搭建");
   await page.getByRole("button", { name: "打开 C 文件" }).click();
   await expect(page.locator("#file-name")).toHaveText("m3b-crlf.c");
   await expect(page.locator("#source-meta")).toContainText("CRLF");
@@ -149,6 +151,7 @@ test("previews insert and delete, respects cancel, and moves attached comments w
   await expectEditorSource(source);
   await expect(page.locator(".structure-edit-panel__status")).toContainText("已取消");
 
+  await showDock("编辑");
   await insertBefore.click();
   await confirmVisibleDiff();
   const inserted = source.replace("  beta();", "  prepare();\n  beta();");
@@ -242,6 +245,7 @@ test("moves adjacent statements with buttons and supports a real drag while reje
   const b = draggableStatement("expression_statement", "b();");
   const c = draggableStatement("expression_statement", "c();");
   await expect(b).toHaveAttribute("draggable", "true");
+  await showDock("搭建");
   await b.dragTo(c);
   await confirmVisibleDiff();
   const swapped = dragSource
@@ -251,6 +255,7 @@ test("moves adjacent statements with buttons and supports a real drag while reje
   await expectEditorSource(swapped);
 
   const beforeRejectedDrop = await editorText();
+  await showDock("搭建");
   await draggableStatement("expression_statement", "a();").dragTo(
     draggableStatement("expression_statement", "b();"),
   );
@@ -260,6 +265,7 @@ test("moves adjacent statements with buttons and supports a real drag while reje
   );
   expect(await editorText()).toBe(beforeRejectedDrop);
 
+  await showDock("搭建");
   await draggableStatement("expression_statement", "a();").dragTo(
     draggableStatement("expression_statement", "nested();"),
   );
@@ -300,6 +306,7 @@ test("renames only one certain local binding, rejects collisions, and undoes exa
   );
   await expectEditorSource(source);
 
+  await showDock("编辑");
   await renameInput.fill("amount");
   await renameButton.click();
   const dialog = confirmationDialog();
@@ -321,7 +328,7 @@ test("renames only one certain local binding, rejects collisions, and undoes exa
   expect(after).toContain("goto value;");
   expect(after).toContain("value:");
 
-  await page.getByRole("tab", { name: "编辑" }).click();
+  await showDock("编辑");
   await historyButton("撤销").click();
   await expectEditorSource(source);
 });
@@ -337,7 +344,7 @@ test("compiles the current CodeMirror source while projection sync is still pend
   ].join("\n");
   const current = original.replace('printf("1\\n")', 'printf("7\\n")');
   await pasteSource(original);
-  await page.getByRole("tab", { name: "运行" }).click();
+  await showDock("运行");
   const runPanel = page.locator("#run-panel .run-panel");
   await expect(runPanel).toHaveAttribute("data-state", "ready");
   await acceptTrustedRunnerPrompts();
@@ -357,7 +364,7 @@ test("compiles the current CodeMirror source while projection sync is still pend
   await replaceEditorSourceWithoutWaiting(current);
   await expect(projectionStatus()).toHaveAttribute("data-state", "pending");
   expect(await editorText()).toBe(normalizedEditorSource(current));
-  await page.getByRole("tab", { name: "运行" }).click();
+  await showDock("运行");
   await page.getByRole("button", { name: "编译并运行" }).click();
 
   await expect(runPanel).toHaveAttribute("data-state", "success", { timeout: 15_000 });
@@ -366,6 +373,7 @@ test("compiles the current CodeMirror source while projection sync is still pend
 });
 
 async function pasteSource(source: string): Promise<void> {
+  await showDock("搭建");
   await page.getByRole("button", { name: "粘贴源码" }).click();
   const dialog = page.getByRole("dialog", { name: "粘贴 C 源码" });
   await expect(dialog).toBeVisible();
@@ -374,7 +382,15 @@ async function pasteSource(source: string): Promise<void> {
   await expect(dialog).toBeHidden();
   await expect(page.locator("#file-name")).toHaveText("pasted.c");
   await expect(page.locator("#import-status")).toHaveAttribute("data-state", "ready");
+  await showDock("搭建");
   await expectEditorSource(source);
+}
+
+async function showDock(name: "搭建" | "编辑" | "运行"): Promise<void> {
+  const tab = page.getByRole("tab", { name, exact: true });
+  await expect(tab).toBeVisible();
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
 }
 
 function projectionStatus(): Locator {
@@ -395,7 +411,7 @@ function historyButton(action: "撤销" | "重做"): Locator {
 
 function statementBlock(nodeType: string, excerpt: string): Locator {
   return page
-    .locator(`#block-tree [data-node-type="${nodeType}"]`)
+    .locator(`#block-tree .block-card[data-node-type="${nodeType}"]`)
     .filter({ has: page.locator(".block-card__excerpt", { hasText: excerpt }) });
 }
 
@@ -404,11 +420,12 @@ function draggableStatement(nodeType: string, excerpt: string): Locator {
 }
 
 async function selectStatement(nodeType: string, excerpt: string): Promise<void> {
+  await showDock("搭建");
   const block = statementBlock(nodeType, excerpt);
   await expect(block).toHaveCount(1);
   await block.click();
   await expect(block).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("tab", { name: "编辑" })).toHaveAttribute("aria-selected", "true");
+  await showDock("编辑");
   await expect(page.locator(".structure-edit-panel")).toBeVisible();
 }
 
@@ -426,6 +443,7 @@ async function replaceEditorSource(source: string): Promise<void> {
 }
 
 async function replaceEditorSourceWithoutWaiting(source: string): Promise<void> {
+  await showDock("搭建");
   const content = page.locator(".cm-content");
   await content.click();
   await page.keyboard.press("Meta+A");
@@ -433,6 +451,8 @@ async function replaceEditorSourceWithoutWaiting(source: string): Promise<void> 
 }
 
 async function undoUntilSource(source: string): Promise<void> {
+  await showDock("搭建");
+  await page.locator(".cm-content").click();
   const expected = normalizedEditorSource(source);
   for (let attempts = 0; attempts < 12 && (await editorText()) !== expected; attempts += 1) {
     await page.keyboard.press("Meta+Z");
@@ -441,6 +461,7 @@ async function undoUntilSource(source: string): Promise<void> {
 }
 
 async function expectEditorSource(source: string): Promise<void> {
+  await showDock("搭建");
   await expect.poll(editorText).toBe(normalizedEditorSource(source));
 }
 
@@ -455,6 +476,7 @@ async function editorText(): Promise<string> {
 }
 
 async function clickCodeOccurrence(needle: string, occurrence: number): Promise<void> {
+  await showDock("搭建");
   const point = await page.locator(".cm-content").evaluate(
     (content, target) => {
       const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
@@ -489,10 +511,11 @@ async function clickCodeOccurrence(needle: string, occurrence: number): Promise<
   );
 
   await page.mouse.click(point.x, point.y);
-  await expect(page.getByRole("tab", { name: "编辑" })).toHaveAttribute("aria-selected", "true");
+  await showDock("编辑");
 }
 
 async function clickCodeOccurrenceInLine(lineText: string, needle: string): Promise<void> {
+  await showDock("搭建");
   const line = page.locator(".cm-line").filter({ hasText: lineText });
   await expect(line).toHaveCount(1);
   const point = await line.evaluate((element, target) => {
@@ -515,10 +538,11 @@ async function clickCodeOccurrenceInLine(lineText: string, needle: string): Prom
     throw new Error(`源码行中找不到 ${target}`);
   }, needle);
   await page.mouse.click(point.x, point.y);
-  await expect(page.getByRole("tab", { name: "编辑" })).toHaveAttribute("aria-selected", "true");
+  await showDock("编辑");
 }
 
 async function placeCursorAfterCodeOccurrence(needle: string, occurrence: number): Promise<void> {
+  await showDock("搭建");
   const point = await page.locator(".cm-content").evaluate(
     (content, target) => {
       const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);

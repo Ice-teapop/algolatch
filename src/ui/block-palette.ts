@@ -77,9 +77,18 @@ export function createBlockPalette(
   let stageId: LearningStageFilter = "all";
   let insertEnabled = false;
   let visibleTemplates = new Map<string, CatalogLearningTemplate>();
+  let activeDragSurface: HTMLElement | null = null;
+
+  const finishActiveDrag = (): void => {
+    if (activeDragSurface === null) return;
+    activeDragSurface.classList.remove("is-dragging");
+    activeDragSurface = null;
+    callbacks.onTemplateDragEnd();
+  };
 
   const render = (): void => {
     assertActive(destroyed);
+    finishActiveDrag();
     const snapshot = catalog.snapshot();
     renderStageOptions(stageSelect, snapshot, stageId);
     const templates = filterLearningTemplates(snapshot, stageId, search.value);
@@ -103,27 +112,26 @@ export function createBlockPalette(
   };
   const onSearchInput = (): void => render();
   const onDragStart = (event: DragEvent): void => {
-    const row = templateRowForEvent(event);
-    if (row === null) {
+    const dragSurface = templateDragSurfaceForEvent(event);
+    if (dragSurface === null) {
       event.preventDefault();
       return;
     }
-    const template = visibleTemplates.get(row.dataset.templateId ?? "");
+    const template = visibleTemplates.get(dragSurface.dataset.templateId ?? "");
     if (template === undefined || template.lifecycle !== "active") {
       event.preventDefault();
       return;
     }
-    row.classList.add("is-dragging");
+    finishActiveDrag();
+    activeDragSurface = dragSurface;
+    dragSurface.classList.add("is-dragging");
     callbacks.onTemplateDragStart(template.id);
     if (event.dataTransfer !== null) {
       event.dataTransfer.effectAllowed = "copy";
       event.dataTransfer.setData("text/plain", "c-block-catalog-item");
     }
   };
-  const onDragEnd = (event: DragEvent): void => {
-    templateRowForEvent(event)?.classList.remove("is-dragging");
-    callbacks.onTemplateDragEnd();
-  };
+  const onDragEnd = (): void => finishActiveDrag();
   const onClick = (event: Event): void => {
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>(
       "button[data-template-action='insert']",
@@ -168,7 +176,8 @@ export function createBlockPalette(
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
-      callbacks.onTemplateDragEnd();
+      if (activeDragSurface === null) callbacks.onTemplateDragEnd();
+      else finishActiveDrag();
       stageSelect.removeEventListener("change", onStageChange);
       search.removeEventListener("input", onSearchInput);
       list.removeEventListener("dragstart", onDragStart);
@@ -208,9 +217,21 @@ function renderTemplateRow(
   const row = ownerDocument.createElement("article");
   row.className = "block-palette__item";
   row.dataset.templateId = template.id;
-  row.draggable = true;
+  row.dataset.category = template.category;
+  row.dataset.fragmentKind = template.fragmentKind;
+  row.dataset.stage = template.stage;
   row.setAttribute("role", "listitem");
-  row.setAttribute("aria-label", `${template.label}，拖到组装插槽`);
+
+  const dragSurface = ownerDocument.createElement("div");
+  dragSurface.className = `block-palette__drag-surface block-palette__drag-surface--${template.fragmentKind}`;
+  dragSurface.dataset.templateId = template.id;
+  dragSurface.dataset.category = template.category;
+  dragSurface.dataset.fragmentKind = template.fragmentKind;
+  dragSurface.dataset.stage = template.stage;
+  dragSurface.draggable = true;
+  dragSurface.tabIndex = 0;
+  dragSurface.setAttribute("aria-label", `${template.label}，可拖到组装插槽`);
+  dragSurface.setAttribute("aria-roledescription", "可拖拽 C 积木");
 
   const heading = ownerDocument.createElement("div");
   heading.className = "block-palette__item-heading";
@@ -232,7 +253,8 @@ function renderTemplateRow(
   insert.dataset.templateId = template.id;
   insert.textContent = "插入所选位置";
   insert.disabled = !insertEnabled;
-  row.append(heading, source, description, insert);
+  dragSurface.append(heading, source);
+  row.append(dragSurface, description, insert);
   return row;
 }
 
@@ -241,10 +263,10 @@ function compactSource(source: string): string {
   return compact.length <= 72 ? compact : `${compact.slice(0, 69)}…`;
 }
 
-function templateRowForEvent(event: Event): HTMLElement | null {
+function templateDragSurfaceForEvent(event: Event): HTMLElement | null {
   return (
     (event.target as Element | null)?.closest<HTMLElement>(
-      "[data-template-id][draggable='true']",
+      ".block-palette__drag-surface[data-template-id][draggable='true']",
     ) ?? null
   );
 }

@@ -448,7 +448,8 @@ test("grants exactly one compile and one run after separate native confirmations
 
 test("opens the local desktop shell with a narrow preload API", async () => {
   await expect(page).toHaveTitle("C 积木算法面板");
-  await expect(page.getByRole("heading", { name: "C 积木算法面板" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "C 积木算法面板" })).toHaveCount(0);
+  await expect(page.locator("#startup-loader")).toBeHidden();
 
   const rendererBoundary = await page.evaluate(() => ({
     apiKeys: Object.keys(window.panelApi).sort(),

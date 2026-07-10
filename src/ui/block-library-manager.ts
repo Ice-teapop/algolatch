@@ -97,10 +97,7 @@ export function createBlockLibraryManager(
   let operationGeneration = 0;
   let actionButtons: HTMLButtonElement[] = [];
 
-  const setStatus = (
-    message: string,
-    status: BlockLibraryManagerStatus = "ready",
-  ): void => {
+  const setStatus = (message: string, status: BlockLibraryManagerStatus = "ready"): void => {
     assertActive(destroyed);
     statusOutput.dataset.state = status;
     statusOutput.textContent = message;
@@ -184,9 +181,7 @@ export function createBlockLibraryManager(
     actionButtons = [];
 
     const active = snapshot.templates.filter((template) => template.lifecycle === "active");
-    const deprecated = snapshot.templates.filter(
-      (template) => template.lifecycle === "deprecated",
-    );
+    const deprecated = snapshot.templates.filter((template) => template.lifecycle === "deprecated");
     list.append(
       renderGroup(ownerDocument, "启用", "active", active, addAction),
       renderGroup(ownerDocument, "已弃用", "deprecated", deprecated, addAction),
@@ -195,7 +190,10 @@ export function createBlockLibraryManager(
     setBusy(busy);
   }
 
-  function addAction(template: CatalogLearningTemplate, operation: "deprecate" | "reactivate" | "retire"): HTMLButtonElement {
+  function addAction(
+    template: CatalogLearningTemplate,
+    operation: "deprecate" | "reactivate" | "retire",
+  ): HTMLButtonElement {
     const button = ownerDocument.createElement("button");
     button.className = "block-library-manager__action";
     button.type = "button";
@@ -218,17 +216,19 @@ export function createBlockLibraryManager(
     const category = categoryInput.value.trim();
     const stage = stageSelect.value;
     const source = sourceInput.value;
-    if (label.length === 0 || category.length === 0 || stage.length === 0 || source.trim().length === 0) {
+    if (
+      label.length === 0 ||
+      category.length === 0 ||
+      stage.length === 0 ||
+      source.trim().length === 0
+    ) {
       setStatus("请完整填写名称、阶段、分类和 C 源码。", "error");
       return;
     }
 
     try {
       const validation = callbacks.validateSource(source);
-      if (
-        validation?.fragmentKind !== "statement" &&
-        validation?.fragmentKind !== "control"
-      ) {
+      if (validation?.fragmentKind !== "statement" && validation?.fragmentKind !== "control") {
         throw new TypeError("源码验证器未返回有效 fragmentKind");
       }
       const definition: LearningTemplateDefinition = {
@@ -322,10 +322,7 @@ function createField(
   return field;
 }
 
-function renderStageOptions(
-  select: HTMLSelectElement,
-  snapshot: LearningCatalogSnapshot,
-): void {
+function renderStageOptions(select: HTMLSelectElement, snapshot: LearningCatalogSnapshot): void {
   const current = select.value;
   select.replaceChildren();
   for (const stage of snapshot.stages) {

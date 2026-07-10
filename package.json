@@ -41,12 +41,15 @@
     "verify:m2": "vitest run tests/core/block-index.test.ts tests/core/statement-projector.test.ts tests/core/symbols.test.ts tests/core/builtins.test.ts tests/renderer/source-offset-map.test.ts tests/shared/source-import.test.ts tests/electron/source-import.test.ts tests/ui/explanation.test.ts tests/ui/run-panel.test.ts",
     "verify:m3a": "npm run typecheck && npm run deps:check && vitest run tests/core/editing tests/ui/exact-source-history.test.ts tests/ui/edit-panel.test.ts tests/renderer/source-offset-map.test.ts",
     "verify:m3b": "npm run typecheck && npm run deps:check && vitest run tests/core/editing/m3b-engine.test.ts tests/core/editing/statements.test.ts tests/core/editing/rename.test.ts tests/app/parse-stability.test.ts tests/app/source-sync-controller.test.ts tests/app/projection-presenter.test.ts tests/app/structure-edit-controller.test.ts tests/app/structure-edit-selection.test.ts tests/ui/exact-source-history.test.ts tests/ui/code-pane-direct-input-contract.test.ts tests/ui/edit-panel-external-confirm.test.ts tests/ui/structure-edit-panel.test.ts tests/ui/block-tree-interaction.test.ts",
+    "verify:m4": "vitest run tests/core/m4-corpus.test.ts tests/core/regressions.test.ts tests/core/generator-fuzz.test.ts",
     "test:e2e:m3b": "npm run build && playwright test tests/e2e/m3b-editing.spec.ts",
+    "test:e2e:m4": "npm run build && playwright test tests/e2e/m4-assembly.spec.ts tests/e2e/m4-robustness.spec.ts",
     "accept:m0": "node scripts/accept-m0.mjs",
     "accept:m1": "node scripts/accept-m1.mjs",
     "accept:m2": "node scripts/accept-m2.mjs",
     "accept:m3a": "node scripts/accept-m3a.mjs",
-    "accept:m3": "node scripts/accept-m3.mjs"
+    "accept:m3": "node scripts/accept-m3.mjs",
+    "accept:m4": "node scripts/accept-m4.mjs"
   },
   "devDependencies": {
     "@codemirror/commands": "6.10.4",

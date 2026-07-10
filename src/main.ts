@@ -38,7 +38,7 @@ const app = document.querySelector<HTMLElement>("#app");
 if (app === null) throw new Error("缺少应用挂载节点 #app");
 
 const runtime = createWorkbenchRuntime(app);
-const { elements } = runtime;
+const { elements, startupLoader } = runtime;
 const explanationHost = elements.getInspectorHost("explanation");
 let parser: core.CParser | null = null;
 let session: ReadySession | null = null;
@@ -162,16 +162,21 @@ void initialize();
 
 async function initialize(): Promise<void> {
   try {
+    startupLoader.advance("parser");
     const loadedParser = await createBrowserCParser();
     if (destroyed) {
       loadedParser.dispose();
       return;
     }
     parser = loadedParser;
+    startupLoader.advance("parser-ready");
     sourceImport.setEnabled(true);
+    startupLoader.advance("source");
     loadSource({ source: INITIAL_SOURCE, displayName: "algorithm-demo.c", origin: "paste" });
     sourceImport.setStatus("示例已载入；可打开、拖入或粘贴自己的 .c 文件。", "ready");
+    startupLoader.complete();
   } catch (error: unknown) {
+    startupLoader.fail(`启动失败：${errorMessage(error)}`);
     elements.parserStatus.textContent = `C 解析器不可用：${errorMessage(error)}`;
     elements.parserStatus.dataset.state = "error";
     sourceImport.setStatus("解析器初始化失败，源码工作台已停用。", "error");

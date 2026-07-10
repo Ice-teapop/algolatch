@@ -153,6 +153,61 @@ describe("block tree interaction gate", () => {
     expect(slot.classList.contains("is-template-drop-target")).toBe(false);
   });
 
+  it("falls back to the enclosing tree node when it intercepts an expanded slot", () => {
+    const { document, index } = fixture();
+    const host = fakeDocument.createElement("div");
+    const onInsert = vi.fn();
+    const tree = createBlockTree(host as unknown as HTMLElement, vi.fn(), vi.fn(), onInsert);
+    tree.setDocument(document, index);
+    const target = buttonFor(host, "return_statement");
+    const targetIndex = target.dataset.blockIndex ?? "";
+    const targetNode = assemblyTargetFor(host, targetIndex);
+
+    tree.setTemplateDrag("builtin.control.while");
+    const over = host.emit("dragover", targetNode, { dataTransfer: new FakeDataTransfer() });
+    expect(over.defaultPrevented).toBe(true);
+    expect(slotFor(host, targetIndex, "before").classList.contains("is-template-drop-target")).toBe(
+      true,
+    );
+
+    const drop = host.emit("drop", targetNode, { dataTransfer: new FakeDataTransfer() });
+    expect(drop.defaultPrevented).toBe(true);
+    expect(onInsert).toHaveBeenCalledWith({
+      templateId: "builtin.control.while",
+      target: entryFor(index, target),
+      position: "before",
+    });
+
+    tree.setTemplateDrag("builtin.c.print-integer");
+    host.emit("drop", targetNode, { dataTransfer: new FakeDataTransfer(), clientY: 19 });
+    expect(onInsert).toHaveBeenLastCalledWith({
+      templateId: "builtin.c.print-integer",
+      target: entryFor(index, target),
+      position: "after",
+    });
+  });
+
+  it("marks tree roots with stable function, control, declaration, statement and raw semantics", () => {
+    const { document, index } = fixture();
+    const host = fakeDocument.createElement("div");
+    const tree = createBlockTree(host as unknown as HTMLElement, vi.fn(), vi.fn());
+    tree.setDocument(document, index);
+    const nodes = host.querySelectorAll<FakeElement>(".block-tree-node");
+
+    const declaration = nodes.find((node) => node.dataset.blockSemantic === "declaration");
+    const functionNode = nodes.find((node) => node.dataset.blockSemantic === "function");
+    const control = nodes.find((node) => node.dataset.blockSemantic === "control");
+    const raw = nodes.find((node) => node.dataset.blockSemantic === "raw");
+    expect(declaration?.dataset.fragmentKind).toBe("declaration");
+    expect(declaration?.classList.contains("block-tree-node--declaration")).toBe(true);
+    expect(functionNode?.dataset.fragmentKind).toBe("function");
+    expect(functionNode?.classList.contains("block-tree-node--function")).toBe(true);
+    expect(control?.dataset.fragmentKind).toBe("control");
+    expect(control?.classList.contains("block-tree-node--control")).toBe(true);
+    expect(raw?.dataset.fragmentKind).toBe("raw");
+    expect(raw?.classList.contains("block-tree-node--raw")).toBe(true);
+  });
+
   it("exposes the selected target for keyboard-accessible palette insertion", () => {
     const { document, index } = fixture();
     const host = fakeDocument.createElement("div");
@@ -262,11 +317,13 @@ describe("block tree interaction gate", () => {
 });
 
 function fixture(): { readonly document: SourceDoc; readonly index: BlockIndex } {
-  const source = "int total;\ntotal++;\nreturn total;\nvoid f(void) {}\n#error\n";
+  const source =
+    "int total;\ntotal++;\nreturn total;\nwhile (ready) { total++; }\nvoid f(void) {}\n#error\n";
   const blocks: readonly Block[] = [
     syntaxBlock(source, "int total;", "declaration", "declaration"),
     syntaxBlock(source, "total++;", "statement", "expression_statement"),
     syntaxBlock(source, "return total;", "statement", "return_statement"),
+    syntaxBlock(source, "while (ready) { total++; }", "statement", "while_statement"),
     syntaxBlock(source, "void f(void) {}", "function", "function_definition"),
     rawBlock(source, "#error"),
   ];
@@ -328,6 +385,14 @@ function slotFor(host: FakeElement, blockIndex: string, position: "before" | "af
   return slot;
 }
 
+function assemblyTargetFor(host: FakeElement, blockIndex: string): FakeElement {
+  const target = host
+    .querySelectorAll<FakeElement>("[data-assembly-target-index]")
+    .find((candidate) => candidate.dataset.assemblyTargetIndex === blockIndex);
+  if (target === undefined) throw new Error(`missing assembly target for ${blockIndex}`);
+  return target;
+}
+
 function entryFor(index: BlockIndex, button: FakeElement): BlockIndexEntry {
   const entry = index.entries[Number(button.dataset.blockIndex)];
   if (entry === undefined) throw new Error("missing block index entry");
@@ -344,6 +409,7 @@ class FakeDataTransfer {
 interface FakeEventInit {
   readonly dataTransfer?: FakeDataTransfer | null;
   readonly relatedTarget?: FakeElement | null;
+  readonly clientY?: number;
 }
 
 class FakeUiEvent {
@@ -354,6 +420,7 @@ class FakeUiEvent {
     readonly target: FakeElement,
     readonly dataTransfer: FakeDataTransfer | null,
     readonly relatedTarget: FakeElement | null,
+    readonly clientY: number | undefined,
   ) {}
 
   preventDefault(): void {
@@ -440,6 +507,10 @@ class FakeElement {
     return this.children.some((child) => child.contains(node));
   }
 
+  getBoundingClientRect(): Pick<DOMRect, "height" | "top"> {
+    return { height: 20, top: 0 };
+  }
+
   closest<T>(selector: string): T | null {
     let candidate: FakeElement | null = this;
     while (candidate !== null) {
@@ -451,7 +522,12 @@ class FakeElement {
         candidate.dataset.blockIndex !== undefined;
       const matchesSlot =
         selector === "[data-assembly-slot]" && candidate.dataset.assemblySlot !== undefined;
-      if (matchesBlock || matchesButton || matchesSlot) return candidate as T;
+      const matchesAssemblyTarget =
+        selector === "[data-assembly-target-index]" &&
+        candidate.dataset.assemblyTargetIndex !== undefined;
+      if (matchesBlock || matchesButton || matchesSlot || matchesAssemblyTarget) {
+        return candidate as T;
+      }
       candidate = candidate.parent;
     }
     return null;
@@ -461,7 +537,9 @@ class FakeElement {
     if (
       selector !== "[data-block-index]" &&
       selector !== "button[data-block-index]" &&
-      selector !== "[data-assembly-slot]"
+      selector !== "[data-assembly-slot]" &&
+      selector !== "[data-assembly-target-index]" &&
+      selector !== ".block-tree-node"
     ) {
       return [];
     }
@@ -476,7 +554,20 @@ class FakeElement {
           child.dataset.blockIndex !== undefined;
         const matchesSlot =
           selector === "[data-assembly-slot]" && child.dataset.assemblySlot !== undefined;
-        if (matchesBlock || matchesButton || matchesSlot) matches.push(child as T);
+        const matchesAssemblyTarget =
+          selector === "[data-assembly-target-index]" &&
+          child.dataset.assemblyTargetIndex !== undefined;
+        const matchesTreeNode =
+          selector === ".block-tree-node" && child.classList.contains("block-tree-node");
+        if (
+          matchesBlock ||
+          matchesButton ||
+          matchesSlot ||
+          matchesAssemblyTarget ||
+          matchesTreeNode
+        ) {
+          matches.push(child as T);
+        }
         visit(child);
       }
     };
@@ -524,6 +615,7 @@ class FakeElement {
       target,
       init.dataTransfer ?? null,
       init.relatedTarget ?? null,
+      init.clientY,
     );
     for (const listener of this.listeners.get(type) ?? []) {
       if (typeof listener === "function") listener(event as unknown as Event);
