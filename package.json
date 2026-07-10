@@ -37,6 +37,7 @@
     "verify:samples": "node scripts/verify-samples.mjs",
     "verify:wasm-assets": "node scripts/verify-wasm-assets.mjs",
     "verify:roundtrip": "node scripts/roundtrip.mjs",
+    "verify:edit-equiv": "node scripts/edit-equiv.mjs",
     "verify:m2": "vitest run tests/core/block-index.test.ts tests/core/statement-projector.test.ts tests/core/symbols.test.ts tests/core/builtins.test.ts tests/renderer/source-offset-map.test.ts tests/shared/source-import.test.ts tests/electron/source-import.test.ts tests/ui/explanation.test.ts tests/ui/run-panel.test.ts",
     "verify:m3a": "npm run typecheck && npm run deps:check && vitest run tests/core/editing tests/ui/exact-source-history.test.ts tests/ui/edit-panel.test.ts tests/renderer/source-offset-map.test.ts",
     "accept:m0": "node scripts/accept-m0.mjs",
