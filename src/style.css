@@ -201,7 +201,7 @@ p {
 .workbench-shell {
   position: relative;
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr) 24px;
+  grid-template-rows: 46px minmax(0, 1fr) 24px;
   width: 100%;
   height: 100%;
   color: var(--ink);
@@ -211,10 +211,10 @@ p {
 .app-bar {
   z-index: 2;
   display: grid;
-  grid-template-columns: minmax(168px, auto) minmax(120px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 240px) auto;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px;
+  gap: 12px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
@@ -223,7 +223,7 @@ p {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 7px;
+  gap: 14px;
 }
 
 .brand__mark {
@@ -281,13 +281,11 @@ h2 {
   align-items: center;
   justify-content: center;
   padding: 4px 9px;
-  border-radius: 3px;
+  border-radius: 0;
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
-  transition:
-    border-color 90ms ease,
-    background-color 90ms ease;
+  transition: none;
 }
 
 .button:disabled {
@@ -321,7 +319,7 @@ h2 {
 .workbench {
   display: grid;
   min-height: 0;
-  grid-template-columns: minmax(176px, 0.66fr) minmax(360px, 1.8fr) minmax(220px, 0.9fr);
+  grid-template-columns: 228px minmax(420px, 2.15fr) minmax(280px, 0.85fr);
   overflow: hidden;
   background: var(--canvas);
 }
@@ -339,6 +337,10 @@ h2 {
 .panel--code {
   display: grid;
   grid-template-rows: 32px minmax(0, 1fr);
+  border-right: 1px solid var(--line);
+}
+
+.panel--palette {
   border-right: 1px solid var(--line);
 }
 
@@ -1334,7 +1336,7 @@ h2 {
 .drop-overlay {
   position: absolute;
   z-index: 20;
-  inset: 42px 0 24px;
+  inset: 46px 0 24px;
   display: grid;
   place-items: center;
   border: 1px dashed var(--accent);
@@ -1343,12 +1345,12 @@ h2 {
 
 .drop-overlay__card {
   display: grid;
-  min-width: 220px;
+  min-width: 260px;
   justify-items: center;
   gap: 4px;
   padding: 16px;
   border: 1px solid var(--line-strong);
-  border-radius: 3px;
+  border-radius: 0;
   color: var(--ink);
   background: var(--surface-raised);
 }
@@ -1445,9 +1447,376 @@ h2 {
   font-size: 10px;
 }
 
+/* Functional workbench navigation: flat, grouped and extension-driven. */
+.app-navigation {
+  min-width: 0;
+}
+
+.app-navigation h1 {
+  flex: 0 0 auto;
+  padding-right: 12px;
+  border-right: 1px solid var(--line-strong);
+  color: var(--ink-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dock-bar {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  align-items: stretch;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dock-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.dock-group {
+  display: flex;
+  min-width: max-content;
+  align-items: stretch;
+  border-right: 1px solid var(--line);
+}
+
+.dock-group__label {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  color: var(--muted-subtle);
+  background: var(--canvas);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dock-tab {
+  min-width: 54px;
+  padding: 0 9px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.dock-tab:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.dock-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+  background: var(--surface-raised);
+}
+
+.workbench-pages,
+.workbench-page {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workbench-pages {
+  display: grid;
+}
+
+.workbench-page {
+  grid-area: 1 / 1;
+}
+
+.workbench-page--extension {
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr);
+  background: var(--surface);
+}
+
+.workbench-page__title {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-secondary);
+  background: var(--surface-soft);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workbench-page__host {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+/* Catalog and real assembly slots. */
+#block-palette {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.block-palette {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--surface);
+}
+
+.block-palette__filters {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.block-palette__select,
+.block-palette__search {
+  width: 100%;
+  min-width: 0;
+  min-height: 26px;
+  padding: 3px 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--ink-secondary);
+  background: var(--input-surface);
+  font-size: 10px;
+}
+
+.block-palette__list {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.block-palette__item {
+  display: grid;
+  gap: 4px;
+  padding: 7px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  cursor: grab;
+}
+
+.block-palette__item:hover {
+  background: var(--surface-hover);
+}
+
+.block-palette__item.is-dragging {
+  opacity: 0.46;
+  cursor: grabbing;
+}
+
+.block-palette__item-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
+}
+
+.block-palette__item-heading span {
+  color: var(--muted-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.block-palette__source {
+  overflow: hidden;
+  color: var(--code-ink);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-palette__description {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.block-palette__insert {
+  justify-self: start;
+  padding: 2px 0;
+  border: 0;
+  color: var(--accent-hover);
+  background: transparent;
+  font-size: 9px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.block-palette__insert:disabled {
+  color: var(--muted-subtle);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.block-palette__empty,
+.block-palette__empty-state {
+  margin: 0;
+  padding: 12px 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.assembly-slot {
+  position: relative;
+  height: 2px;
+  margin: 0 4px;
+  pointer-events: none;
+}
+
+.block-tree[data-template-drag="true"] .assembly-slot {
+  height: 18px;
+  border: 1px dashed var(--line-strong);
+  background: var(--canvas);
+  pointer-events: auto;
+}
+
+.block-tree[data-template-drag="true"] .assembly-slot::after {
+  position: absolute;
+  inset: 50% 8px auto;
+  height: 1px;
+  background: var(--line-strong);
+  content: "";
+}
+
+.assembly-slot.is-template-drop-target {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.assembly-slot.is-template-drop-target::after {
+  background: var(--accent);
+}
+
+/* GALGAME interaction structure without decorative media. */
+.onboarding-dialog {
+  width: min(720px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: none;
+}
+
+.onboarding-dialog::backdrop {
+  background: var(--overlay);
+}
+
+.onboarding-dialog__surface {
+  display: grid;
+  gap: 0;
+}
+
+.onboarding-dialog__header {
+  min-height: 150px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--input-surface);
+}
+
+.onboarding-dialog__header h2 {
+  margin-bottom: 28px;
+  color: var(--muted-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.onboarding-dialog__speaker {
+  margin-bottom: 8px;
+  color: var(--accent-hover);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.onboarding-dialog__dialogue {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.onboarding-dialog__choices {
+  display: grid;
+  gap: 1px;
+  padding: 8px;
+  background: var(--line);
+}
+
+.onboarding-dialog__choice,
+.onboarding-dialog__back,
+.onboarding-dialog__skip {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink-secondary);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.onboarding-dialog__choice:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.onboarding-dialog__actions {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+}
+
+.onboarding-dialog__back,
+.onboarding-dialog__skip {
+  min-height: 28px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10px;
+}
+
+.onboarding-dialog__back:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.guide-page {
+  display: grid;
+  max-width: 720px;
+  gap: 12px;
+  padding: 18px;
+}
+
+.guide-page p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 @media (max-width: 1000px) {
   .workbench {
-    grid-template-columns: minmax(176px, 0.62fr) minmax(360px, 1.7fr) minmax(220px, 0.84fr);
+    grid-template-columns: 188px minmax(390px, 1.8fr) minmax(260px, 0.72fr);
   }
 
   .brand__mark {

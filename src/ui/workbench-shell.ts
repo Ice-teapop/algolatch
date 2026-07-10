@@ -83,14 +83,14 @@ export function mountWorkbench(
         >
           <section class="panel panel--palette panel--blocks" aria-labelledby="palette-title">
             <header class="panel__header">
-              <h2 id="palette-title">积木</h2>
+              <h2 id="palette-title">积木库</h2>
             </header>
             <div id="block-palette" class="block-palette"></div>
           </section>
 
           <section class="panel panel--blocks" aria-labelledby="blocks-title">
             <header class="panel__header">
-              <h2 id="blocks-title">结构</h2>
+              <h2 id="blocks-title">组装画布</h2>
             </header>
             <div id="block-tree" class="block-tree"></div>
           </section>
@@ -116,7 +116,6 @@ export function mountWorkbench(
 
       <div id="drop-overlay" class="drop-overlay" hidden aria-hidden="true">
         <div class="drop-overlay__card">
-          <span class="drop-overlay__icon" aria-hidden="true">↓</span>
           <strong>放下 .c 文件</strong>
           <span>仅在本机读取</span>
         </div>
