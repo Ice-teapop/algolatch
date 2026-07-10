@@ -57,6 +57,9 @@ test("loads both WASM modules through the Vite HTTP development path", async () 
 
     const parserStatus = page.locator("#parser-status");
     await expect(parserStatus).toHaveAttribute("data-state", "ready");
+    await page.getByRole("button", { name: "粘贴源码" }).click();
+    await page.locator("#paste-source").fill("int main(void) { return 0; }\n");
+    await page.getByRole("button", { name: "载入工作台" }).click();
     await expect(parserStatus).toHaveAttribute("data-root-type", "translation_unit");
     await expect(parserStatus).toHaveAttribute("data-function-count", "1");
     await expect(parserStatus).toHaveAttribute("data-roundtrip", "true");

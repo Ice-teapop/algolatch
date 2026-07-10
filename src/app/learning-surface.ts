@@ -1,12 +1,13 @@
 import type { CAnalysisSnapshot } from "../core/index.js";
 import { createLearningCatalog, type LearningCatalogStorage } from "../learning/index.js";
-import { createOnboardingDialog } from "../ui/onboarding-dialog.js";
 import {
   createBlockLibraryManager,
   type BlockLibraryManager,
 } from "../ui/block-library-manager.js";
 import { createBlockPalette, type BlockPalette } from "../ui/block-palette.js";
 import type { AssemblyInsertIntent, BlockTree } from "../ui/block-tree.js";
+import { createOnboardingTour } from "../ui/onboarding-tour.js";
+import { createSoftwareLibrary } from "../ui/software-library.js";
 import type { WorkbenchElements } from "../ui/workbench-shell.js";
 import { createAssemblyController, type AssemblyController } from "./assembly-controller.js";
 import {
@@ -27,13 +28,14 @@ export interface LearningSurfaceOptions {
 export interface LearningSurface {
   insert(intent: AssemblyInsertIntent): Promise<void>;
   setSelectedInsertEnabled(enabled: boolean): void;
+  startOnboardingIfNeeded(): void;
   destroy(): void;
 }
 
 export function createLearningSurface(options: LearningSurfaceOptions): LearningSurface {
   const storage = browserStorage();
   const catalog = createLearningCatalog(storage === undefined ? {} : { storage });
-  const assembly = createAssemblyController({
+  const assembly: AssemblyController = createAssemblyController({
     catalog,
     getAnalysis: options.getAnalysis,
     structureEdits: options.structureEdits,
@@ -51,8 +53,8 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     },
   });
 
-  const library: BlockLibraryManager = createBlockLibraryManager(
-    options.elements.getPageHost("library"),
+  const blockLibrary: BlockLibraryManager = createBlockLibraryManager(
+    options.elements.getPageHost("block-library"),
     catalog,
     {
       validateSource(source) {
@@ -69,12 +71,18 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     },
   );
 
-  const onboarding = createOnboardingDialog(options.elements.shell, {
-    autoOpen: globalThis.navigator?.webdriver !== true,
+  const onboarding = createOnboardingTour(options.elements.shell, {
+    navigate: (pageId) => options.elements.showPage(pageId),
+    getCurrentPage: () => options.elements.currentPage,
   });
-  const guide = mountGuidePage(options.elements.getPageHost("guide"), () => {
-    onboarding.openFromDock();
+  const softwareLibrary = createSoftwareLibrary(options.elements.getPageHost("software-library"), {
+    onOpenFeature(pageId, targetId) {
+      options.elements.showPage(pageId);
+      globalThis.requestAnimationFrame(() => revealTourTarget(options.elements.shell, targetId));
+    },
+    onStartTour: () => onboarding.openFromLibrary(),
   });
+  const autoStartEnabled = globalThis.navigator?.webdriver !== true;
 
   return Object.freeze({
     insert(intent: AssemblyInsertIntent): Promise<void> {
@@ -85,39 +93,29 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     setSelectedInsertEnabled(enabled: boolean): void {
       if (!destroyed) palette.setInsertEnabled(enabled);
     },
+    startOnboardingIfNeeded(): void {
+      if (!destroyed && autoStartEnabled) onboarding.startIfNeeded();
+    },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
-      guide.destroy();
+      softwareLibrary.destroy();
       onboarding.destroy();
-      library.destroy();
+      blockLibrary.destroy();
       palette.destroy();
       assembly.destroy();
     },
   });
 }
 
-function mountGuidePage(host: HTMLElement, openGuide: () => void): { destroy(): void } {
-  const ownerDocument = host.ownerDocument;
-  const root = ownerDocument.createElement("section");
-  root.className = "guide-page";
-  const heading = ownerDocument.createElement("h2");
-  heading.textContent = "工作台入门";
-  const copy = ownerDocument.createElement("p");
-  copy.textContent = "通过问答了解积木拖拽、代码同步、自定义积木、弃用与删除，以及差异确认和撤销。";
-  const button = ownerDocument.createElement("button");
-  button.className = "button button--primary";
-  button.type = "button";
-  button.textContent = "重新开始问答引导";
-  button.addEventListener("click", openGuide);
-  root.append(heading, copy, button);
-  host.append(root);
-  return Object.freeze({
-    destroy(): void {
-      button.removeEventListener("click", openGuide);
-      root.remove();
-    },
-  });
+function revealTourTarget(root: HTMLElement, targetId: string): void {
+  for (const target of root.querySelectorAll<HTMLElement>("[data-tour-target]")) {
+    if (target.dataset.tourTarget !== targetId || target.hidden) continue;
+    target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+    if (!target.hasAttribute("tabindex")) target.tabIndex = -1;
+    target.focus({ preventScroll: true });
+    return;
+  }
 }
 
 function browserStorage(): LearningCatalogStorage | undefined {

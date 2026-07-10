@@ -300,6 +300,7 @@ test("keeps CodeMirror editable and injects nonce-bearing styles without CSP vio
 });
 
 test("keeps the compact three-column workbench usable at the minimum window size", async () => {
+  await loadFixtureThroughOpenButton();
   await getElectronApplication().evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.setSize(860, 600);
   });
@@ -405,18 +406,23 @@ test("keeps the compact three-column workbench usable at the minimum window size
 });
 
 test("switches every Dock page with global keyboard navigation", async () => {
+  const dashboardTab = page.getByRole("tab", { name: "Dashboard", exact: true });
   const buildTab = page.getByRole("tab", { name: "搭建", exact: true });
-  const guideTab = page.getByRole("tab", { name: "入门", exact: true });
+  const libraryTab = page.getByRole("tab", { name: "Library", exact: true });
   const forwardPages = [
-    { tab: page.getByRole("tab", { name: "积木库", exact: true }), panel: "#library-panel" },
+    { tab: buildTab, panel: "#build-panel" },
+    {
+      tab: page.getByRole("tab", { name: "积木管理", exact: true }),
+      panel: "#block-library-panel",
+    },
     { tab: page.getByRole("tab", { name: "解释", exact: true }), panel: "#explanation-panel" },
     { tab: page.getByRole("tab", { name: "编辑", exact: true }), panel: "#edit-panel" },
     { tab: page.getByRole("tab", { name: "运行", exact: true }), panel: "#run-panel" },
-    { tab: guideTab, panel: "#guide-panel" },
+    { tab: libraryTab, panel: "#software-library-panel" },
   ] as const;
 
-  await buildTab.focus();
-  await expect(buildTab).toHaveAttribute("aria-selected", "true");
+  await dashboardTab.focus();
+  await expect(dashboardTab).toHaveAttribute("aria-selected", "true");
   for (const dockPage of forwardPages) {
     await page.keyboard.press("ArrowRight");
     await expect(dockPage.tab).toBeFocused();
@@ -425,20 +431,20 @@ test("switches every Dock page with global keyboard navigation", async () => {
   }
 
   await page.keyboard.press("ArrowRight");
-  await expect(buildTab).toBeFocused();
-  await expect(page.locator("#build-panel")).toBeVisible();
+  await expect(dashboardTab).toBeFocused();
+  await expect(page.locator("#dashboard-panel")).toBeVisible();
 
   await page.keyboard.press("ArrowLeft");
-  await expect(guideTab).toBeFocused();
-  await expect(page.locator("#guide-panel")).toBeVisible();
+  await expect(libraryTab).toBeFocused();
+  await expect(page.locator("#software-library-panel")).toBeVisible();
 
   await page.keyboard.press("Home");
-  await expect(buildTab).toBeFocused();
-  await expect(page.locator("#build-panel")).toBeVisible();
+  await expect(dashboardTab).toBeFocused();
+  await expect(page.locator("#dashboard-panel")).toBeVisible();
 
   await page.keyboard.press("End");
-  await expect(guideTab).toBeFocused();
-  await expect(page.locator("#guide-panel")).toBeVisible();
+  await expect(libraryTab).toBeFocused();
+  await expect(page.locator("#software-library-panel")).toBeVisible();
 });
 
 test("switches and persists the industrial color theme", async () => {

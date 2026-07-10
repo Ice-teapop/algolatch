@@ -17,6 +17,7 @@ export interface WorkbenchElements {
   readonly sourceMeta: HTMLElement;
   readonly parserStatus: HTMLOutputElement;
   readonly workspaceSaveStatus: HTMLOutputElement;
+  readonly workspaceRecoveryButton: HTMLButtonElement;
   readonly importStatus: HTMLOutputElement;
   readonly blockPalette: HTMLElement;
   readonly blockTree: HTMLElement;
@@ -93,7 +94,7 @@ export function mountWorkbench(
         <div class="document-identity" aria-label="当前文档">
           <span id="file-name">本地工作区</span>
         </div>
-        <nav class="app-actions" aria-label="工作台操作">
+        <nav class="app-actions" aria-label="工作台操作" data-tour-target="import-actions">
           <button id="open-source" class="button button--quiet" type="button" disabled>
             打开 C 文件
           </button>
@@ -111,21 +112,33 @@ export function mountWorkbench(
           role="tabpanel"
           data-workbench-page-id="build"
         >
-          <section class="panel panel--palette panel--blocks" aria-labelledby="palette-title">
+          <section
+            class="panel panel--palette panel--blocks"
+            aria-labelledby="palette-title"
+            data-tour-target="preset-blocks"
+          >
             <header class="panel__header">
               <h2 id="palette-title">积木库</h2>
             </header>
             <div id="block-palette" class="block-palette"></div>
           </section>
 
-          <section class="panel panel--blocks" aria-labelledby="blocks-title">
+          <section
+            class="panel panel--blocks"
+            aria-labelledby="blocks-title"
+            data-tour-target="assembly-canvas"
+          >
             <header class="panel__header">
               <h2 id="blocks-title">组装画布</h2>
             </header>
             <div id="block-tree" class="block-tree"></div>
           </section>
 
-          <section class="panel panel--code" aria-labelledby="code-title">
+          <section
+            class="panel panel--code"
+            aria-labelledby="code-title"
+            data-tour-target="code-pane"
+          >
             <header class="panel__header panel__header--code">
               <h2 id="code-title">C 代码</h2>
               <span id="source-meta" class="source-meta">—</span>
@@ -144,7 +157,14 @@ export function mountWorkbench(
           class="workspace-save-status"
           aria-live="polite"
           data-state="unmanaged"
+          data-tour-target="local-save"
         >本地工作区未打开</output>
+        <button
+          id="workspace-recovery"
+          class="workspace-recovery-button"
+          type="button"
+          hidden
+        >重新载入磁盘版本</button>
         <output id="import-status" class="status-message" aria-live="polite">
           解析器就绪后可打开、拖入或粘贴 .c 文件
         </output>
@@ -294,6 +314,7 @@ export function mountWorkbench(
     sourceMeta: required(app, "#source-meta", HTMLElement),
     parserStatus: required(app, "#parser-status", HTMLOutputElement),
     workspaceSaveStatus: required(app, "#workspace-save-status", HTMLOutputElement),
+    workspaceRecoveryButton: required(app, "#workspace-recovery", HTMLButtonElement),
     importStatus: required(app, "#import-status", HTMLOutputElement),
     blockPalette: required(app, "#block-palette", HTMLElement),
     blockTree: required(app, "#block-tree", HTMLElement),
@@ -347,6 +368,7 @@ function mountExtensionPage(
   host.id = `${token}-host`;
   host.className = `workbench-page__host ${token}`;
   host.dataset.workbenchPageId = page.id;
+  host.dataset.tourTarget = page.id;
   panel.append(heading, host);
   pageStack.append(panel);
   return Object.freeze({ pageId: page.id, tab, panel, host });

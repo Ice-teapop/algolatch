@@ -12,10 +12,11 @@ describe("learning surface integration boundary", () => {
     expect(source).not.toContain("dispatch(");
   });
 
-  it("refreshes the palette after catalog lifecycle changes and exposes guide reopening", () => {
+  it("refreshes the palette and separates block management from the software Library", () => {
     expect(source).toContain("palette.refresh()");
-    expect(source).toContain('getPageHost("library")');
-    expect(source).toContain('getPageHost("guide")');
-    expect(source).toContain("onboarding.openFromDock()");
+    expect(source).toContain('getPageHost("block-library")');
+    expect(source).toContain('getPageHost("software-library")');
+    expect(source).toContain("onboarding.openFromLibrary()");
+    expect(source).toContain("startOnboardingIfNeeded");
   });
 });

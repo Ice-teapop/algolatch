@@ -47,7 +47,7 @@ export function createWorkspaceDashboard(
   const ownerDocument = host.ownerDocument;
   const root = ownerDocument.createElement("section");
   root.className = "workspace-dashboard";
-  root.dataset.tourTarget = "dashboard";
+  root.dataset.tourTarget = "dashboard-content";
   root.setAttribute("aria-label", "本地工作区 Dashboard");
 
   const sidebar = ownerDocument.createElement("nav");

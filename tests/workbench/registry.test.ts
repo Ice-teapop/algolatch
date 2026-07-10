@@ -183,11 +183,11 @@ describe("WorkbenchModuleRegistry", () => {
     expect(snapshot.pages).toEqual([
       expect.objectContaining({ id: "dashboard", groupId: "home", order: 0 }),
       expect.objectContaining({ id: "build", groupId: "core", order: 10 }),
-      expect.objectContaining({ id: "library", groupId: "core", order: 20 }),
+      expect.objectContaining({ id: "block-library", groupId: "core", order: 20 }),
       expect.objectContaining({ id: "explanation", groupId: "inspect", order: 10 }),
       expect.objectContaining({ id: "edit", groupId: "inspect", order: 20 }),
       expect.objectContaining({ id: "run", groupId: "execute", order: 10 }),
-      expect.objectContaining({ id: "guide", groupId: "learn", order: 10 }),
+      expect.objectContaining({ id: "software-library", groupId: "learn", order: 10 }),
     ]);
     expect(
       registry.findModulesByCapability("inspector.editing").map(({ manifest }) => manifest.id),

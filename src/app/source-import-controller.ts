@@ -5,7 +5,7 @@ import type { WorkbenchElements } from "../ui/workbench-shell.js";
 export type SourceImportStatusState = "loading" | "ready" | "error";
 
 export interface SourceImportControllerOptions {
-  readonly load: (document: ImportedSource) => void;
+  readonly load: (document: ImportedSource, isCurrent: () => boolean) => void | Promise<void>;
 }
 
 export interface SourceImportController {
@@ -35,20 +35,30 @@ export function createSourceImportController(
     elements.importStatus.dataset.state = state;
   };
 
-  const applyResult = (result: SourceImportResult): void => {
+  const applyResult = async (
+    result: SourceImportResult,
+    currentRequest: number,
+  ): Promise<boolean> => {
+    const isCurrent = (): boolean => !destroyed && currentRequest === requestId;
+    if (!isCurrent()) return false;
     if (result.status === "cancelled") {
       setStatus("已取消文件选择，当前文档保持不变。", "ready");
-      return;
+      return false;
     }
     if (result.status === "failed") {
       setStatus(`${result.error.code}：${result.error.message}`, "error");
-      return;
+      return false;
     }
     try {
-      options.load(result.document);
+      await options.load(result.document, isCurrent);
+      if (!isCurrent()) return false;
       setStatus(`已载入 ${result.document.displayName}。`, "ready");
+      return true;
     } catch (error: unknown) {
-      setStatus(`源码解析失败：${errorMessage(error)}；当前文档保持不变。`, "error");
+      if (isCurrent()) {
+        setStatus(`源码载入失败：${errorMessage(error)}；当前文档保持不变。`, "error");
+      }
+      return false;
     }
   };
 
@@ -57,7 +67,7 @@ export function createSourceImportController(
     setStatus("正在等待系统文件选择器…", "loading");
     try {
       const result = await window.panelApi.openSource();
-      if (!destroyed && currentRequest === requestId) applyResult(result);
+      if (!destroyed && currentRequest === requestId) await applyResult(result, currentRequest);
     } catch {
       if (!destroyed && currentRequest === requestId) {
         setStatus("文件选择器 IPC 调用失败。", "error");
@@ -72,16 +82,17 @@ export function createSourceImportController(
     elements.pasteSource.focus();
   };
 
-  const confirmPaste = (): void => {
+  const confirmPaste = async (): Promise<void> => {
     const result = importPastedSource(elements.pasteSource.value);
     if (result.status === "failed") {
       elements.pasteError.textContent = result.error.message;
       return;
     }
     if (result.status === "opened") {
-      requestId += 1;
-      applyResult(result);
-      elements.pasteDialog.close("loaded");
+      const currentRequest = ++requestId;
+      if (await applyResult(result, currentRequest)) {
+        elements.pasteDialog.close("loaded");
+      }
     }
   };
 
@@ -122,8 +133,10 @@ export function createSourceImportController(
     setStatus("正在读取拖入的 C 文件…", "loading");
     void window.panelApi
       .openDroppedSource(files[0])
-      .then((result) => {
-        if (!destroyed && currentRequest === requestId) applyResult(result);
+      .then(async (result) => {
+        if (!destroyed && currentRequest === requestId) {
+          await applyResult(result, currentRequest);
+        }
       })
       .catch(() => {
         if (!destroyed && currentRequest === requestId) {
@@ -134,7 +147,8 @@ export function createSourceImportController(
 
   elements.openButton.addEventListener("click", openNativeSource);
   elements.pasteButton.addEventListener("click", showPasteDialog);
-  elements.pasteConfirm.addEventListener("click", confirmPaste);
+  const onPasteConfirm = (): void => void confirmPaste();
+  elements.pasteConfirm.addEventListener("click", onPasteConfirm);
   elements.pasteDialog.addEventListener("close", clearPasteError);
   elements.shell.addEventListener("dragenter", onDragEnter);
   elements.shell.addEventListener("dragover", onDragOver);
@@ -157,7 +171,7 @@ export function createSourceImportController(
       elements.dropOverlay.hidden = true;
       elements.openButton.removeEventListener("click", openNativeSource);
       elements.pasteButton.removeEventListener("click", showPasteDialog);
-      elements.pasteConfirm.removeEventListener("click", confirmPaste);
+      elements.pasteConfirm.removeEventListener("click", onPasteConfirm);
       elements.pasteDialog.removeEventListener("close", clearPasteError);
       elements.shell.removeEventListener("dragenter", onDragEnter);
       elements.shell.removeEventListener("dragover", onDragOver);

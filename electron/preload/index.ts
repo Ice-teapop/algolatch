@@ -24,9 +24,28 @@ const IPC_CHANNELS = Object.freeze({
   createWorkspaceDocument: "workspace:create",
   openWorkspaceDocument: "workspace:open",
   saveWorkspaceDocument: "workspace:save-source",
+  workspaceCloseRequest: "workspace:close-request",
+  workspaceCloseResponse: "workspace:close-response",
   capabilities: "panel:capabilities",
   compile: "panel:compile",
   run: "panel:run",
+});
+
+let workspaceCloseHandler: (() => Promise<void>) | null = null;
+
+ipcRenderer.on(IPC_CHANNELS.workspaceCloseRequest, (_event, requestId: unknown) => {
+  if (typeof requestId !== "string") return;
+  const handler = workspaceCloseHandler;
+  if (handler === null) {
+    ipcRenderer.send(IPC_CHANNELS.workspaceCloseResponse, { requestId, status: "ready" });
+    return;
+  }
+  void Promise.resolve()
+    .then(handler)
+    .then(
+      () => ipcRenderer.send(IPC_CHANNELS.workspaceCloseResponse, { requestId, status: "ready" }),
+      () => ipcRenderer.send(IPC_CHANNELS.workspaceCloseResponse, { requestId, status: "failed" }),
+    );
 });
 
 function copyCapabilitiesSnapshot(value: Capabilities): Capabilities {
@@ -81,6 +100,13 @@ const panelApi: PanelApi = Object.freeze({
     request: SaveWorkspaceDocumentRequest,
   ): Promise<WorkspaceSaveResult> =>
     (await ipcRenderer.invoke(IPC_CHANNELS.saveWorkspaceDocument, request)) as WorkspaceSaveResult,
+  onWorkspaceCloseRequested: (handler: () => Promise<void>): (() => void) => {
+    if (typeof handler !== "function") throw new TypeError("关闭前保存处理器必须是函数");
+    workspaceCloseHandler = handler;
+    return () => {
+      if (workspaceCloseHandler === handler) workspaceCloseHandler = null;
+    };
+  },
   capabilities: async (): Promise<Capabilities> =>
     copyCapabilitiesSnapshot((await ipcRenderer.invoke(IPC_CHANNELS.capabilities)) as Capabilities),
   compile: async (request: CompileRequest): Promise<CompileResult> =>

@@ -5,13 +5,14 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 let application: ElectronApplication | undefined;
 let page: Page;
 let workspaceRoot = "";
+let projectId = "";
 
 test.beforeAll(async () => {
   workspaceRoot = await mkdtemp(join(tmpdir(), "c-block-dashboard-e2e-"));
@@ -69,8 +70,8 @@ test("creates a real project folder, enters the workbench and reopens it after r
 
   const projectIds = await readdir(join(workspaceRoot, "Projects"));
   expect(projectIds).toHaveLength(1);
-  const projectId = projectIds[0];
-  if (projectId === undefined) throw new Error("项目目录不存在");
+  projectId = projectIds[0] ?? "";
+  if (projectId.length === 0) throw new Error("项目目录不存在");
   expect(await readFile(join(workspaceRoot, "Projects", projectId, "main.c"), "utf8")).toBe(
     "int main(void) {\n  return 0;\n}\n",
   );
@@ -98,4 +99,55 @@ test("creates a real project folder, enters the workbench and reopens it after r
     "aria-selected",
     "true",
   );
+});
+
+test("offers an explicit disk reload when optimistic save detects a conflict", async () => {
+  const directory = join(workspaceRoot, "Projects", projectId);
+  const manifestPath = join(directory, "entry.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+  const diskSource = "int main(void) {\n  return 99;\n}\n";
+  await writeFile(join(directory, "main.c"), diskSource, "utf8");
+  await writeFile(
+    manifestPath,
+    `${JSON.stringify(
+      {
+        ...manifest,
+        revision: Number(manifest.revision) + 1,
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("int main(void) {\n  return 43;\n}\n");
+  await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "error");
+  const recovery = page.getByRole("button", { name: "重新载入磁盘版本" });
+  await expect(recovery).toBeVisible();
+  page.once("dialog", async (dialog) => dialog.accept());
+  await recovery.click();
+
+  await expect(page.locator(".cm-line")).toHaveText(["int main(void) {", "  return 99;", "}", ""]);
+  await expect(recovery).toBeHidden();
+  await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "saved");
+});
+
+test("flushes the final debounced edit before the desktop window closes", async () => {
+  const closingSource = "int main(void) {\n  return 7;\n}\n";
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText(closingSource);
+  await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "pending");
+
+  const currentApplication = application;
+  if (currentApplication === undefined) throw new Error("Electron 应用尚未启动");
+  await currentApplication.close();
+  application = undefined;
+
+  await expect
+    .poll(() => readFile(join(workspaceRoot, "Projects", projectId, "main.c"), "utf8"))
+    .toBe(closingSource);
 });

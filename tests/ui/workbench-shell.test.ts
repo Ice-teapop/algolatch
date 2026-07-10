@@ -31,11 +31,11 @@ describe("workbench shell Dock behavior", () => {
     expect(tabs.map(({ textContent }) => textContent)).toEqual([
       "Dashboard",
       "搭建",
-      "积木库",
+      "积木管理",
       "解释",
       "编辑",
       "运行",
-      "入门",
+      "Library",
     ]);
     expect(tabs.every((tab) => tab.getAttribute("role") === "tab")).toBe(true);
     expect(app.findAllByClass("dock-group__label").map(({ textContent }) => textContent)).toEqual([
@@ -48,10 +48,10 @@ describe("workbench shell Dock behavior", () => {
     expect(shell.currentPage).toBe("dashboard");
     expect(pagePanel("dashboard").hidden).toBe(false);
     expect(pagePanel("build").hidden).toBe(true);
-    expect(pagePanel("library").hidden).toBe(true);
+    expect(pagePanel("block-library").hidden).toBe(true);
     expect(shell.blockPalette.id).toBe("block-palette");
-    expect(shell.getPageHost("library").id).toBe("library-host");
-    expect(shell.getPageHost("guide").id).toBe("guide-host");
+    expect(shell.getPageHost("block-library").id).toBe("block-library-host");
+    expect(shell.getPageHost("software-library").id).toBe("software-library-host");
     expect(shell.getInspectorHost("edit")).toBe(shell.getPageHost("edit"));
   });
 
@@ -60,10 +60,10 @@ describe("workbench shell Dock behavior", () => {
     const buildPanel = pagePanel("build");
     const codePane = shell.codePane as unknown as FakeElement;
 
-    tab("library").click();
-    expect(shell.currentPage).toBe("library");
+    tab("block-library").click();
+    expect(shell.currentPage).toBe("block-library");
     expect(buildPanel.hidden).toBe(true);
-    expect(pagePanel("library").hidden).toBe(false);
+    expect(pagePanel("block-library").hidden).toBe(false);
     expect(shell.codePane).toBe(codePane);
     expect(codePane.removeNodeCount).toBe(0);
 
@@ -72,7 +72,7 @@ describe("workbench shell Dock behavior", () => {
     expect(pagePanel("build")).toBe(buildPanel);
     expect(buildPanel.hidden).toBe(false);
     expect(() => shell.showPage("missing")).toThrow(/未知工作台页面/u);
-    expect(() => shell.showInspector("library")).toThrow(/未知检查器视图/u);
+    expect(() => shell.showInspector("block-library")).toThrow(/未知检查器视图/u);
   });
 
   it("navigates all Dock tabs with arrows, Home and End", () => {
@@ -83,11 +83,11 @@ describe("workbench shell Dock behavior", () => {
     expect(shell.currentPage).toBe("build");
     expect(document.activeElement).toBe(tab("build"));
     dock.keydown("End");
-    expect(shell.currentPage).toBe("guide");
+    expect(shell.currentPage).toBe("software-library");
     dock.keydown("ArrowDown");
     expect(shell.currentPage).toBe("dashboard");
     dock.keydown("ArrowLeft");
-    expect(shell.currentPage).toBe("guide");
+    expect(shell.currentPage).toBe("software-library");
     dock.keydown("ArrowUp");
     expect(shell.currentPage).toBe("run");
     dock.keydown("Home");
@@ -103,7 +103,7 @@ describe("workbench shell Dock behavior", () => {
     shell.destroy();
     expect(dock.listenerRemoveCount("keydown")).toBe(1);
     expect(tabs.every((item) => item.listenerRemoveCount("click") === 1)).toBe(true);
-    tab("library").click();
+    tab("block-library").click();
     expect(shell.currentPage).toBe("dashboard");
     expect(() => shell.showPage("build")).toThrow(/已销毁/u);
   });
@@ -328,6 +328,7 @@ function buildStaticShell(document: FakeDocument): FakeElement {
     identified(document.createElement("button"), "theme-toggle"),
     identified(document.createElement("output"), "parser-status"),
     identified(document.createElement("output"), "workspace-save-status"),
+    identified(document.createElement("button"), "workspace-recovery"),
     identified(document.createElement("output"), "import-status"),
     identified(document.createElement("dialog"), "paste-dialog"),
     identified(document.createElement("textarea"), "paste-source"),

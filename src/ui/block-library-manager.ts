@@ -52,6 +52,7 @@ export function createBlockLibraryManager(
   const form = ownerDocument.createElement("form");
   form.className = "block-library-manager__form";
   form.setAttribute("aria-label", "新建自定义积木");
+  form.dataset.tourTarget = "block-library-create";
 
   const labelInput = createTextInput(ownerDocument, "积木名称", "例如：交换两个变量");
   const stageSelect = ownerDocument.createElement("select");
@@ -87,6 +88,7 @@ export function createBlockLibraryManager(
   const list = ownerDocument.createElement("div");
   list.className = "block-library-manager__list";
   list.setAttribute("aria-label", "积木生命周期列表");
+  list.dataset.tourTarget = "block-library-lifecycle";
 
   root.append(heading, form, statusOutput, list);
   host.append(root);

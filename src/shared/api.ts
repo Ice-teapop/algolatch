@@ -137,6 +137,7 @@ export interface PanelApi {
   ): Promise<WorkspaceDocumentResult>;
   openWorkspaceDocument(request: OpenWorkspaceDocumentRequest): Promise<WorkspaceDocumentResult>;
   saveWorkspaceDocument(request: SaveWorkspaceDocumentRequest): Promise<WorkspaceSaveResult>;
+  onWorkspaceCloseRequested(handler: () => Promise<void>): () => void;
   capabilities(): Promise<Capabilities>;
   compile(request: CompileRequest): Promise<CompileResult>;
   run(request: RunRequest): Promise<RunResult>;

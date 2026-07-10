@@ -461,7 +461,18 @@ test("opens the local desktop shell with a narrow preload API", async () => {
   }));
 
   expect(rendererBoundary).toEqual({
-    apiKeys: ["capabilities", "compile", "openDroppedSource", "openSource", "run"],
+    apiKeys: [
+      "capabilities",
+      "compile",
+      "createWorkspaceDocument",
+      "listWorkspaceDocuments",
+      "onWorkspaceCloseRequested",
+      "openDroppedSource",
+      "openSource",
+      "openWorkspaceDocument",
+      "run",
+      "saveWorkspaceDocument",
+    ],
     forbiddenApiKeys: [],
     hasNodeProcess: false,
     hasNodeRequire: false,
@@ -504,7 +515,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
   expect(scriptSources.every((source) => source.startsWith("file://"))).toBe(true);
 });
 
-test("loads both WASM modules and projects hello.c in the real renderer", async () => {
+test("loads both WASM modules and projects an explicitly opened C document", async () => {
   const runtimeFailures: string[] = [];
   const wasmRequests: string[] = [];
   const onPageError = (error: Error) => runtimeFailures.push(`pageerror: ${error.message}`);
@@ -527,6 +538,9 @@ test("loads both WASM modules and projects hello.c in the real renderer", async 
     await page.reload({ waitUntil: "domcontentloaded" });
     const parserStatus = page.locator("#parser-status");
     await expect(parserStatus).toHaveAttribute("data-state", "ready");
+    await page.getByRole("button", { name: "粘贴源码" }).click();
+    await page.locator("#paste-source").fill("int main(void) { return 0; }\n");
+    await page.getByRole("button", { name: "载入工作台" }).click();
     await expect(parserStatus).toHaveAttribute("data-root-type", "translation_unit");
     await expect(parserStatus).toHaveAttribute("data-function-count", "1");
     await expect(parserStatus).toHaveAttribute("data-roundtrip", "true");

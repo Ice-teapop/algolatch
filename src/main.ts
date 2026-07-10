@@ -17,6 +17,7 @@ import {
 } from "./app/structure-edit-selection.js";
 import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
 import { createWorkspaceController, type WorkspaceController } from "./app/workspace-controller.js";
+import { installWorkspaceLifecycle } from "./app/workspace-lifecycle.js";
 import { createBrowserCParser } from "./renderer/c-parser.js";
 import { validateSourceText } from "./shared/source-import.js";
 import type { ImportedSource } from "./shared/api.js";
@@ -105,13 +106,13 @@ const workspaceController: WorkspaceController = createWorkspaceController({
   host: elements.getPageHost("dashboard"),
   api: window.panelApi,
   saveStatus: elements.workspaceSaveStatus,
+  recoveryButton: elements.workspaceRecoveryButton,
   load: loadSource,
   enterWorkbench: () => elements.showPage("build"),
 });
 const sourceImport = createSourceImportController(elements, {
-  load: (document) => {
-    workspaceController.deactivate();
-    loadSource(document);
+  load: async (document, isCurrent) => {
+    if (await workspaceController.prepareExternalImport(isCurrent)) loadSource(document);
   },
 });
 projectionPresenter = createProjectionPresenter({
@@ -190,9 +191,11 @@ async function initialize(): Promise<void> {
     if (destroyed) return;
     sourceImport.setStatus("可新建本地条目，或打开、拖入、粘贴现有 .c 文件。", "ready");
     startupLoader.complete();
+    globalThis.setTimeout(() => learningSurface?.startOnboardingIfNeeded(), 500);
   } catch (error: unknown) {
-    startupLoader.fail(`启动失败：${errorMessage(error)}`);
-    elements.parserStatus.textContent = `C 解析器不可用：${errorMessage(error)}`;
+    const detail = error instanceof Error ? error.message : "未知错误";
+    startupLoader.fail(`启动失败：${detail}`);
+    elements.parserStatus.textContent = `C 解析器不可用：${detail}`;
     elements.parserStatus.dataset.state = "error";
     sourceImport.setStatus("解析器初始化失败，源码工作台已停用。", "error");
   }
@@ -468,28 +471,27 @@ function symbolTooltip(symbol: core.SymbolRecord, role: "declaration" | "use"): 
     : `${symbol.name} = ${symbol.valueText} · ${roleText}`;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "未知错误";
+function destroyApplication(): void {
+  if (destroyed) return;
+  destroyed = true;
+  sourceSync.destroy();
+  structureEdits?.destroy();
+  projectionPresenter?.destroy();
+  sourceImport.destroy();
+  learningSurface?.destroy();
+  workspaceController.destroy();
+  runPanel.destroy();
+  structureEditPanel?.destroy();
+  editPanel?.destroy();
+  projectionStatus.destroy();
+  blockTree.destroy();
+  codePane.destroy();
+  parser?.dispose();
+  runtime.destroy();
 }
 
-window.addEventListener(
-  "beforeunload",
-  () => {
-    destroyed = true;
-    sourceSync.destroy();
-    structureEdits?.destroy();
-    projectionPresenter?.destroy();
-    sourceImport.destroy();
-    learningSurface?.destroy();
-    workspaceController.destroy();
-    runPanel.destroy();
-    structureEditPanel?.destroy();
-    editPanel?.destroy();
-    projectionStatus.destroy();
-    blockTree.destroy();
-    codePane.destroy();
-    parser?.dispose();
-    runtime.destroy();
-  },
-  { once: true },
-);
+installWorkspaceLifecycle({
+  workspace: workspaceController,
+  onCloseRequested: window.panelApi.onWorkspaceCloseRequested,
+  destroy: destroyApplication,
+});

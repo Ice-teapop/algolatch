@@ -1,16 +1,45 @@
-export const ONBOARDING_FLOW_VERSION = 1;
+export const ONBOARDING_FLOW_VERSION = 2;
 export const ONBOARDING_STORAGE_KEY = "c-block-algorithm-panel.onboarding";
 
 export type OnboardingLearner = "new" | "experienced";
-export type OnboardingEntryMode = "presets" | "import";
 export type OnboardingCompletion = "completed" | "skipped";
+export type OnboardingPlacement = "top" | "right" | "bottom" | "left" | "center";
 export type OnboardingStepId =
-  "welcome" | "entry" | "blocks" | "import" | "sync" | "custom" | "lifecycle" | "safety";
+  | "welcome"
+  | "dashboard-modules"
+  | "dashboard-create"
+  | "dock"
+  | "import-source"
+  | "build-presets"
+  | "assembly"
+  | "code"
+  | "local-save"
+  | "explanation"
+  | "edit"
+  | "run"
+  | "block-library"
+  | "software-library";
+
+const STEP_IDS: readonly OnboardingStepId[] = Object.freeze([
+  "welcome",
+  "dashboard-modules",
+  "dashboard-create",
+  "dock",
+  "import-source",
+  "build-presets",
+  "assembly",
+  "code",
+  "local-save",
+  "explanation",
+  "edit",
+  "run",
+  "block-library",
+  "software-library",
+]);
 
 export interface OnboardingCheckpoint {
   readonly stepId: OnboardingStepId;
   readonly learner: OnboardingLearner | null;
-  readonly entryMode: OnboardingEntryMode | null;
 }
 
 export interface OnboardingState {
@@ -19,7 +48,6 @@ export interface OnboardingState {
   readonly completion: OnboardingCompletion | null;
   readonly stepId: OnboardingStepId;
   readonly learner: OnboardingLearner | null;
-  readonly entryMode: OnboardingEntryMode | null;
   readonly history: readonly OnboardingCheckpoint[];
 }
 
@@ -30,6 +58,11 @@ export interface OnboardingChoice {
 
 export interface OnboardingScene {
   readonly stepId: OnboardingStepId;
+  readonly pageId: string;
+  readonly targetId: string;
+  readonly placement: OnboardingPlacement;
+  readonly stepIndex: number;
+  readonly stepCount: number;
   readonly speaker: string;
   readonly dialogue: string;
   readonly choices: readonly OnboardingChoice[];
@@ -38,6 +71,7 @@ export interface OnboardingScene {
 
 export type OnboardingEvent =
   | { readonly type: "choose"; readonly choiceId: string }
+  | { readonly type: "next" }
   | { readonly type: "back" }
   | { readonly type: "skip" }
   | { readonly type: "reopen" };
@@ -51,6 +85,7 @@ export interface OnboardingFlowOptions {
 export interface OnboardingFlow {
   getState(): OnboardingState;
   choose(choiceId: string): OnboardingState;
+  next(): OnboardingState;
   back(): OnboardingState;
   skip(): OnboardingState;
   reopen(): OnboardingState;
@@ -72,6 +107,7 @@ export function createOnboardingFlow(options: OnboardingFlowOptions = {}): Onboa
   return Object.freeze({
     getState: () => state,
     choose: (choiceId: string) => apply({ type: "choose", choiceId }),
+    next: () => apply({ type: "next" }),
     back: () => apply({ type: "back" }),
     skip: () => apply({ type: "skip" }),
     reopen: () => apply({ type: "reopen" }),
@@ -90,59 +126,52 @@ export function transitionOnboarding(
   if (event.type === "skip") {
     return freezeState({ ...state, status: "closed", completion: state.completion ?? "skipped" });
   }
-  return chooseNextState(state, event.choiceId);
+  return chooseNextState(state, event.type === "next" ? "next" : event.choiceId);
 }
 
 export function getOnboardingScene(state: OnboardingState): OnboardingScene {
   assertState(state);
-  const scene = sceneContent(state);
-  return Object.freeze({ ...scene, canGoBack: state.history.length > 0 });
+  const content = sceneContent(state);
+  const stepIndex = STEP_IDS.indexOf(state.stepId) + 1;
+  return Object.freeze({
+    ...content,
+    stepIndex,
+    stepCount: STEP_IDS.length,
+    canGoBack: state.history.length > 0,
+  });
 }
 
 function chooseNextState(state: OnboardingState, choiceId: string): OnboardingState {
   if (!getOnboardingScene(state).choices.some((choice) => choice.id === choiceId)) {
     throw new RangeError(`当前对白不支持选择：${choiceId}`);
   }
-
-  switch (choiceId) {
-    case "learner-new":
-      return advance(state, "entry", { learner: "new" });
-    case "learner-experienced":
-      return advance(state, "entry", { learner: "experienced" });
-    case "entry-presets":
-    case "import-presets":
-      return advance(state, "blocks", { entryMode: "presets" });
-    case "entry-import":
-    case "blocks-import":
-      return advance(state, "import", { entryMode: "import" });
-    case "blocks-sync":
-    case "import-sync":
-    case "custom-sync":
-      return advance(state, "sync");
-    case "sync-custom":
-    case "lifecycle-custom":
-      return advance(state, "custom");
-    case "sync-lifecycle":
-    case "custom-lifecycle":
-    case "safety-lifecycle":
-      return advance(state, "lifecycle");
-    case "lifecycle-safety":
-      return advance(state, "safety");
-    case "finish":
-      return freezeState({ ...state, status: "closed", completion: "completed" });
+  if (choiceId === "learner-new" || choiceId === "learner-experienced") {
+    return advance(state, "dashboard-modules", {
+      learner: choiceId === "learner-new" ? "new" : "experienced",
+    });
   }
+  if (choiceId === "finish") {
+    return freezeState({ ...state, status: "closed", completion: "completed" });
+  }
+  if (choiceId === "next") return advance(state, requireNextStep(state.stepId));
   throw new RangeError(`未知新手引导选择：${choiceId}`);
+}
+
+function requireNextStep(stepId: OnboardingStepId): OnboardingStepId {
+  const currentIndex = STEP_IDS.indexOf(stepId);
+  const next = STEP_IDS[currentIndex + 1];
+  if (next === undefined) throw new RangeError("新手引导已到最后一步");
+  return next;
 }
 
 function advance(
   state: OnboardingState,
   stepId: OnboardingStepId,
-  patch: Partial<Pick<OnboardingState, "learner" | "entryMode">> = {},
+  patch: Partial<Pick<OnboardingState, "learner">> = {},
 ): OnboardingState {
   const checkpoint = Object.freeze({
     stepId: state.stepId,
     learner: state.learner,
-    entryMode: state.entryMode,
   });
   return freezeState({
     ...state,
@@ -169,7 +198,6 @@ function initialState(completion: OnboardingCompletion | null, open: boolean): O
     completion,
     stepId: "welcome",
     learner: null,
-    entryMode: null,
     history: [],
   });
 }
@@ -183,64 +211,185 @@ function freezeState(state: OnboardingState): OnboardingState {
 
 function sceneContent(
   state: OnboardingState,
-): Omit<OnboardingScene, "stepId" | "canGoBack"> & { readonly stepId: OnboardingStepId } {
+): Omit<OnboardingScene, "stepIndex" | "stepCount" | "canGoBack"> {
   switch (state.stepId) {
     case "welcome":
-      return scene("welcome", "工作台导师", "先确认你的经验，我会缩短不需要的说明。", [
-        choice("learner-new", "我是初学者"),
-        choice("learner-experienced", "我写过 C / 算法"),
-      ]);
-    case "entry":
       return scene(
-        "entry",
+        "welcome",
+        "dashboard",
+        "dashboard",
+        "center",
         "工作台导师",
-        state.learner === "experienced"
-          ? "你可以直接导入 C，也可以用预制积木快速装配。"
-          : "先选起点：用预制积木搭第一段，或导入现有 C 源码。",
-        [choice("entry-presets", "从预制积木开始"), choice("entry-import", "导入 C 源码")],
+        "先确认你的经验。两条路线都会走完全部核心功能，只调整说明密度。",
+        [choice("learner-new", "我是初学者"), choice("learner-experienced", "我写过 C / 算法")],
       );
-    case "blocks":
-      return scene("blocks", "装配员", "把预制积木拖到高亮插槽；不兼容的位置不会接收。", [
-        choice("blocks-sync", "继续看代码同步"),
-        choice("blocks-import", "改为导入源码"),
-      ]);
-    case "import":
-      return scene("import", "解析器", "打开、拖入或粘贴 C；无法安全拆解的部分保留原始 C。", [
-        choice("import-sync", "继续看代码同步"),
-        choice("import-presets", "改用预制积木"),
-      ]);
-    case "sync":
-      return scene("sync", "同步器", "积木和代码共用同一份源码；修改后两侧会实时同步。", [
-        choice("sync-custom", "了解自定义积木"),
-        choice("sync-lifecycle", "先看弃用与删除"),
-      ]);
-    case "custom":
-      return scene("custom", "积木库", "常用片段可以保存为自定义积木；调用时仍走受控源码补丁。", [
-        choice("custom-lifecycle", "了解弃用与删除"),
-        choice("custom-sync", "回看实时同步"),
-      ]);
-    case "lifecycle":
+    case "dashboard-modules":
       return scene(
-        "lifecycle",
-        "版本管理员",
-        "弃用或删除库内积木，不会改动已生成源码；删除源码语句会另行确认。",
-        [choice("lifecycle-safety", "查看安全修改"), choice("lifecycle-custom", "回看自定义积木")],
+        state.stepId,
+        "dashboard",
+        "dashboard-modules",
+        "right",
+        "工作台导师",
+        personalized(
+          state,
+          "首页按项目、沙箱、测试组织学习文件；它们都保存在 Documents 专属目录中。",
+          "Dashboard 把持久项目、临时沙箱和测试夹具分开管理，并映射到本地 Documents。",
+        ),
+        nextChoice(),
       );
-    case "safety":
-      return scene("safety", "审校员", "可能改变语义的操作先看 diff；确认后仍可撤销或重做。", [
-        choice("finish", "完成引导"),
-        choice("safety-lifecycle", "回看删除规则"),
-      ]);
+    case "dashboard-create":
+      return scene(
+        state.stepId,
+        "dashboard",
+        "create-entry",
+        "bottom",
+        "工作台导师",
+        "新建条目会创建独立子文件夹并启用自动保存；创建完成后直接进入搭建工作区。",
+        nextChoice(),
+      );
+    case "dock":
+      return scene(
+        state.stepId,
+        "dashboard",
+        "dock",
+        "bottom",
+        "导航员",
+        "Dock 按文件、构建、检查、执行、学习分组。新算法工具可注册为独立页面继续扩展。",
+        nextChoice(),
+      );
+    case "import-source":
+      return scene(
+        state.stepId,
+        "dashboard",
+        "import-actions",
+        "bottom",
+        "解析器",
+        "已有 C 可以通过文件选择、磁盘拖放或粘贴载入；外部源码保持为临时文档，不会被静默覆盖。",
+        nextChoice(),
+      );
+    case "build-presets":
+      return scene(
+        state.stepId,
+        "build",
+        "preset-blocks",
+        "right",
+        "装配员",
+        "预制积木按学习阶段分类，可直接拖入或调用；以后也能加入课程模板和自定义片段。",
+        nextChoice(),
+      );
+    case "assembly":
+      return scene(
+        state.stepId,
+        "build",
+        "assembly-canvas",
+        "left",
+        "装配员",
+        "在组装画布拖动、排序和嵌套代码块；自己编写的片段也能保存后参与组装。",
+        nextChoice(),
+      );
+    case "code":
+      return scene(
+        state.stepId,
+        "build",
+        "code-pane",
+        "left",
+        "同步器",
+        "代码与积木共享同一份 C 源码并实时同步；导入的 C 会反向拆解，无法安全拆解处保留原文。",
+        nextChoice(),
+      );
+    case "local-save":
+      return scene(
+        state.stepId,
+        "build",
+        "local-save",
+        "top",
+        "同步器",
+        "托管条目修改后会在 300 ms 防抖后写入 Documents；底栏明确显示待保存、保存中、已保存或错误。",
+        nextChoice(),
+      );
+    case "explanation":
+      return scene(
+        state.stepId,
+        "explanation",
+        "explanation",
+        "left",
+        "工作台导师",
+        "解释页说明选中区块的作用、原理与上下文，后续可扩展复杂度分析和课程知识链接。",
+        nextChoice(),
+      );
+    case "edit":
+      return scene(
+        state.stepId,
+        "edit",
+        "edit",
+        "left",
+        "审校员",
+        "编辑页提供受控结构修改；语义可能变化时先确认 diff，并可撤销或重做。",
+        nextChoice(),
+      );
+    case "run":
+      return scene(
+        state.stepId,
+        "run",
+        "run",
+        "left",
+        "执行器",
+        "运行页负责构建、输入、输出和失败定位，后续可接入课程测试集与性能实验。",
+        nextChoice(),
+      );
+    case "block-library":
+      return scene(
+        state.stepId,
+        "block-library",
+        "block-library-lifecycle",
+        "left",
+        "版本管理员",
+        "积木库管理创建、弃用、恢复与退休；库生命周期不会偷偷改写已经生成的源码。",
+        nextChoice(),
+      );
+    case "software-library":
+      return scene(
+        state.stepId,
+        "software-library",
+        "software-library",
+        "left",
+        "工作台导师",
+        "Software Library 汇总每个区块的职责、使用入口和扩展边界，可随平台能力持续补充。",
+        [choice("finish", "完成引导")],
+      );
   }
 }
 
 function scene(
   stepId: OnboardingStepId,
+  pageId: string,
+  targetId: string,
+  placement: OnboardingPlacement,
   speaker: string,
   dialogue: string,
   choices: readonly OnboardingChoice[],
-): Omit<OnboardingScene, "canGoBack"> {
-  return Object.freeze({ stepId, speaker, dialogue, choices: Object.freeze([...choices]) });
+): Omit<OnboardingScene, "stepIndex" | "stepCount" | "canGoBack"> {
+  return Object.freeze({
+    stepId,
+    pageId,
+    targetId,
+    placement,
+    speaker,
+    dialogue,
+    choices: Object.freeze([...choices]),
+  });
+}
+
+function personalized(
+  state: OnboardingState,
+  beginnerDialogue: string,
+  experiencedDialogue: string,
+): string {
+  return state.learner === "experienced" ? experiencedDialogue : beginnerDialogue;
+}
+
+function nextChoice(): readonly OnboardingChoice[] {
+  return [choice("next", "下一步")];
 }
 
 function choice(id: string, label: string): OnboardingChoice {

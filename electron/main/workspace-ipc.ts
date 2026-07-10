@@ -12,6 +12,8 @@ export const WORKSPACE_IPC_CHANNELS = Object.freeze({
   create: "workspace:create",
   open: "workspace:open",
   saveSource: "workspace:save-source",
+  closeRequest: "workspace:close-request",
+  closeResponse: "workspace:close-response",
 });
 
 export interface WorkspaceIpcOptions {

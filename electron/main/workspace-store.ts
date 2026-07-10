@@ -148,10 +148,10 @@ export function createWorkspaceStore(rootPath: string): WorkspaceStore {
     async save(request: unknown): Promise<WorkspaceSaveResult> {
       const validated = validateSaveRequest(request);
       if (!validated.ok) return validated.failure;
-      if (!(await ensureLayout())) return rootUnavailable();
-      return enqueueSave(saveQueues, validated.request.entryId, () =>
-        saveDocument(rootPath, validated.request),
-      );
+      return enqueueSave(saveQueues, validated.request.entryId, async () => {
+        if (!(await ensureLayout())) return rootUnavailable();
+        return saveDocument(rootPath, validated.request);
+      });
     },
   });
 }

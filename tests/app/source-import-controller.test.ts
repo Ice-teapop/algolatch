@@ -40,7 +40,10 @@ describe("source import controller", () => {
     await flushMicrotasks();
 
     expect(load).toHaveBeenCalledTimes(1);
-    expect(load).toHaveBeenCalledWith(expect.objectContaining({ displayName: "new.c" }));
+    expect(load).toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: "new.c" }),
+      expect.any(Function),
+    );
 
     const late = deferred<SourceImportResult>();
     openSource.mockReturnValueOnce(late.promise);
@@ -51,7 +54,34 @@ describe("source import controller", () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps invalid paste local and loads a valid exact source", () => {
+  it("does not let an older asynchronous load overwrite a newer import", async () => {
+    const releaseOldLoad = deferred<void>();
+    const openSource = vi
+      .fn()
+      .mockResolvedValueOnce(opened("old.c"))
+      .mockResolvedValueOnce(opened("new.c"));
+    const harness = createHarness({ openSource });
+    const committed: string[] = [];
+    const load = vi.fn(async (document: { displayName: string }, isCurrent: () => boolean) => {
+      if (document.displayName === "old.c") await releaseOldLoad.promise;
+      if (isCurrent()) committed.push(document.displayName);
+    });
+    const controller = createSourceImportController(harness.elements, { load });
+
+    harness.openButton.dispatchEvent(new Event("click"));
+    await flushMicrotasks();
+    harness.openButton.dispatchEvent(new Event("click"));
+    await flushMicrotasks();
+    expect(committed).toEqual(["new.c"]);
+
+    releaseOldLoad.resolve(undefined);
+    await flushMicrotasks();
+    expect(committed).toEqual(["new.c"]);
+    expect(harness.importStatus.textContent).toContain("new.c");
+    controller.destroy();
+  });
+
+  it("keeps invalid paste local and loads a valid exact source", async () => {
     const harness = createHarness();
     const load = vi.fn();
     const controller = createSourceImportController(harness.elements, { load });
@@ -67,8 +97,10 @@ describe("source import controller", () => {
 
     harness.pasteSource.value = "int main(void) {\r\n  return 0;\r\n}\r\n";
     harness.pasteConfirm.dispatchEvent(new Event("click"));
+    await flushMicrotasks();
     expect(load).toHaveBeenCalledWith(
       expect.objectContaining({ source: "int main(void) {\r\n  return 0;\r\n}\r\n" }),
+      expect.any(Function),
     );
     expect(harness.pasteDialog.closeValue).toBe("loaded");
     controller.destroy();
@@ -86,7 +118,10 @@ describe("source import controller", () => {
 
     harness.shell.dispatchEvent(dropEvent([{} as File]));
     await flushMicrotasks();
-    expect(load).toHaveBeenCalledWith(expect.objectContaining({ displayName: "drop.c" }));
+    expect(load).toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: "drop.c" }),
+      expect.any(Function),
+    );
     controller.destroy();
   });
 });

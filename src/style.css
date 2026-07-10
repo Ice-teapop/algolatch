@@ -1390,7 +1390,7 @@ h2 {
 
 .status-bar {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto auto auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   padding: 0 8px;
@@ -1420,6 +1420,22 @@ h2 {
 .workspace-save-status[data-state="error"] {
   color: var(--danger);
   font-weight: 650;
+}
+
+.workspace-recovery-button {
+  min-height: 18px;
+  padding: 1px 5px;
+  border: 1px solid var(--danger);
+  border-radius: 0;
+  color: var(--danger);
+  background: transparent;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.workspace-recovery-button:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--danger-soft);
 }
 
 .status-pill {
@@ -1857,114 +1873,122 @@ h2 {
   background: var(--accent);
 }
 
-/* GALGAME interaction structure without decorative media. */
-.onboarding-dialog {
-  width: min(720px, calc(100vw - 32px));
-  padding: 0;
+/* Route-aware GALGAME dialogue with a real target spotlight. */
+.onboarding-tour {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.onboarding-tour__spotlight {
+  position: fixed;
+  z-index: 0;
+  border: 2px solid var(--focus);
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: 0 0 0 100vmax var(--overlay);
+  pointer-events: none;
+}
+
+[data-tour-active="true"] {
+  outline: 1px solid var(--focus);
+  outline-offset: -1px;
+}
+
+.onboarding-tour__card {
+  position: fixed;
+  z-index: 1;
+  display: grid;
+  width: min(380px, calc(100vw - 24px));
   border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
   border-radius: 0;
   color: var(--ink);
   background: var(--surface-raised);
   box-shadow: none;
+  pointer-events: auto;
 }
 
-.onboarding-dialog::backdrop {
-  background: var(--overlay);
-}
-
-.onboarding-dialog__surface {
+.onboarding-tour__card > header {
   display: grid;
-  gap: 0;
-}
-
-.onboarding-dialog__header {
-  min-height: 150px;
-  padding: 16px;
+  gap: 6px;
+  padding: 12px;
   border-bottom: 1px solid var(--line);
   background: var(--input-surface);
 }
 
-.onboarding-dialog__header h2 {
-  margin-bottom: 28px;
+.onboarding-tour__progress {
   color: var(--muted-subtle);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+
+.onboarding-tour__card h2 {
+  margin: 0;
+  color: var(--muted);
   font-size: 9px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.onboarding-dialog__speaker {
-  margin-bottom: 8px;
+.onboarding-tour__speaker {
   color: var(--accent-hover);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
 }
 
-.onboarding-dialog__dialogue {
-  max-width: 58ch;
+.onboarding-tour__dialogue {
   margin: 0;
-  color: var(--ink);
-  font-size: 14px;
-  line-height: 1.65;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
-.onboarding-dialog__choices {
+.onboarding-tour__choices {
   display: grid;
   gap: 1px;
-  padding: 8px;
+  padding: 6px;
   background: var(--line);
 }
 
-.onboarding-dialog__choice,
-.onboarding-dialog__back,
-.onboarding-dialog__skip {
-  min-height: 34px;
-  padding: 6px 10px;
+.onboarding-tour__choice,
+.onboarding-tour__back,
+.onboarding-tour__skip {
+  min-height: 30px;
+  padding: 5px 8px;
   border: 0;
   border-radius: 0;
   color: var(--ink-secondary);
   background: var(--surface);
+  font-size: 10px;
   text-align: left;
   cursor: pointer;
 }
 
-.onboarding-dialog__choice:hover {
+.onboarding-tour__choice:hover {
   color: var(--ink);
   background: var(--surface-hover);
 }
 
-.onboarding-dialog__actions {
+.onboarding-tour__card > footer {
   display: flex;
   justify-content: space-between;
-  padding: 6px 8px;
+  padding: 4px 6px;
   border-top: 1px solid var(--line);
 }
 
-.onboarding-dialog__back,
-.onboarding-dialog__skip {
-  min-height: 28px;
+.onboarding-tour__back,
+.onboarding-tour__skip {
+  min-height: 26px;
   color: var(--muted);
   background: transparent;
-  font-size: 10px;
 }
 
-.onboarding-dialog__back:disabled {
-  opacity: 0.35;
+.onboarding-tour__back:disabled {
   cursor: not-allowed;
-}
-
-.guide-page {
-  display: grid;
-  max-width: 720px;
-  gap: 12px;
-  padding: 18px;
-}
-
-.guide-page p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
+  opacity: 0.35;
 }
 
 /* Dashboard: Finder-style information density, no decorative cards. */
@@ -2242,6 +2266,163 @@ h2 {
   border-top: 1px solid var(--line);
 }
 
+.software-library-view {
+  display: grid;
+  min-width: 0;
+  min-height: 100%;
+  grid-template-columns: 224px minmax(0, 1fr);
+  background: var(--surface);
+}
+
+.software-library__index {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 38px minmax(0, 1fr);
+  border-right: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.software-library__search {
+  width: calc(100% - 12px);
+  height: 26px;
+  margin: 6px;
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--input-surface);
+  font-size: 10px;
+}
+
+.software-library__list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.software-library__feature {
+  display: grid;
+  width: 100%;
+  min-height: 38px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-left: 2px solid transparent;
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.software-library__feature span {
+  color: var(--muted-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.software-library__feature strong {
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.software-library__feature:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.software-library__feature.is-selected {
+  border-left-color: var(--accent);
+  color: var(--ink);
+  background: var(--surface-active);
+}
+
+.software-library__detail {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  grid-template-rows: 48px auto auto;
+  overflow: auto;
+}
+
+.software-library__detail > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.software-library__detail h2 {
+  font-size: 12px;
+}
+
+.software-library__feature-status {
+  padding: 2px 5px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.software-library__feature-status[data-status="available"] {
+  border-color: color-mix(in srgb, var(--success) 55%, var(--line));
+  color: var(--success);
+}
+
+.software-library__feature-status[data-status="foundation"] {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--line));
+  color: var(--warning);
+}
+
+.software-library__detail dl {
+  margin: 0;
+}
+
+.software-library__detail dl > div {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: 112px minmax(0, 1fr);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.software-library__detail dt {
+  color: var(--muted-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.software-library__detail dd {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.software-library__detail > footer {
+  display: flex;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.software-library__empty {
+  margin: 0;
+  padding: 18px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .block-library-manager {
   display: grid;
   min-height: 100%;
@@ -2418,6 +2599,10 @@ h2 {
 
   .workspace-dashboard {
     grid-template-columns: 160px minmax(0, 1fr);
+  }
+
+  .software-library-view {
+    grid-template-columns: 196px minmax(0, 1fr);
   }
 
   .dock-group__label {

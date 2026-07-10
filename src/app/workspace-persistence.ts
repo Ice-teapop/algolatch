@@ -5,6 +5,7 @@ export type WorkspacePersistenceState = "unmanaged" | "pending" | "saving" | "sa
 export interface WorkspacePersistenceStatus {
   readonly state: WorkspacePersistenceState;
   readonly message: string;
+  readonly recovery?: "reload-disk" | undefined;
 }
 
 export interface WorkspacePersistenceOptions {
@@ -19,10 +20,14 @@ export interface WorkspacePersistenceOptions {
 
 export interface WorkspacePersistence {
   readonly activeEntry: WorkspaceEntrySummary | null;
+  readonly hasUnsavedChanges: boolean;
+  readonly sourceVersion: number;
   adopt(entry: WorkspaceEntrySummary): void;
   handleSourceChange(source: string): void;
   flush(): Promise<void>;
-  deactivate(): void;
+  discardActiveChanges(expectedSourceVersion?: number): void;
+  deactivateAfterFlush(): void;
+  deactivate(): Promise<void>;
   destroy(): void;
 }
 
@@ -31,6 +36,10 @@ const DEFAULT_SAVE_DELAY_MS = 300;
 interface PendingSource {
   readonly entryId: string;
   readonly source: string;
+}
+
+interface QueuedSave extends PendingSource {
+  readonly task: Promise<boolean>;
 }
 
 export function createWorkspacePersistence(
@@ -45,15 +54,24 @@ export function createWorkspacePersistence(
   }
 
   const durableEntries = new Map<string, WorkspaceEntrySummary>();
-  const saveChains = new Map<string, Promise<void>>();
+  const saveChains = new Map<string, Promise<boolean>>();
+  const dirtySources = new Map<string, string>();
+  const latestQueued = new Map<string, QueuedSave>();
   const latestSequence = new Map<string, number>();
   let activeEntry: WorkspaceEntrySummary | null = null;
-  let pending: PendingSource | null = null;
+  let sourceVersion = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let destroyed = false;
 
-  const present = (state: WorkspacePersistenceState, message: string): void => {
-    if (!destroyed) options.onStatus(Object.freeze({ state, message }));
+  const present = (
+    state: WorkspacePersistenceState,
+    message: string,
+    recovery?: WorkspacePersistenceStatus["recovery"],
+  ): void => {
+    if (destroyed) return;
+    options.onStatus(
+      Object.freeze(recovery === undefined ? { state, message } : { state, message, recovery }),
+    );
   };
 
   const clearTimer = (): void => {
@@ -61,64 +79,102 @@ export function createWorkspacePersistence(
     timer = undefined;
   };
 
-  const queuePending = (): Promise<void> | undefined => {
+  const queueDirty = (entryId = activeEntry?.id): Promise<boolean> | undefined => {
     clearTimer();
-    const next = pending;
-    pending = null;
-    if (next === null) return saveChains.get(activeEntry?.id ?? "");
+    if (entryId === undefined) return undefined;
+    const source = dirtySources.get(entryId);
+    const existingChain = saveChains.get(entryId);
+    if (source === undefined) return existingChain;
+    const queued = latestQueued.get(entryId);
+    if (queued?.source === source) return queued.task;
 
-    const sequence = (latestSequence.get(next.entryId) ?? 0) + 1;
-    latestSequence.set(next.entryId, sequence);
-    const previous = saveChains.get(next.entryId) ?? Promise.resolve();
-    if (activeEntry?.id === next.entryId) present("saving", "正在同步到 Documents…");
+    const sequence = (latestSequence.get(entryId) ?? 0) + 1;
+    latestSequence.set(entryId, sequence);
+    const previous = existingChain ?? Promise.resolve(true);
+    if (activeEntry?.id === entryId) present("saving", "正在同步到 Documents…");
     const task = previous
-      .catch(() => undefined)
+      .catch(() => false)
       .then(async () => {
-        const durable = durableEntries.get(next.entryId);
-        if (durable === undefined) return;
+        const durable = durableEntries.get(entryId);
+        if (durable === undefined) return false;
         let result: WorkspaceSaveResult;
         try {
-          result = await options.save(next.entryId, durable.revision, next.source);
+          result = await options.save(entryId, durable.revision, source);
         } catch {
-          if (activeEntry?.id === next.entryId) {
+          if (activeEntry?.id === entryId) {
             present("error", "保存失败 · 工作区 IPC 不可用");
           }
-          return;
+          return false;
         }
         if (result.status === "failed") {
-          if (activeEntry?.id === next.entryId) {
-            present("error", `${result.error.code} · ${result.error.message}`);
+          if (activeEntry?.id === entryId) {
+            present(
+              "error",
+              `${result.error.code} · ${result.error.message}`,
+              result.error.code === "WORKSPACE_CONFLICT" ? "reload-disk" : undefined,
+            );
           }
-          return;
+          return false;
         }
         const savedEntry = Object.freeze({ ...result.entry });
-        durableEntries.set(next.entryId, savedEntry);
-        if (activeEntry?.id === next.entryId) activeEntry = savedEntry;
+        durableEntries.set(entryId, savedEntry);
+        if (activeEntry?.id === entryId) activeEntry = savedEntry;
+        if (dirtySources.get(entryId) === source) dirtySources.delete(entryId);
         if (
-          activeEntry?.id === next.entryId &&
-          latestSequence.get(next.entryId) === sequence &&
-          pending?.entryId !== next.entryId
+          activeEntry?.id === entryId &&
+          latestSequence.get(entryId) === sequence &&
+          !dirtySources.has(entryId)
         ) {
           present("saved", "已保存到 Documents");
         }
+        return true;
       });
-    saveChains.set(next.entryId, task);
-    void task.finally(() => {
-      if (saveChains.get(next.entryId) === task) saveChains.delete(next.entryId);
+    let tracked: Promise<boolean>;
+    tracked = task.finally(() => {
+      if (saveChains.get(entryId) === tracked) saveChains.delete(entryId);
+      if (latestQueued.get(entryId)?.task === tracked) latestQueued.delete(entryId);
     });
-    return task;
+    saveChains.set(entryId, tracked);
+    latestQueued.set(entryId, Object.freeze({ entryId, source, task: tracked }));
+    return tracked;
+  };
+
+  const flush = async (): Promise<void> => {
+    if (destroyed) return;
+    const entryId = activeEntry?.id;
+    if (entryId === undefined) return;
+    while (true) {
+      const task = queueDirty(entryId) ?? saveChains.get(entryId);
+      if (task === undefined) return;
+      const saved = await task;
+      const newerTask = saveChains.get(entryId);
+      if (newerTask !== undefined && newerTask !== task) continue;
+      if (!saved) throw new Error("工作区仍有未保存修改；请检查保存状态后重试");
+      if (!dirtySources.has(entryId)) return;
+    }
   };
 
   const schedule = (): void => {
     clearTimer();
     if (delayMs === 0) {
-      void queuePending();
+      void queueDirty();
       return;
     }
     timer = setTimeout(() => {
       timer = undefined;
-      void queuePending();
+      void queueDirty();
     }, delayMs);
+  };
+
+  const deactivateAfterFlush = (): void => {
+    assertActive(destroyed);
+    const entryId = activeEntry?.id;
+    if (entryId !== undefined && (dirtySources.has(entryId) || saveChains.has(entryId))) {
+      throw new Error("工作区仍有未保存修改，不能解除托管");
+    }
+    activeEntry = null;
+    sourceVersion += 1;
+    present("unmanaged", "临时文档 · 未自动保存");
   };
 
   present("unmanaged", "本地工作区未打开");
@@ -127,42 +183,65 @@ export function createWorkspacePersistence(
     get activeEntry(): WorkspaceEntrySummary | null {
       return activeEntry;
     },
+    get hasUnsavedChanges(): boolean {
+      const entryId = activeEntry?.id;
+      return entryId !== undefined && (dirtySources.has(entryId) || saveChains.has(entryId));
+    },
+    get sourceVersion(): number {
+      return sourceVersion;
+    },
     adopt(entry: WorkspaceEntrySummary): void {
       assertActive(destroyed);
       if (entry === null || typeof entry !== "object" || typeof entry.id !== "string") {
         throw new TypeError("workspace entry 无效");
       }
-      void queuePending();
+      const previousEntryId = activeEntry?.id;
+      if (
+        previousEntryId !== undefined &&
+        (dirtySources.has(previousEntryId) || saveChains.has(previousEntryId))
+      ) {
+        throw new Error("切换工作区条目前必须完成保存");
+      }
       activeEntry = Object.freeze({ ...entry });
+      sourceVersion += 1;
       durableEntries.set(entry.id, activeEntry);
       present("saved", "已保存到 Documents");
     },
     handleSourceChange(source: string): void {
       if (destroyed || activeEntry === null) return;
       if (typeof source !== "string") throw new TypeError("source 必须是字符串");
-      pending = Object.freeze({ entryId: activeEntry.id, source });
+      sourceVersion += 1;
+      dirtySources.set(activeEntry.id, source);
       present("pending", "有修改待保存");
       schedule();
     },
-    async flush(): Promise<void> {
-      if (destroyed) return;
-      const activeId = activeEntry?.id;
-      const queued = queuePending();
-      await queued;
-      if (activeId !== undefined) await saveChains.get(activeId);
+    flush,
+    discardActiveChanges(expectedSourceVersion?: number): void {
+      assertActive(destroyed);
+      const entryId = activeEntry?.id;
+      if (entryId === undefined) return;
+      if (expectedSourceVersion !== undefined && expectedSourceVersion !== sourceVersion) {
+        throw new Error("源码已在恢复期间变化，拒绝放弃较新的本地修改");
+      }
+      if (saveChains.has(entryId)) throw new Error("保存请求尚未结束，暂时不能放弃本地修改");
+      clearTimer();
+      dirtySources.delete(entryId);
+      latestQueued.delete(entryId);
+      sourceVersion += 1;
     },
-    deactivate(): void {
+    deactivateAfterFlush,
+    async deactivate(): Promise<void> {
       if (destroyed) return;
-      void queuePending();
-      activeEntry = null;
-      present("unmanaged", "临时文档 · 未自动保存");
+      await flush();
+      deactivateAfterFlush();
     },
     destroy(): void {
       if (destroyed) return;
-      void queuePending();
-      destroyed = true;
       clearTimer();
+      destroyed = true;
       activeEntry = null;
+      dirtySources.clear();
+      latestQueued.clear();
     },
   });
 }

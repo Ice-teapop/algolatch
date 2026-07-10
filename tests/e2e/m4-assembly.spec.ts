@@ -26,6 +26,10 @@ test.beforeAll(async () => {
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.locator("#startup-loader")).toBeHidden();
+  await page.getByRole("button", { name: "粘贴源码" }).click();
+  await page.locator("#paste-source").fill("int main(void) {\n  return 0;\n}\n");
+  await page.getByRole("button", { name: "载入工作台" }).click();
+  await expect(dock("搭建")).toHaveAttribute("aria-selected", "true");
 });
 
 test.afterAll(async () => {
@@ -40,11 +44,17 @@ test("prioritizes the assembly canvas and switches extension pages from the top 
   expect(canvasBox.width).toBeGreaterThan(codeBox.width * 1.35);
 
   const dockLabels = await page.getByRole("tab").allTextContents();
-  expect(dockLabels).toEqual(["搭建", "积木库", "解释", "编辑", "运行", "入门"]);
+  expect(dockLabels).toEqual(["Dashboard", "搭建", "积木管理", "解释", "编辑", "运行", "Library"]);
   await expect(page.getByRole("heading", { name: "C 积木算法面板" })).toHaveCount(0);
-  await dock("积木库").click();
-  await expect(page.getByRole("tabpanel", { name: "积木库" })).toBeVisible();
+  await dock("积木管理").click();
+  await expect(page.getByRole("tabpanel", { name: "积木管理" })).toBeVisible();
   await expect(page.getByRole("tabpanel", { name: "搭建" })).toBeHidden();
+  await dock("Library").click();
+  await page.getByRole("button", { name: "打开此功能" }).click();
+  await expect(dock("Dashboard")).toHaveAttribute("aria-selected", "true");
+  await expect
+    .poll(() => page.evaluate(() => (document.activeElement as HTMLElement).dataset.tourTarget))
+    .toBe("dashboard");
   await dock("搭建").click();
   await expect(page.getByRole("tabpanel", { name: "搭建" })).toBeVisible();
 });
@@ -67,7 +77,7 @@ test("drags a multiline preset into a real slot and synchronizes exact C", async
 });
 
 test("creates, uses, deprecates and retires a custom block without deleting generated C", async () => {
-  await dock("积木库").click();
+  await dock("积木管理").click();
   await page.getByRole("textbox", { name: "积木名称" }).fill("我的累加");
   await page.getByRole("textbox", { name: "分类" }).fill("custom");
   await page.getByRole("combobox", { name: "学习阶段" }).selectOption("c.basics");
@@ -83,7 +93,7 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
   await confirmVisibleDiff();
   await expect.poll(editorText).toContain("  total += 10;\n  return 0;");
 
-  await dock("积木库").click();
+  await dock("积木管理").click();
   let customEntry = customLibraryEntry();
   await customEntry.getByRole("button", { name: "弃用" }).click();
   await expect(customEntry).toHaveAttribute("data-lifecycle", "deprecated");
@@ -93,7 +103,7 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
     page.locator(".block-palette__drag-surface").filter({ hasText: "我的累加" }),
   ).toHaveCount(0);
 
-  await dock("积木库").click();
+  await dock("积木管理").click();
   customEntry = customLibraryEntry();
   await customEntry.getByRole("button", { name: "恢复" }).click();
   customEntry = customLibraryEntry();
@@ -106,18 +116,62 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
   expect(await editorText()).toContain("total += 10;");
 });
 
-test("reopens the deterministic galgame-style guide from the Dock", async () => {
-  await dock("入门").click();
-  await page.getByRole("button", { name: "重新开始问答引导" }).click();
-  const dialog = page.getByRole("dialog", { name: "工作台新手指导" });
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "我是初学者" }).click();
-  await expect(dialog).toContainText("先选起点");
-  await dialog.getByRole("button", { name: "从预制积木开始" }).click();
-  await expect(dialog).toContainText("拖到高亮插槽");
-  await dialog.getByRole("button", { name: "跳过引导" }).click();
-  await expect(dialog).toBeHidden();
+test("routes the visual guide through every mainstream surface and supports skip", async () => {
+  await dock("Library").click();
+  await page.getByRole("button", { name: "重新开始视觉引导" }).click();
+  const tour = page.getByRole("dialog", { name: "功能引导" });
+  await expectTour(tour, "dashboard", "dashboard");
+  const libraryBounds = await dock("Library").boundingBox();
+  if (libraryBounds === null) throw new Error("Library Dock 不可见");
+  await page.mouse.click(
+    libraryBounds.x + libraryBounds.width / 2,
+    libraryBounds.y + libraryBounds.height / 2,
+  );
+  await expect(dock("Dashboard")).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Shift+Tab");
+  await expect(tour.getByRole("button", { name: "跳过" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(tour.getByRole("button", { name: "我是初学者" })).toBeFocused();
+  await tour.getByRole("button", { name: "我是初学者" }).click();
+  await expectTour(tour, "dashboard", "dashboard-modules");
+
+  for (const [pageId, targetId] of [
+    ["dashboard", "create-entry"],
+    ["dashboard", "dock"],
+    ["dashboard", "import-actions"],
+    ["build", "preset-blocks"],
+    ["build", "assembly-canvas"],
+    ["build", "code-pane"],
+    ["build", "local-save"],
+    ["explanation", "explanation"],
+    ["edit", "edit"],
+    ["run", "run"],
+    ["block-library", "block-library-lifecycle"],
+    ["software-library", "software-library"],
+  ] as const) {
+    await tour.getByRole("button", { name: "下一步" }).click();
+    await expectTour(tour, pageId, targetId);
+  }
+  await tour.getByRole("button", { name: "完成引导" }).click();
+  await expect(tour).toBeHidden();
+  await expect(page.locator("[data-tour-active='true']")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "重新开始视觉引导" }).click();
+  await expectTour(tour, "dashboard", "dashboard");
+  await tour.getByRole("button", { name: "跳过" }).click();
+  await expect(tour).toBeHidden();
+  await expect(dock("Library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("[data-tour-active='true']")).toHaveCount(0);
 });
+
+async function expectTour(tour: Locator, pageId: string, targetId: string): Promise<void> {
+  await expect(tour).toBeVisible();
+  await expect(tour).toHaveAttribute("data-page-id", pageId);
+  await expect(tour).toHaveAttribute("data-target-id", targetId);
+  await expect(
+    page.locator(`[data-tour-target="${targetId}"][data-tour-active="true"]`),
+  ).toHaveCount(1);
+}
 
 function dock(name: string): Locator {
   return page.getByRole("tab", { name, exact: true });

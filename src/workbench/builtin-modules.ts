@@ -48,11 +48,11 @@ function builtinNavigationModule(): WorkbenchModuleDefinition {
     pages: Object.freeze([
       Object.freeze({ id: "dashboard", label: "Dashboard", groupId: "home", order: 0 }),
       Object.freeze({ id: "build", label: "搭建", groupId: "core", order: 10 }),
-      Object.freeze({ id: "library", label: "积木库", groupId: "core", order: 20 }),
+      Object.freeze({ id: "block-library", label: "积木管理", groupId: "core", order: 20 }),
       Object.freeze({ id: "explanation", label: "解释", groupId: "inspect", order: 10 }),
       Object.freeze({ id: "edit", label: "编辑", groupId: "inspect", order: 20 }),
       Object.freeze({ id: "run", label: "运行", groupId: "execute", order: 10 }),
-      Object.freeze({ id: "guide", label: "入门", groupId: "learn", order: 10 }),
+      Object.freeze({ id: "software-library", label: "Library", groupId: "learn", order: 10 }),
     ]),
     commands: Object.freeze([]),
     algorithmElements: Object.freeze([]),

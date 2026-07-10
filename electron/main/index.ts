@@ -5,6 +5,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  type IpcMainEvent,
   type IpcMainInvokeEvent,
   type WebPreferences,
 } from "electron";
@@ -35,7 +36,7 @@ import {
   sourceImportContextFailure,
   validateDroppedSourceRequest,
 } from "./source-import.js";
-import { registerWorkspaceIpcHandlers } from "./workspace-ipc.js";
+import { registerWorkspaceIpcHandlers, WORKSPACE_IPC_CHANNELS } from "./workspace-ipc.js";
 import { createWorkspaceStore, WORKSPACE_ROOT_NAME } from "./workspace-store.js";
 
 const IPC_CHANNELS = Object.freeze({
@@ -54,8 +55,17 @@ const developmentServerUrl = parseDevelopmentServerUrl(process.env.VITE_DEV_SERV
 let isShuttingDown = false;
 let cleanupComplete = false;
 let cleanupPromise: Promise<void> | undefined;
+let quitRequested = false;
+let closeRequestSequence = 0;
 let runnerRequestInFlight = false;
 let sourceImportInFlight = false;
+
+interface WorkspaceCloseState {
+  phase: "open" | "requested" | "ready";
+  requestId: string | null;
+}
+
+const workspaceCloseStates = new WeakMap<BrowserWindow, WorkspaceCloseState>();
 
 type PanelBrowserWindow = BrowserWindow & {
   readonly panelSecurityPreferences: Readonly<WebPreferences>;
@@ -87,7 +97,7 @@ function isAllowedRendererUrl(candidate: string): boolean {
   }
 }
 
-function requireTrustedSenderWindow(event: IpcMainInvokeEvent): BrowserWindow {
+function requireTrustedSenderWindow(event: IpcMainInvokeEvent | IpcMainEvent): BrowserWindow {
   const frame = event.senderFrame;
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (
@@ -116,6 +126,74 @@ function isCurrentRequestContext(
   } catch {
     return false;
   }
+}
+
+function installWorkspaceCloseHandshake(mainWindow: BrowserWindow): void {
+  const state: WorkspaceCloseState = { phase: "open", requestId: null };
+  workspaceCloseStates.set(mainWindow, state);
+  mainWindow.on("close", (event) => {
+    if (state.phase === "ready" || mainWindow.webContents.isDestroyed()) return;
+    event.preventDefault();
+    if (state.phase === "requested") return;
+    state.phase = "requested";
+    state.requestId = String(++closeRequestSequence);
+    mainWindow.webContents.send(WORKSPACE_IPC_CHANNELS.closeRequest, state.requestId);
+  });
+  mainWindow.on("closed", () => {
+    workspaceCloseStates.delete(mainWindow);
+    if (quitRequested && BrowserWindow.getAllWindows().length === 0) beginShutdownCleanup();
+  });
+  mainWindow.webContents.on("render-process-gone", () => {
+    state.phase = "ready";
+    state.requestId = null;
+  });
+}
+
+function registerWorkspaceCloseResponses(): void {
+  ipcMain.on(WORKSPACE_IPC_CHANNELS.closeResponse, (event, response: unknown) => {
+    let senderWindow: BrowserWindow;
+    try {
+      senderWindow = requireTrustedSenderWindow(event);
+    } catch {
+      return;
+    }
+    const state = workspaceCloseStates.get(senderWindow);
+    if (state === undefined || !isWorkspaceCloseResponse(response)) return;
+    if (state.phase !== "requested" || response.requestId !== state.requestId) return;
+    state.requestId = null;
+    if (response.status === "failed") {
+      state.phase = "open";
+      return;
+    }
+    state.phase = "ready";
+    senderWindow.close();
+  });
+}
+
+function isWorkspaceCloseResponse(
+  value: unknown,
+): value is { readonly requestId: string; readonly status: "ready" | "failed" } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const keys = Object.keys(value).sort();
+  if (keys.length !== 2 || keys[0] !== "requestId" || keys[1] !== "status") return false;
+  const response = value as { readonly requestId?: unknown; readonly status?: unknown };
+  return (
+    typeof response.requestId === "string" &&
+    (response.status === "ready" || response.status === "failed")
+  );
+}
+
+function beginShutdownCleanup(): void {
+  if (cleanupComplete || cleanupPromise !== undefined) return;
+  isShuttingDown = true;
+  cleanupPromise = disposeRunner()
+    .catch((error: unknown) => {
+      console.error("运行器退出清理失败", error);
+    })
+    .finally(() => {
+      cleanupComplete = true;
+      app.quit();
+    });
 }
 
 function compileRequestFailure(code: RunnerErrorCode, message: string): CompileResult {
@@ -414,6 +492,7 @@ function createMainWindow(): BrowserWindow {
   mainWindow.webContents.session.setPermissionRequestHandler(
     (_webContents, _permission, callback) => callback(false),
   );
+  installWorkspaceCloseHandshake(mainWindow);
 
   if (developmentServerUrl === null) {
     void mainWindow.loadFile(rendererFilePath);
@@ -439,32 +518,33 @@ void app.whenReady().then(() => {
     authorize: (event) => void requireTrustedSenderWindow(event),
     isShuttingDown: () => isShuttingDown,
   });
+  registerWorkspaceCloseResponses();
   createMainWindow();
 });
 
 app.on("activate", () => {
-  if (!isShuttingDown && BrowserWindow.getAllWindows().length === 0) {
+  if (!quitRequested && !isShuttingDown && BrowserWindow.getAllWindows().length === 0) {
     createMainWindow();
   }
 });
 
 app.on("before-quit", (event) => {
-  if (cleanupComplete) {
+  if (cleanupComplete) return;
+  event.preventDefault();
+  quitRequested = true;
+  const windows = BrowserWindow.getAllWindows();
+  if (windows.length === 0) {
+    beginShutdownCleanup();
     return;
   }
-  event.preventDefault();
-  isShuttingDown = true;
-  cleanupPromise ??= disposeRunner()
-    .catch((error: unknown) => {
-      console.error("运行器退出清理失败", error);
-    })
-    .finally(() => {
-      cleanupComplete = true;
-      app.quit();
-    });
+  for (const window of windows) window.close();
 });
 
 app.on("window-all-closed", () => {
+  if (quitRequested) {
+    beginShutdownCleanup();
+    return;
+  }
   if (process.platform !== "darwin") {
     app.quit();
   }
