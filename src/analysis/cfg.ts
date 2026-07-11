@@ -1,5 +1,11 @@
 import type { Node } from "web-tree-sitter";
-import { textRange, type TextRange } from "../core/model.js";
+import {
+  textRange,
+  type Block,
+  type SourceDoc,
+  type SyntaxBlock,
+  type TextRange,
+} from "../core/model.js";
 import type {
   CfgEdge,
   CfgEdgeKind,
@@ -24,6 +30,13 @@ interface FunctionBuildContext {
   readonly nodes: Map<string, DraftNode>;
   readonly edges: Map<string, CfgEdge>;
   readonly partialReasons: Map<string, CfgPartialReason>;
+  readonly labels: Map<string, LabelTarget>;
+  readonly loopAncestorsByNodeId: Map<number, ReadonlySet<string>>;
+}
+
+interface LabelTarget {
+  readonly id: string;
+  readonly loopAncestors: ReadonlySet<string>;
 }
 
 interface ControlTargets {
@@ -48,21 +61,35 @@ const CONTROL_FLOW_NODES = new Set([
   "while_statement",
 ]);
 
+const LOOP_NODE_TYPES = new Set(["do_statement", "for_statement", "while_statement"]);
+
 const EDGE_ORDER: Readonly<Record<CfgEdgeKind, number>> = Object.freeze({
   entry: 0,
   next: 1,
   "branch-true": 2,
   "branch-false": 3,
-  break: 4,
-  continue: 5,
-  return: 6,
-  terminate: 7,
+  "switch-case": 4,
+  "switch-default": 5,
+  "switch-miss": 6,
+  break: 7,
+  continue: 8,
+  goto: 9,
+  return: 10,
+  terminate: 11,
 });
 
 export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisSnapshot {
   assertInput(input);
+  const projectedByFunction = projectedStatementsByFunction(input.document);
   const functions = collectFunctions(input.rootNode)
-    .map((node) => buildFunctionCfg(node, input.source.length))
+    .map((node) => {
+      const range = nodeRange(node, input.source.length);
+      return buildFunctionCfg(
+        node,
+        input.source.length,
+        projectedByFunction.get(rangeKey(range)) ?? [],
+      );
+    })
     .sort((left, right) => left.range.from - right.range.from || left.range.to - right.range.to);
 
   return Object.freeze({
@@ -72,7 +99,11 @@ export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisS
   });
 }
 
-function buildFunctionCfg(functionNode: Node, sourceLength: number): FunctionCfg {
+function buildFunctionCfg(
+  functionNode: Node,
+  sourceLength: number,
+  projectedStatements: readonly SyntaxBlock[],
+): FunctionCfg {
   const range = nodeRange(functionNode, sourceLength);
   const id = `function:${range.from}:${range.to}`;
   const entryId = `${id}:entry`;
@@ -88,7 +119,11 @@ function buildFunctionCfg(functionNode: Node, sourceLength: number): FunctionCfg
     ]),
     edges: new Map(),
     partialReasons: new Map(),
+    labels: new Map(),
+    loopAncestorsByNodeId: new Map(),
   };
+
+  indexLabels(functionNode, context);
 
   if (functionNode.hasError) addPartial(context, "parse-error", functionNode);
   const body = functionNode.childForFieldName("body");
@@ -100,6 +135,9 @@ function buildFunctionCfg(functionNode: Node, sourceLength: number): FunctionCfg
     addEdge(context, entryId, first, "entry");
   }
 
+  if (context.partialReasons.size > 0) {
+    ensureProjectedOwnership(context, projectedStatements);
+  }
   markReachable(context);
   return freezeFunctionCfg(id, declaredFunctionName(functionNode, range), range, context);
 }
@@ -152,6 +190,15 @@ function buildNode(
   }
   if (node.type === "for_statement") {
     return buildFor(node, id, continuationId, context);
+  }
+  if (node.type === "switch_statement") {
+    return buildSwitch(node, id, continuationId, context, targets);
+  }
+  if (node.type === "labeled_statement") {
+    return buildLabeledStatement(node, id, continuationId, context, targets);
+  }
+  if (node.type === "goto_statement") {
+    return buildGoto(node, id, context);
   }
   if (node.type === "break_statement") {
     return buildControlTransfer(node, id, continuationId, targets.breakTargetId, "break", context);
@@ -326,6 +373,154 @@ function addPhaseEdges(
   addEdge(context, id, continuationId, "next");
 }
 
+function buildSwitch(
+  node: Node,
+  id: string,
+  continuationId: string,
+  context: FunctionBuildContext,
+  outerTargets: ControlTargets,
+): string {
+  const body = node.childForFieldName("body");
+  if (body === null || body.type !== "compound_statement") {
+    addPartial(context, "unsupported-syntax", node);
+    addEdge(context, id, continuationId, "next");
+    return id;
+  }
+
+  const directChildren = body.namedChildren.filter((child) => child.type !== "comment");
+  const directCases = directChildren.filter((child) => child.type === "case_statement");
+  const directCaseIds = new Set(directCases.map((candidate) => candidate.id));
+  const nestedCase = body
+    .descendantsOfType("case_statement")
+    .find(
+      (candidate) =>
+        !directCaseIds.has(candidate.id) && nearestSwitchAncestor(candidate)?.id === node.id,
+    );
+  if (nestedCase !== undefined) {
+    addPartial(context, "unsupported-control-flow", nestedCase);
+    addEdge(context, id, continuationId, "next");
+    return id;
+  }
+
+  const switchTargets: ControlTargets = {
+    breakTargetId: continuationId,
+    continueTargetId: outerTargets.continueTargetId,
+  };
+  let nextEntryId = continuationId;
+  const caseEntries: Array<{ readonly node: Node; readonly id: string }> = [];
+  for (let index = directChildren.length - 1; index >= 0; index -= 1) {
+    const child = directChildren[index];
+    if (child === undefined) continue;
+    if (child.type === "case_statement") {
+      nextEntryId = buildCase(child, nextEntryId, context, switchTargets);
+      caseEntries.push({ node: child, id: nextEntryId });
+    } else {
+      nextEntryId = buildNode(child, nextEntryId, context, switchTargets);
+    }
+  }
+
+  let hasDefault = false;
+  for (const entry of caseEntries.reverse()) {
+    const isDefault = entry.node.childForFieldName("value") === null;
+    hasDefault ||= isDefault;
+    addEdge(context, id, entry.id, isDefault ? "switch-default" : "switch-case");
+  }
+  if (!hasDefault) addEdge(context, id, continuationId, "switch-miss");
+  return id;
+}
+
+function buildCase(
+  node: Node,
+  continuationId: string,
+  context: FunctionBuildContext,
+  targets: ControlTargets,
+): string {
+  const id = addSyntaxNode(context, node, "statement");
+  const value = node.childForFieldName("value");
+  const bodyChildren = node.namedChildren.filter(
+    (child) => child.type !== "comment" && (value === null || child.id !== value.id),
+  );
+  const bodyId = buildSequence(bodyChildren, continuationId, context, targets);
+  addEdge(context, id, bodyId, "next");
+  return id;
+}
+
+function buildLabeledStatement(
+  node: Node,
+  id: string,
+  continuationId: string,
+  context: FunctionBuildContext,
+  targets: ControlTargets,
+): string {
+  const label = node.childForFieldName("label");
+  const bodies = node.namedChildren.filter(
+    (child) => child.type !== "comment" && (label === null || child.id !== label.id),
+  );
+  const body = bodies.length === 1 ? bodies[0] : undefined;
+  if (label === null || body === undefined) {
+    addPartial(context, "unsupported-syntax", node);
+    addEdge(context, id, continuationId, "next");
+    return id;
+  }
+  const bodyId = buildNode(body, continuationId, context, targets);
+  addEdge(context, id, bodyId, "next");
+  return id;
+}
+
+function buildGoto(node: Node, id: string, context: FunctionBuildContext): string {
+  const label = node.childForFieldName("label");
+  const target = label === null ? undefined : context.labels.get(label.text);
+  const sourceLoops = context.loopAncestorsByNodeId.get(node.id) ?? new Set<string>();
+  const entersLoop =
+    target !== undefined && [...target.loopAncestors].some((loopKey) => !sourceLoops.has(loopKey));
+  if (target === undefined) {
+    addPartial(context, "unsupported-control-flow", node);
+    return id;
+  }
+  if (entersLoop) addPartial(context, "unsupported-control-flow", node);
+  addEdge(context, id, target.id, "goto");
+  return id;
+}
+
+function nearestSwitchAncestor(node: Node): Node | null {
+  let ancestor = node.parent;
+  while (ancestor !== null) {
+    if (ancestor.type === "switch_statement") return ancestor;
+    ancestor = ancestor.parent;
+  }
+  return null;
+}
+
+function indexLabels(functionNode: Node, context: FunctionBuildContext): void {
+  const visit = (node: Node, loopAncestors: ReadonlySet<string>): void => {
+    context.loopAncestorsByNodeId.set(node.id, loopAncestors);
+    if (node.type === "labeled_statement") {
+      const label = node.childForFieldName("label");
+      if (label !== null) {
+        if (context.labels.has(label.text)) {
+          addPartial(context, "unsupported-control-flow", node);
+        } else {
+          context.labels.set(label.text, {
+            id: addSyntaxNode(context, node, "statement"),
+            loopAncestors,
+          });
+        }
+      }
+    }
+
+    const childLoops = LOOP_NODE_TYPES.has(node.type)
+      ? new Set([...loopAncestors, loopKey(node)])
+      : loopAncestors;
+    for (const child of node.namedChildren) visit(child, childLoops);
+  };
+
+  visit(functionNode, new Set());
+}
+
+function loopKey(node: Node): string {
+  return `${node.type}:${node.startIndex}:${node.endIndex}`;
+}
+
 function buildControlTransfer(
   node: Node,
   id: string,
@@ -388,6 +583,58 @@ function addPartial(context: FunctionBuildContext, code: CfgPartialReasonCode, n
   const range = nodeRange(node, context.sourceLength);
   const reason = Object.freeze({ code, nodeType: node.type, range });
   context.partialReasons.set(`${code}:${node.type}:${range.from}:${range.to}`, reason);
+}
+
+function ensureProjectedOwnership(
+  context: FunctionBuildContext,
+  projectedStatements: readonly SyntaxBlock[],
+): void {
+  const ownedRanges = new Set(
+    [...context.nodes.values()]
+      .filter((node) => node.kind !== "entry" && node.kind !== "exit")
+      .map((node) => rangeKey(node.ownerBlockRange)),
+  );
+  for (const block of projectedStatements) {
+    const key = rangeKey(block.range);
+    if (ownedRanges.has(key)) continue;
+    const id = `syntax:${block.range.from}:${block.range.to}:${block.nodeType}`;
+    context.nodes.set(id, {
+      id,
+      kind: "syntax",
+      role: block.role === "declaration" ? "declaration" : "statement",
+      nodeType: block.nodeType,
+      range: block.range,
+      ownerBlockRange: block.range,
+      reachable: false,
+    });
+    ownedRanges.add(key);
+  }
+}
+
+function projectedStatementsByFunction(
+  document: SourceDoc,
+): ReadonlyMap<string, readonly SyntaxBlock[]> {
+  const byFunction = new Map<string, readonly SyntaxBlock[]>();
+  const visit = (block: Block): void => {
+    if (block.kind === "syntax" && block.role === "function") {
+      const statements: SyntaxBlock[] = [];
+      collectProjectedStatements(block.children, statements);
+      byFunction.set(rangeKey(block.range), statements);
+      return;
+    }
+    block.children.forEach(visit);
+  };
+  document.blocks.forEach(visit);
+  return byFunction;
+}
+
+function collectProjectedStatements(blocks: readonly Block[], output: SyntaxBlock[]): void {
+  for (const block of blocks) {
+    if (block.kind === "syntax" && (block.role === "statement" || block.role === "declaration")) {
+      output.push(block);
+    }
+    collectProjectedStatements(block.children, output);
+  }
 }
 
 function markReachable(context: FunctionBuildContext): void {
@@ -518,4 +765,11 @@ function assertInput(input: ProgramAnalysisInput): void {
   if (input.rootNode.type !== "translation_unit") {
     throw new TypeError(`分析根节点必须是 translation_unit，实际 ${input.rootNode.type}`);
   }
+  if (input.document.source !== input.source) {
+    throw new TypeError("分析输入的 SourceDoc 与 CST 源码不一致");
+  }
+}
+
+function rangeKey(range: TextRange): string {
+  return `${range.from}:${range.to}`;
 }

@@ -8,7 +8,7 @@
 
 **M4：降级健壮化与组装学习工作台已完成。** 2026-07-11 的当前版本在 M4 底座上增加了 Dashboard、Documents 托管工作区、跨页面视觉引导与 Software Library。最新回归覆盖 481 个单元/集成测试和 60 个 Electron E2E，并保留 20 个金样本、5 个压力样本、2000 例变异 fuzz、5000 例课程 C 生成式 fuzz和 16 份困难语料。它仍属于 M4 工作台增强，不冒充 M5 之后的 CFG、数据流、算法识别或 AI。
 
-**M5a：确定性程序分析正在推进。** 当前已建立与编辑管线隔离的只读 CST 检查边界，以及顺序语句、`if/else`、`while/do/for`、`break/continue`、`return`、`exit/abort/assert` 和显式不可达后缀的函数级 CFG 地基。`for` 头部阶段和 `do-while` 底部条件拥有可映射回所属积木的内部控制点。分析输出是可跨 Tree 生命周期使用的深冻结纯值；遇到尚未支持的控制结构会标记 `partial` 并保守保持后续可达，不产生确定性误报。此阶段尚未接入工作台 UI，也尚未完成 `switch/goto`、def-use 或内存风险分析，因此不视为 M5a 完成。
+**M5a：确定性程序分析正在推进。** 当前已建立与编辑管线隔离的只读 CST 检查边界，以及顺序语句、`if/else`、`while/do/for`、`switch/case`、`break/continue`、两遍 `goto/label`、`return`、`exit/abort/assert` 和显式不可达后缀的函数级 CFG 地基。`for` 头部阶段和 `do-while` 底部条件拥有可映射回所属积木的内部控制点；无 default 的 switch 有显式 miss 出口，Duff 式嵌套 case 与跳入循环体的 goto 会诚实标记 `partial`。分析输出是可跨 Tree 生命周期使用的深冻结纯值，partial CFG 仍保留全部投影语句节点，但禁止后续产生 certain 结论。此阶段尚未接入工作台 UI，也尚未完成 30–50 函数金标、def-use 或内存风险分析，因此不视为 M5a 完成。
 
 已建立：
 

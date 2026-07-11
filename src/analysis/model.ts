@@ -1,9 +1,20 @@
-import type { TextRange } from "../core/model.js";
+import type { SourceDoc, TextRange } from "../core/model.js";
 
 export type CfgNodeKind = "entry" | "exit" | "syntax" | "control";
 export type CfgNodeRole = "boundary" | "statement" | "declaration" | "control";
 export type CfgEdgeKind =
-  "entry" | "next" | "branch-true" | "branch-false" | "break" | "continue" | "return" | "terminate";
+  | "entry"
+  | "next"
+  | "branch-true"
+  | "branch-false"
+  | "switch-case"
+  | "switch-default"
+  | "switch-miss"
+  | "break"
+  | "continue"
+  | "goto"
+  | "return"
+  | "terminate";
 
 export interface CfgNode {
   /** Snapshot-local deterministic identity. */
@@ -53,4 +64,5 @@ export interface ProgramAnalysisInput {
   readonly source: string;
   readonly revision: number;
   readonly rootNode: import("web-tree-sitter").Node;
+  readonly document: SourceDoc;
 }

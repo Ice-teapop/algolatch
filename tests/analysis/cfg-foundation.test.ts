@@ -304,31 +304,163 @@ describe("M5a CFG foundation", () => {
     ]);
   });
 
-  it("fails closed with an explicit partial reason for unsupported control flow", () => {
-    const source = "int f(int x) { switch (x) { default: break; } return x; }";
+  it("dispatches switch cases and default while honoring break", () => {
+    const source = "int f(int x) { switch (x) { case 1: x++; break; default: x--; } return x; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(cfg.partial).toBe(false);
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "switch (x) { case 1: x++; break; default: x--; }", "entry"],
+      ["switch (x) { case 1: x++; break; default: x--; }", "case 1: x++; break;", "switch-case"],
+      ["switch (x) { case 1: x++; break; default: x--; }", "default: x--;", "switch-default"],
+      ["case 1: x++; break;", "x++;", "next"],
+      ["x++;", "break;", "next"],
+      ["break;", "return x;", "break"],
+      ["default: x--;", "x--;", "next"],
+      ["x--;", "return x;", "next"],
+      ["return x;", "EXIT", "return"],
+    ]);
+  });
+
+  it("adds an implicit switch miss edge when default is absent", () => {
+    const source = "int f(int x) { switch (x) { case 1: return 1; } return 0; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "switch (x) { case 1: return 1; }", "entry"],
+      ["switch (x) { case 1: return 1; }", "case 1: return 1;", "switch-case"],
+      ["switch (x) { case 1: return 1; }", "return 0;", "switch-miss"],
+      ["case 1: return 1;", "return 1;", "next"],
+      ["return 1;", "EXIT", "return"],
+      ["return 0;", "EXIT", "return"],
+    ]);
+  });
+
+  it("preserves switch fallthrough between adjacent cases", () => {
+    const source = "int f(int x) { switch (x) { case 1: x++; case 2: x--; break; } return x; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(cfg.partial).toBe(false);
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "switch (x) { case 1: x++; case 2: x--; break; }", "entry"],
+      ["switch (x) { case 1: x++; case 2: x--; break; }", "case 1: x++;", "switch-case"],
+      ["switch (x) { case 1: x++; case 2: x--; break; }", "case 2: x--; break;", "switch-case"],
+      ["switch (x) { case 1: x++; case 2: x--; break; }", "return x;", "switch-miss"],
+      ["case 1: x++;", "x++;", "next"],
+      ["x++;", "case 2: x--; break;", "next"],
+      ["case 2: x--; break;", "x--;", "next"],
+      ["x--;", "break;", "next"],
+      ["break;", "return x;", "break"],
+      ["return x;", "EXIT", "return"],
+    ]);
+  });
+
+  it("does not confuse cases owned by a nested switch with Duff-style cases", () => {
+    const source =
+      "int f(int x, int y) { switch (x) { case 0: switch (y) { case 1: y++; break; } break; default: x--; } return x; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(cfg.partial).toBe(false);
+    expect(cfg.edges.filter((edge) => edge.kind === "switch-case")).toHaveLength(2);
+    expect(cfg.edges.filter((edge) => edge.kind === "switch-default")).toHaveLength(1);
+    expect(cfg.edges.filter((edge) => edge.kind === "switch-miss")).toHaveLength(1);
+  });
+
+  it("resolves forward goto to a labeled statement in a second pass", () => {
+    const source = "int f(int x) { goto done; x++; done: return x; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(cfg.partial).toBe(false);
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "goto done;", "entry"],
+      ["goto done;", "done: return x;", "goto"],
+      ["x++;", "done: return x;", "next"],
+      ["done: return x;", "return x;", "next"],
+      ["return x;", "EXIT", "return"],
+    ]);
+    expect(reachability(cfg, source)["x++;"]).toBe(false);
+  });
+
+  it("resolves backward goto without treating it as fallthrough", () => {
+    const source = "int f(int x) { start: x--; if (x) goto start; return x; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "start: x--;", "entry"],
+      ["start: x--;", "x--;", "next"],
+      ["x--;", "if (x) goto start;", "next"],
+      ["if (x) goto start;", "goto start;", "branch-true"],
+      ["if (x) goto start;", "return x;", "branch-false"],
+      ["goto start;", "start: x--;", "goto"],
+      ["return x;", "EXIT", "return"],
+    ]);
+  });
+
+  it("marks a missing goto label partial without inventing fallthrough", () => {
+    const source = "int f(void) { goto missing; return 0; }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(cfg.partialReasons).toEqual([
+      expect.objectContaining({ code: "unsupported-control-flow", nodeType: "goto_statement" }),
+    ]);
+    expect(edgeShapes(cfg, source)).toEqual([
+      ["ENTRY", "goto missing;", "entry"],
+      ["return 0;", "EXIT", "return"],
+    ]);
+    expect(reachability(cfg, source)["return 0;"]).toBe(false);
+  });
+
+  it("rejects goto that enters a loop body", () => {
+    const source = "int f(int x) { goto inside; while (x) { inside: x--; } return x; }";
     const cfg = analyzeOne(parser, source);
 
     expect(cfg.partial).toBe(true);
     expect(cfg.partialReasons).toEqual([
-      expect.objectContaining({ code: "unsupported-control-flow", nodeType: "switch_statement" }),
+      expect.objectContaining({ code: "unsupported-control-flow", nodeType: "goto_statement" }),
+    ]);
+    expect(edgeShapes(cfg, source)).toContainEqual(["goto inside;", "inside: x--;", "goto"]);
+    expect(edgeShapes(cfg, source)).not.toContainEqual([
+      "goto inside;",
+      "while (x) { inside: x--; }",
+      "next",
+    ]);
+  });
+
+  it("fails closed with an explicit partial reason for unsupported control flow", () => {
+    const source = "int f(int x) { switch (x) { case 1: while (x) { case 2: x--; } } return x; }";
+    const inspected = parser.inspect(source, 1, ({ rootNode, document }) =>
+      analyzeProgramCst({ source, revision: 1, rootNode, document }),
+    );
+    const cfg = inspected.result.functions[0];
+    if (cfg === undefined) throw new Error("fixture 缺少函数 CFG");
+
+    expect(cfg.partial).toBe(true);
+    expect(cfg.partialReasons).toEqual([
+      expect.objectContaining({ code: "unsupported-control-flow", nodeType: "case_statement" }),
     ]);
     expect(edgeShapes(cfg, source)).toContainEqual([
       "ENTRY",
-      "switch (x) { default: break; }",
+      "switch (x) { case 1: while (x) { case 2: x--; } }",
       "entry",
     ]);
     expect(edgeShapes(cfg, source)).toContainEqual([
-      "switch (x) { default: break; }",
+      "switch (x) { case 1: while (x) { case 2: x--; } }",
       "return x;",
       "next",
     ]);
     expect(reachability(cfg, source)["return x;"]).toBe(true);
+    const projected = collectStructuredStatementRanges(inspected.analysis.document.blocks);
+    const owned = cfg.nodes
+      .filter((node) => node.kind === "syntax" || node.nodeType === "do_condition")
+      .map((node) => `${node.ownerBlockRange.from}:${node.ownerBlockRange.to}`)
+      .sort();
+    expect(owned).toEqual(projected);
   });
 
   it("returns a deeply frozen plain snapshot that survives Tree disposal", () => {
     const source = "int f(void) { return 0; }";
-    const snapshot = parser.inspect(source, 12, ({ rootNode }) =>
-      analyzeProgramCst({ source, revision: 12, rootNode }),
+    const snapshot = parser.inspect(source, 12, ({ rootNode, document }) =>
+      analyzeProgramCst({ source, revision: 12, rootNode, document }),
     ).result;
 
     expect(snapshot.revision).toBe(12);
@@ -343,11 +475,11 @@ describe("M5a CFG foundation", () => {
 
   it("is deeply equal across independent reparses of identical source", () => {
     const source = "int f(int x) { if (x) return 1; return 0; }";
-    const first = parser.inspect(source, 5, ({ rootNode }) =>
-      analyzeProgramCst({ source, revision: 5, rootNode }),
+    const first = parser.inspect(source, 5, ({ rootNode, document }) =>
+      analyzeProgramCst({ source, revision: 5, rootNode, document }),
     ).result;
-    const second = parser.inspect(source, 5, ({ rootNode }) =>
-      analyzeProgramCst({ source, revision: 5, rootNode }),
+    const second = parser.inspect(source, 5, ({ rootNode, document }) =>
+      analyzeProgramCst({ source, revision: 5, rootNode, document }),
     ).result;
 
     expect(second).toEqual(first);
@@ -361,9 +493,11 @@ describe("M5a CFG foundation", () => {
     "int f(int x) { while (x) x--; return x; }",
     "int f(int x) { do x--; while (x); return x; }",
     "int f(int n) { for (int i = 0; i < n; i++) continue; return n; }",
+    "int f(int x) { switch (x) { case 1: x++; break; default: x--; } return x; }",
+    "int f(int x) { goto done; x++; done: return x; }",
   ])("owns every projected statement or declaration exactly once: %s", (source) => {
-    const inspected = parser.inspect(source, 3, ({ rootNode }) =>
-      analyzeProgramCst({ source, revision: 3, rootNode }),
+    const inspected = parser.inspect(source, 3, ({ rootNode, document }) =>
+      analyzeProgramCst({ source, revision: 3, rootNode, document }),
     );
     const cfg = inspected.result.functions[0];
     if (cfg === undefined) throw new Error("fixture 缺少函数 CFG");
@@ -380,8 +514,8 @@ describe("M5a CFG foundation", () => {
 });
 
 function analyzeOne(parser: CParser, source: string): FunctionCfg {
-  const snapshot = parser.inspect(source, 1, ({ rootNode }) =>
-    analyzeProgramCst({ source, revision: 1, rootNode }),
+  const snapshot = parser.inspect(source, 1, ({ rootNode, document }) =>
+    analyzeProgramCst({ source, revision: 1, rootNode, document }),
   ).result;
   const cfg = snapshot.functions[0];
   if (cfg === undefined) throw new Error("fixture 缺少函数 CFG");
