@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "expectedFixtureCount": 33,
-  "expectedFunctionCount": 34,
+  "expectedFixtureCount": 34,
+  "expectedFunctionCount": 35,
   "requiredTags": [
     "sequence",
     "if",
@@ -51,6 +51,7 @@
     "30-short-circuit-ternary",
     "31-duplicate-text",
     "32-do-terminator",
-    "33-case-outside-switch"
+    "33-case-outside-switch",
+    "34-uninitialized-read"
   ]
 }

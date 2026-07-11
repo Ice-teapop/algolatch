@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import type {
+  AnalysisFindingReason,
+  AnalysisFindingRuleId,
   CfgEdgeKind,
   CfgNodeKind,
   CfgNodeOwnership,
   CfgNodeRole,
   CfgPartialReasonCode,
   FunctionCfg,
+  ProgramAnalysisSnapshot,
 } from "../../src/analysis/index.js";
 
 export interface CfgGoldCorpus {
@@ -73,14 +76,15 @@ export interface GoldPartialReason {
 }
 
 export interface FindingsGold {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly sourceSha256: string;
   readonly findings: readonly GoldFinding[];
 }
 
 export interface GoldFinding {
   readonly function: string;
-  readonly ruleId: string;
+  readonly ruleId: AnalysisFindingRuleId;
+  readonly reason: AnalysisFindingReason;
   readonly confidence: "certain" | "likely" | "hint";
   readonly primaryRange: GoldRange;
   readonly ownerNode: string;
@@ -118,6 +122,46 @@ const PARTIAL_CODES = new Set<CfgPartialReasonCode>([
   "unsupported-syntax",
 ]);
 const FINDING_CONFIDENCE = new Set<GoldFinding["confidence"]>(["certain", "likely", "hint"]);
+const FINDING_RULE_ID_MAP = Object.freeze({
+  "unreachable-code": true,
+  "uninitialized-read": true,
+  "literal-out-of-bounds": true,
+  "loop-off-by-one": true,
+  "memory-leak": true,
+  "possible-memory-leak": true,
+  "double-free": true,
+  "possible-double-free": true,
+  "use-after-free": true,
+  "possible-use-after-free": true,
+  "malloc-sizeof-pointer": true,
+  "unchecked-allocation": true,
+  "runtime-bound-check": true,
+  "loop-index-mismatch": true,
+} as const satisfies Readonly<Record<AnalysisFindingRuleId, true>>);
+const FINDING_RULE_IDS = new Set<AnalysisFindingRuleId>(
+  Object.keys(FINDING_RULE_ID_MAP) as AnalysisFindingRuleId[],
+);
+const FINDING_REASON_MAP = Object.freeze({
+  "no-entry-path": true,
+  "all-reaching-definitions-uninitialized": true,
+  "no-reaching-definition": true,
+  "negative-literal-index": true,
+  "literal-index-not-less-than-extent": true,
+  "inclusive-bound-reaches-fixed-extent": true,
+  "live-at-all-normal-exits": true,
+  "live-at-some-normal-exit": true,
+  "must-freed-before-free": true,
+  "may-freed-before-free": true,
+  "must-freed-before-dereference": true,
+  "may-freed-before-dereference": true,
+  "pointer-size-used-for-pointee-allocation": true,
+  "maybe-null-before-dereference": true,
+  "loop-condition-does-not-constrain-index": true,
+  "runtime-index-without-proven-bound": true,
+} as const satisfies Readonly<Record<AnalysisFindingReason, true>>);
+const FINDING_REASONS = new Set<AnalysisFindingReason>(
+  Object.keys(FINDING_REASON_MAP) as AnalysisFindingReason[],
+);
 const EVIDENCE_ROLES = new Set([
   "allocation",
   "bound",
@@ -216,6 +260,46 @@ export function normalizeFunctionCfg(cfg: FunctionCfg, source: string): GoldFunc
     nodes: sortNodes(nodes),
     edges: sortEdges(edges),
   });
+}
+
+export function normalizeAnalysisFindings(
+  snapshot: ProgramAnalysisSnapshot,
+): readonly GoldFinding[] {
+  const cfgById = new Map(snapshot.functions.map((cfg) => [cfg.id, cfg]));
+  const findings = snapshot.findings.map((finding): GoldFinding => {
+    const cfg = cfgById.get(finding.functionId);
+    if (cfg === undefined) throw new Error(`finding 引用了不存在的函数：${finding.functionId}`);
+    const owner = cfg.nodes.find((node) => node.id === finding.ownerNodeId);
+    if (owner === undefined || owner.ownership !== "primary") {
+      throw new Error(`finding owner 不是 primary CFG 节点：${finding.ownerNodeId}`);
+    }
+    const functionRange: GoldRange = [cfg.range.from, cfg.range.to];
+    return Object.freeze({
+      function: goldFunctionKey(cfg.name, functionRange),
+      ruleId: finding.ruleId,
+      reason: finding.reason,
+      confidence: finding.confidence,
+      primaryRange: Object.freeze([
+        finding.primaryRange.from,
+        finding.primaryRange.to,
+      ]) as GoldRange,
+      ownerNode: goldNodeKey(owner.kind, owner.nodeType, [owner.range.from, owner.range.to]),
+      subject: finding.subject,
+      evidence: Object.freeze(
+        finding.evidence.map((evidence) =>
+          Object.freeze({
+            role: evidence.role,
+            range: Object.freeze([evidence.range.from, evidence.range.to]) as GoldRange,
+          }),
+        ),
+      ),
+    });
+  });
+  return Object.freeze(
+    [...findings].sort((left, right) =>
+      findingIdentity(left).localeCompare(findingIdentity(right)),
+    ),
+  );
 }
 
 export function reachableGoldNodeKeys(functionGold: GoldFunction): ReadonlySet<string> {
@@ -508,7 +592,7 @@ function parseFindings(
 ): FindingsGold {
   const path = `${fixtureName}.findings`;
   const record = exactRecord(value, ["schemaVersion", "sourceSha256", "findings"], path);
-  if (record.schemaVersion !== 1) throw new TypeError(`${path}.schemaVersion 必须为 1`);
+  if (record.schemaVersion !== 2) throw new TypeError(`${path}.schemaVersion 必须为 2`);
   const pinnedHash = sha256(record.sourceSha256, `${path}.sourceSha256`);
   if (pinnedHash !== sourceSha256) throw new TypeError(`${path}.sourceSha256 与 source.c 不一致`);
   const functionMap = new Map(functions.map((entry) => [entry.key, entry]));
@@ -517,7 +601,7 @@ function parseFindings(
   );
   ensureUnique(findings.map(findingIdentity), `${path} finding`);
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourceSha256: pinnedHash,
     findings: Object.freeze(
       [...findings].sort((left, right) =>
@@ -535,7 +619,16 @@ function parseFinding(
 ): GoldFinding {
   const record = exactRecord(
     value,
-    ["function", "ruleId", "confidence", "primaryRange", "ownerNode", "subject", "evidence"],
+    [
+      "function",
+      "ruleId",
+      "reason",
+      "confidence",
+      "primaryRange",
+      "ownerNode",
+      "subject",
+      "evidence",
+    ],
     path,
   );
   const functionKey = nonEmptyString(record.function, `${path}.function`);
@@ -574,7 +667,8 @@ function parseFinding(
   );
   return Object.freeze({
     function: functionKey,
-    ruleId: nonEmptyString(record.ruleId, `${path}.ruleId`),
+    ruleId: enumString(record.ruleId, FINDING_RULE_IDS, `${path}.ruleId`),
+    reason: enumString(record.reason, FINDING_REASONS, `${path}.reason`),
     confidence: enumString(record.confidence, FINDING_CONFIDENCE, `${path}.confidence`),
     primaryRange,
     ownerNode,
@@ -616,7 +710,7 @@ function edgeIdentity(edge: GoldEdge): string {
 }
 
 function findingIdentity(finding: GoldFinding): string {
-  return `${finding.function}\u0000${finding.ruleId}\u0000${finding.confidence}\u0000${rangeKey(finding.primaryRange)}\u0000${finding.subject ?? ""}`;
+  return `${finding.function}\u0000${finding.ruleId}\u0000${finding.reason}\u0000${finding.confidence}\u0000${rangeKey(finding.primaryRange)}\u0000${finding.subject ?? ""}`;
 }
 
 function compareFunction(left: GoldFunction, right: GoldFunction): number {

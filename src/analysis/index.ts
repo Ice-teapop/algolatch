@@ -4,6 +4,7 @@ export type {
   AnalysisFinding,
   AnalysisFindingConfidence,
   AnalysisFindingEvidence,
+  AnalysisFindingReason,
   AnalysisFindingRuleId,
   CfgEdge,
   CfgEdgeKind,

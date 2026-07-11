@@ -10,6 +10,7 @@ import { type Block, type CParser, type TextRange } from "../../src/core/index.j
 import { createTestParser } from "../core/parser-fixture.js";
 import {
   loadCfgGoldCorpus,
+  normalizeAnalysisFindings,
   normalizeFunctionCfg,
   rangeKey,
   reachableGoldNodeKeys,
@@ -97,6 +98,15 @@ describe("M5a CFG gold corpus contract", () => {
     ).toBe(true);
   });
 
+  it("contains reviewed non-empty finding expectations", () => {
+    const findings = corpus.cases.flatMap((fixture) => fixture.expectedFindings.findings);
+
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((finding) => finding.ruleId === "unreachable-code")).toBe(true);
+    expect(findings.some((finding) => finding.ruleId === "uninitialized-read")).toBe(true);
+    expect(findings.every((finding) => finding.reason.length > 0)).toBe(true);
+  });
+
   it.each(corpus.cases)(
     "matches the full CFG gold: $expected.caseId",
     ({ source, expected, expectedFindings }) => {
@@ -106,9 +116,11 @@ describe("M5a CFG gold corpus contract", () => {
       const actualFunctions = inspected.result.functions.map((cfg) =>
         normalizeFunctionCfg(cfg, source),
       );
+      const actualFindings = normalizeAnalysisFindings(inspected.result);
 
       expect(actualFunctions).toEqual(expected.functions);
       expect(expectedFindings.sourceSha256).toBe(expected.sourceSha256);
+      expect(actualFindings).toEqual(expectedFindings.findings);
 
       const projectedByFunction = collectProjectedRangesByFunction(
         inspected.analysis.document.blocks,

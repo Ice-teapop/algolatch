@@ -1,5 +1,26 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "sourceSha256": "9cf48fd2e4f6c17051d739406c0177bc7277c8c5ce36c4fddee526e6f22d39cc",
-  "findings": []
+  "findings": [
+    {
+      "function": "fn:f:0:41",
+      "ruleId": "unreachable-code",
+      "reason": "no-entry-path",
+      "confidence": "certain",
+      "primaryRange": [24, 34],
+      "ownerNode": "n:syntax:declaration:24:34",
+      "subject": null,
+      "evidence": [{ "role": "unreachable", "range": [24, 34] }]
+    },
+    {
+      "function": "fn:f:0:41",
+      "ruleId": "unreachable-code",
+      "reason": "no-entry-path",
+      "confidence": "certain",
+      "primaryRange": [35, 39],
+      "ownerNode": "n:syntax:expression_statement:35:39",
+      "subject": null,
+      "evidence": [{ "role": "unreachable", "range": [35, 39] }]
+    }
+  ]
 }

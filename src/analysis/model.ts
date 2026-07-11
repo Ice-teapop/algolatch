@@ -217,6 +217,23 @@ export interface LoopPredicateFact {
 }
 
 export type AnalysisFindingConfidence = "certain" | "likely" | "hint";
+export type AnalysisFindingReason =
+  | "no-entry-path"
+  | "all-reaching-definitions-uninitialized"
+  | "no-reaching-definition"
+  | "negative-literal-index"
+  | "literal-index-not-less-than-extent"
+  | "inclusive-bound-reaches-fixed-extent"
+  | "live-at-all-normal-exits"
+  | "live-at-some-normal-exit"
+  | "must-freed-before-free"
+  | "may-freed-before-free"
+  | "must-freed-before-dereference"
+  | "may-freed-before-dereference"
+  | "pointer-size-used-for-pointee-allocation"
+  | "maybe-null-before-dereference"
+  | "loop-condition-does-not-constrain-index"
+  | "runtime-index-without-proven-bound";
 export type AnalysisFindingRuleId =
   | "unreachable-code"
   | "uninitialized-read"
@@ -256,6 +273,7 @@ export interface AnalysisFinding {
   readonly id: string;
   readonly functionId: string;
   readonly ruleId: AnalysisFindingRuleId;
+  readonly reason: AnalysisFindingReason;
   readonly confidence: AnalysisFindingConfidence;
   readonly primaryRange: TextRange;
   readonly ownerNodeId: string;

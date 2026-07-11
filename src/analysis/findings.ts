@@ -1,6 +1,7 @@
 import type {
   AnalysisFinding,
   AnalysisFindingEvidence,
+  AnalysisFindingReason,
   AnalysisFindingRuleId,
   CfgNode,
   DefUseDefinitionEffect,
@@ -38,7 +39,11 @@ export function collectFunctionFindings(input: FunctionFindingsInput): readonly 
 function collectUnreachableFindings(cfg: FunctionCfg): readonly AnalysisFinding[] {
   const unreachable = cfg.nodes
     .filter((node) => node.ownership === "primary" && !node.reachable)
-    .map((node) => ({ node, range: unreachableCoverage(cfg, node) }));
+    .map((node) => ({ node, range: unreachableCoverage(cfg, node) }))
+    .filter(
+      (entry): entry is { readonly node: CfgNode; readonly range: CfgNode["range"] } =>
+        entry.range !== null,
+    );
   const outermost = unreachable.filter(
     (entry) =>
       !unreachable.some(
@@ -54,6 +59,7 @@ function collectUnreachableFindings(cfg: FunctionCfg): readonly AnalysisFinding[
     freezeFinding({
       functionId: cfg.id,
       ruleId: "unreachable-code",
+      reason: "no-entry-path",
       primaryRange: range,
       ownerNodeId: node.id,
       subject: null,
@@ -63,8 +69,17 @@ function collectUnreachableFindings(cfg: FunctionCfg): readonly AnalysisFinding[
   );
 }
 
-function unreachableCoverage(cfg: FunctionCfg, node: CfgNode): CfgNode["range"] {
-  if (sameRange(node.range, node.ownerBlockRange)) return node.range;
+function unreachableCoverage(cfg: FunctionCfg, node: CfgNode): CfgNode["range"] | null {
+  if (sameRange(node.range, node.ownerBlockRange)) {
+    const hasReachableOwnedPhase = cfg.nodes.some(
+      (candidate) =>
+        candidate.id !== node.id &&
+        candidate.ownership !== "boundary" &&
+        candidate.reachable &&
+        containsRange(node.ownerBlockRange, candidate.range),
+    );
+    return hasReachableOwnedPhase ? null : node.range;
+  }
   const ownedPrimaryNodes = cfg.nodes.filter(
     (candidate) =>
       candidate.ownership === "primary" && containsRange(node.ownerBlockRange, candidate.range),
@@ -92,30 +107,31 @@ function collectUninitializedReadFindings(
     if (owner === null) continue;
 
     for (const [effectIndex, effect] of fact.effects.entries()) {
-      if (effect.kind !== "use") continue;
+      if (effect.kind !== "use" || effect.execution !== "always") continue;
       const variable = variablesById.get(effect.variableId);
       if (!isCleanLocalScalar(variable)) continue;
       const resolution = flow.uses.find((use) => use.useEffectId === effect.id);
       if (resolution === undefined || resolution.availability !== "tracked") continue;
-      const evidenceDefinitions = uninitializedEvidenceDefinitions(
+      const uninitialized = uninitializedEvidence(
         fact.effects,
         effectIndex,
         effect,
         resolution,
         definitionsById,
       );
-      if (evidenceDefinitions === null) continue;
+      if (uninitialized === null) continue;
 
       findings.push(
         freezeFinding({
           functionId: input.cfg.id,
           ruleId: "uninitialized-read",
+          reason: uninitialized.reason,
           primaryRange: effect.range,
           ownerNodeId: owner.id,
           subject: variable.name,
           subjectVariableId: variable.id,
           evidence: [
-            ...evidenceDefinitions.map((definition) => ({
+            ...uninitialized.definitions.map((definition) => ({
               role: "definition" as const,
               range: definition.range,
             })),
@@ -128,13 +144,19 @@ function collectUninitializedReadFindings(
   return findings;
 }
 
-function uninitializedEvidenceDefinitions(
+function uninitializedEvidence(
   effects: FunctionDefUse["facts"][number]["effects"],
   useIndex: number,
   use: DefUseUseEffect,
   resolution: ReachingDefinitionUse,
   definitionsById: ReadonlyMap<string, DefUseDefinitionEffect>,
-): readonly DefUseDefinitionEffect[] | null {
+): {
+  readonly reason: Extract<
+    AnalysisFindingReason,
+    "all-reaching-definitions-uninitialized" | "no-reaching-definition"
+  >;
+  readonly definitions: readonly DefUseDefinitionEffect[];
+} | null {
   const reaching = resolution.definitionEffectIds.map((id) => definitionsById.get(id));
   if (reaching.some((definition) => definition === undefined)) return null;
   const definitions = reaching.filter(
@@ -142,7 +164,7 @@ function uninitializedEvidenceDefinitions(
   );
   if (definitions.length > 0) {
     return definitions.every((definition) => definition.valueState === "uninitialized")
-      ? definitions
+      ? { reason: "all-reaching-definitions-uninitialized", definitions }
       : null;
   }
 
@@ -155,7 +177,9 @@ function uninitializedEvidenceDefinitions(
         effect.origin === "declaration" &&
         effect.strength === "strong",
     );
-  return selfDeclaration === undefined ? null : [selfDeclaration];
+  return selfDeclaration === undefined
+    ? null
+    : { reason: "no-reaching-definition", definitions: [selfDeclaration] };
 }
 
 function isCleanLocalScalar(variable: DefUseVariable | undefined): variable is DefUseVariable {
@@ -181,6 +205,7 @@ function primaryOwner(cfg: FunctionCfg, node: CfgNode): CfgNode | null {
 function freezeFinding(input: {
   readonly functionId: string;
   readonly ruleId: AnalysisFindingRuleId;
+  readonly reason: AnalysisFindingReason;
   readonly primaryRange: AnalysisFinding["primaryRange"];
   readonly ownerNodeId: string;
   readonly subject: string | null;
@@ -189,9 +214,10 @@ function freezeFinding(input: {
 }): AnalysisFinding {
   const subjectKey = input.subjectVariableId ?? input.subject ?? "none";
   return Object.freeze({
-    id: `finding:${input.ruleId}:${String(input.primaryRange.from)}:${String(input.primaryRange.to)}:${subjectKey}`,
+    id: `finding:${input.ruleId}:${input.reason}:${String(input.primaryRange.from)}:${String(input.primaryRange.to)}:${subjectKey}`,
     functionId: input.functionId,
     ruleId: input.ruleId,
+    reason: input.reason,
     confidence: "certain",
     primaryRange: Object.freeze({ ...input.primaryRange }),
     ownerNodeId: input.ownerNodeId,

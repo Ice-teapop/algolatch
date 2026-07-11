@@ -52,6 +52,14 @@ describe("M5a deterministic findings foundation", () => {
     ).toEqual(["(x)"]);
   });
 
+  it("does not mark an executed for initializer as part of an unreachable owner", () => {
+    const analysis = inspect(parser, "int f(int x) { for (exit(1); x; abort()) x--; return x; }");
+
+    expect(
+      findingsFor(analysis, "unreachable-code").map((finding) => selectedText(analysis, finding)),
+    ).toEqual(["x--;", "return x;"]);
+  });
+
   it("reports a read only when every reaching definition is uninitialized", () => {
     const allPaths = inspect(
       parser,
@@ -63,6 +71,7 @@ describe("M5a deterministic findings foundation", () => {
     expect(findingsFor(allPaths, "uninitialized-read")[0]).toMatchObject({
       subject: "x",
       confidence: "certain",
+      reason: "all-reaching-definitions-uninitialized",
     });
     expect(findingsFor(partialPath, "uninitialized-read")).toEqual([]);
   });
@@ -73,6 +82,7 @@ describe("M5a deterministic findings foundation", () => {
 
     expect(finding).toBeDefined();
     expect(selectedText(self, finding!)).toBe("x");
+    expect(finding?.reason).toBe("no-reaching-definition");
     expect(finding?.evidence.map((evidence) => evidence.role)).toEqual(["definition", "use"]);
   });
 
@@ -81,11 +91,13 @@ describe("M5a deterministic findings foundation", () => {
     const escaped = inspect(parser, "int f(void) { int x; int *p = &x; sink(p); return x; }");
     const unreachable = inspect(parser, "int f(void) { int x; return 0; sink(x); }");
     const staticLocal = inspect(parser, "int f(void) { static int x; return x; }");
+    const conditional = inspect(parser, "int f(void) { int x; return 0 && x; }");
 
     expect(findingsFor(weakWrite, "uninitialized-read")).toEqual([]);
     expect(findingsFor(escaped, "uninitialized-read")).toEqual([]);
     expect(findingsFor(unreachable, "uninitialized-read")).toEqual([]);
     expect(findingsFor(staticLocal, "uninitialized-read")).toEqual([]);
+    expect(findingsFor(conditional, "uninitialized-read")).toEqual([]);
     expect(findingsFor(unreachable, "unreachable-code")).toHaveLength(1);
   });
 

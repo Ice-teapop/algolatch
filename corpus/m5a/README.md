@@ -4,7 +4,8 @@
 
 - `source.c`：一个或多个独立验收的 C 函数定义。
 - `cfg.expected.json`：人工审阅的完整函数级节点、边集、partial 原因和显式 reachability。
-- `expected-findings.json`：同一源码的精确分析发现；CFG 切片先固定空结果，后续分析器接入后逐项精确比对。
+- `expected-findings.json`：同一源码的精确分析发现；schema v2 固定 rule、reason、置信度、所属
+  primary 节点和全部证据 range，测试会与当前分析器输出逐项精确比对，多报或漏报都会失败。
 
 `manifest.json` 双向固定目录和函数数量。`sourceSha256` 将两个期望文件绑定到源码原始字节，
 `sourceLengthUtf16` 与所有半开 range 使用应用的 UTF-16 坐标。节点 key 由 kind、nodeType 和 range

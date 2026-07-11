@@ -1,5 +1,16 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "sourceSha256": "aabdaad2123a750cc61f967a6819ba1c3daea43faefa2846fcddae37e57bd46d",
-  "findings": []
+  "findings": [
+    {
+      "function": "fn:f:0:43",
+      "ruleId": "unreachable-code",
+      "reason": "no-entry-path",
+      "confidence": "certain",
+      "primaryRange": [37, 40],
+      "ownerNode": "n:control:do_condition:37:40",
+      "subject": null,
+      "evidence": [{ "role": "unreachable", "range": [37, 40] }]
+    }
+  ]
 }

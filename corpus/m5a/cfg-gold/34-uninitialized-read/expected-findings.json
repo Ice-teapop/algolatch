@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "sourceSha256": "b44c6ca15a930473aa9a9becfa931583a33b6280f9e89c4dc2bae5e6b8908c69",
+  "findings": [
+    {
+      "function": "fn:uninitialized:0:44",
+      "ruleId": "uninitialized-read",
+      "reason": "all-reaching-definitions-uninitialized",
+      "confidence": "certain",
+      "primaryRange": [40, 41],
+      "ownerNode": "n:syntax:return_statement:33:42",
+      "subject": "x",
+      "evidence": [
+        { "role": "definition", "range": [30, 31] },
+        { "role": "use", "range": [40, 41] }
+      ]
+    }
+  ]
+}
