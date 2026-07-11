@@ -272,6 +272,71 @@ export interface FunctionMemoryEvents {
   readonly facts: readonly MemoryEventFact[];
 }
 
+/**
+ * unalloc means no currently owned allocation obligation, not proof that the pointer value is null.
+ * maybeNull means an acquisition ran but has not yet been proven non-null. A later edge split and
+ * join can instead expose separate unalloc + alloc alternatives with the same nullable meaning.
+ */
+export type MemoryTypestate = "unalloc" | "alloc" | "maybeNull" | "freed" | "escaped";
+
+export interface MemoryTypestateValue {
+  /** Path alternatives may include escaped beside other states; consumers must silence on escaped. */
+  readonly state: MemoryTypestate;
+  /**
+   * Source-ordered union of reaching lineage/witness ids into the same FunctionMemoryEvents. This
+   * is neither one runtime path, runtime order, nor only the last transition.
+   */
+  readonly eventIds: readonly string[];
+}
+
+export interface MemoryHandleTypestateFact {
+  readonly variableId: string;
+  readonly inStates: readonly MemoryTypestateValue[];
+  readonly outStates: readonly MemoryTypestateValue[];
+}
+
+export interface MemoryEventTypestateFact {
+  readonly eventId: string;
+  readonly variableId: string;
+  /** State immediately before this node's observation or transition group. */
+  readonly beforeStates: readonly MemoryTypestateValue[];
+}
+
+export interface MemoryTypestateFact {
+  readonly nodeId: string;
+  readonly nodeRange: TextRange;
+  readonly handles: readonly MemoryHandleTypestateFact[];
+  readonly events: readonly MemoryEventTypestateFact[];
+}
+
+export interface MemoryHandleEdgeState {
+  readonly variableId: string;
+  readonly states: readonly MemoryTypestateValue[];
+}
+
+export interface MemoryTypestateEdgeFact {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: CfgEdgeKind;
+  /** False when the source is infeasible or a null-guard refinement rejects this CFG edge. */
+  readonly feasible: boolean;
+  readonly handles: readonly MemoryHandleEdgeState[];
+}
+
+export type MemoryTypestateDisabledReasonCode = MemoryEventDisabledReasonCode;
+
+export interface FunctionMemoryTypestate {
+  readonly functionId: string;
+  readonly functionRange: TextRange;
+  readonly status: "complete" | "disabled";
+  readonly disabledReasons: readonly MemoryTypestateDisabledReasonCode[];
+  readonly handleVariableIds: readonly string[];
+  /** Complete functions contain one fact per CFG node in CFG order; disabled functions none. */
+  readonly facts: readonly MemoryTypestateFact[];
+  /** Complete functions contain one fact per CFG edge in CFG order; disabled functions none. */
+  readonly edgeFacts: readonly MemoryTypestateEdgeFact[];
+}
+
 export type LoopKind = "while" | "do-while" | "for";
 export type LoopAvailability = "analyzable" | "unreachable" | "unsupported-control-flow";
 
@@ -426,6 +491,8 @@ export interface ProgramAnalysisSnapshot {
   readonly defUse: readonly FunctionDefUse[];
   /** One-to-one and in the same order as functions; functionId is the stable join key. */
   readonly memoryEvents: readonly FunctionMemoryEvents[];
+  /** One-to-one and in the same order as functions; functionId is the stable join key. */
+  readonly memoryTypestate: readonly FunctionMemoryTypestate[];
   /** Source-ordered, deterministic findings from complete function analyses only. */
   readonly findings: readonly AnalysisFinding[];
 }

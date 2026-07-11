@@ -469,14 +469,14 @@ function collectGuardEvents(
     const argumentsList = argumentsNode === null ? [] : namedChildren(argumentsNode);
     if (argumentsList.length !== 1) continue;
     const shape = directGuardShape(argumentsList[0]!, bindings, handlesById);
-    if (shape === null || shape.nonNullEdgeKind !== "branch-true") continue;
+    if (shape === null) continue;
     addGuardEvent(
       input,
       collection,
       {
         subject: shape.subject,
         variable: shape.variable,
-        nonNullEdgeKind: "branch-true",
+        nonNullEdgeKind: shape.nonNullEdgeKind,
         form: "assert",
       },
       call,

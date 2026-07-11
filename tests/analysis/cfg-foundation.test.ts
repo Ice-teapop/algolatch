@@ -683,7 +683,7 @@ describe("M5a CFG foundation", () => {
     expect(second.sourceFingerprint).not.toBe(first.sourceFingerprint);
   });
 
-  it("keeps CFG, def-use and memory functions in a documented one-to-one order", () => {
+  it("keeps CFG, def-use, memory events and typestate in a documented one-to-one order", () => {
     const source = "int first(void) { return 1; } int second(int x) { return x; }";
     const snapshot = parser.inspect(source, 4, ({ rootNode, document }) =>
       analyzeProgramCst({ source, revision: 4, rootNode, document }),
@@ -691,6 +691,7 @@ describe("M5a CFG foundation", () => {
 
     expect(snapshot.defUse).toHaveLength(snapshot.functions.length);
     expect(snapshot.memoryEvents).toHaveLength(snapshot.functions.length);
+    expect(snapshot.memoryTypestate).toHaveLength(snapshot.functions.length);
     expect(
       snapshot.defUse.map(({ functionId, functionRange }) => ({ functionId, functionRange })),
     ).toEqual(
@@ -698,6 +699,14 @@ describe("M5a CFG foundation", () => {
     );
     expect(
       snapshot.memoryEvents.map(({ functionId, functionRange }) => ({
+        functionId,
+        functionRange,
+      })),
+    ).toEqual(
+      snapshot.functions.map(({ id, range }) => ({ functionId: id, functionRange: range })),
+    );
+    expect(
+      snapshot.memoryTypestate.map(({ functionId, functionRange }) => ({
         functionId,
         functionRange,
       })),

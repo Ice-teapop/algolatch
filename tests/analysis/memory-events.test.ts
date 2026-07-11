@@ -128,7 +128,7 @@ describe("M5a unique-handle memory event facts", () => {
         `#include <stdlib.h>\n#include <assert.h>\nint f(void) { int *p = malloc(4); assert(${condition}); *p = 1; free(p); return 0; }`,
       ),
     );
-    const rejected = ["!p", "p == NULL"].map((condition) =>
+    const nullAssertions = ["!p", "p == NULL"].map((condition) =>
       inspect(
         parser,
         `#include <stdlib.h>\n#include <assert.h>\nint f(void) { int *p = malloc(4); assert(${condition}); free(p); return 0; }`,
@@ -145,10 +145,13 @@ describe("M5a unique-handle memory event facts", () => {
       expect.objectContaining({ form: "assert", nonNullEdgeKind: "branch-true" }),
     ]);
     expect(
-      rejected.flatMap((analysis) =>
-        allEvents(onlyMemory(analysis.snapshot)).filter((event) => event.kind === "null-guard"),
+      nullAssertions.map((analysis) =>
+        allEvents(onlyMemory(analysis.snapshot)).find((event) => event.kind === "null-guard"),
       ),
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({ form: "assert", nonNullEdgeKind: "branch-false" }),
+      expect.objectContaining({ form: "assert", nonNullEdgeKind: "branch-false" }),
+    ]);
   });
 
   it("keeps direct assert guards in for initializer and update phases", () => {
