@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "caseId": "35-literal-out-of-bounds",
+  "sourceSha256": "1f05856ddaf82ec80d4c76d384cff1e430abcc8902d7a71036e969bdd5b5f0a3",
+  "sourceLengthUtf16": 49,
+  "tags": ["bounds", "literal-oob"],
+  "functions": [
+    {
+      "key": "fn:literal_oob:0:48",
+      "name": "literal_oob",
+      "range": [0, 48],
+      "partial": false,
+      "partialReasons": [],
+      "nodes": [
+        {
+          "key": "entry",
+          "kind": "entry",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 48],
+          "ownerRange": [0, 48],
+          "reachable": true,
+          "text": "int literal_oob(void) { int a[3]; return a[3]; }"
+        },
+        {
+          "key": "exit",
+          "kind": "exit",
+          "role": "boundary",
+          "ownership": "boundary",
+          "nodeType": "function_definition",
+          "range": [0, 48],
+          "ownerRange": [0, 48],
+          "reachable": true,
+          "text": "int literal_oob(void) { int a[3]; return a[3]; }"
+        },
+        {
+          "key": "n:syntax:declaration:24:33",
+          "kind": "syntax",
+          "role": "declaration",
+          "ownership": "primary",
+          "nodeType": "declaration",
+          "range": [24, 33],
+          "ownerRange": [24, 33],
+          "reachable": true,
+          "text": "int a[3];"
+        },
+        {
+          "key": "n:syntax:return_statement:34:46",
+          "kind": "syntax",
+          "role": "statement",
+          "ownership": "primary",
+          "nodeType": "return_statement",
+          "range": [34, 46],
+          "ownerRange": [34, 46],
+          "reachable": true,
+          "text": "return a[3];"
+        }
+      ],
+      "edges": [
+        {
+          "from": "entry",
+          "kind": "entry",
+          "to": "n:syntax:declaration:24:33"
+        },
+        {
+          "from": "n:syntax:declaration:24:33",
+          "kind": "next",
+          "to": "n:syntax:return_statement:34:46"
+        },
+        {
+          "from": "n:syntax:return_statement:34:46",
+          "kind": "return",
+          "to": "exit"
+        }
+      ]
+    }
+  ]
+}

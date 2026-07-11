@@ -1,5 +1,9 @@
 import type { Node } from "web-tree-sitter";
-import { textRange, type SourceDoc, type SymbolRecord, type TextRange } from "../core/model.js";
+import { textRange, type SourceDoc, type TextRange } from "../core/model.js";
+import {
+  buildFunctionVariableBindings,
+  type FunctionVariableBindings,
+} from "./function-bindings.js";
 import type {
   CfgNode,
   DefUseDefinitionEffect,
@@ -36,12 +40,6 @@ interface EffectPlan {
   readonly pendingWrites: ReadonlySet<string>;
 }
 
-interface BindingIndex {
-  readonly variableByOccurrenceRange: ReadonlyMap<string, DefUseVariable>;
-  readonly declarationNodeByRange: ReadonlyMap<string, Node>;
-  readonly symbolByOccurrenceRange: ReadonlyMap<string, SymbolRecord>;
-}
-
 interface NodeIndex {
   readonly byRangeAndType: ReadonlyMap<string, readonly Node[]>;
 }
@@ -57,7 +55,7 @@ interface ExtractionContext {
   readonly sourceLength: number;
   readonly functionRange: TextRange;
   readonly variables: readonly DefUseVariable[];
-  readonly bindings: BindingIndex;
+  readonly bindings: FunctionVariableBindings;
   readonly nodes: NodeIndex;
   readonly pointerAliases: PointerAliasState;
 }
@@ -139,12 +137,12 @@ const EMPTY_POINTER_ALIAS_STATE: PointerAliasState = new Map();
 
 export function collectFunctionEffects(input: FunctionEffectInput): FunctionEffectCollection {
   const functionRange = checkedNodeRange(input.functionNode, input.document.source.length);
-  const bindings = buildBindingIndex(
-    input.document,
+  const bindings = buildFunctionVariableBindings({
+    document: input.document,
     functionRange,
-    input.variables,
-    input.functionNode,
-  );
+    variables: input.variables,
+    functionNode: input.functionNode,
+  });
   const baseContext: ExtractionContext = {
     sourceLength: input.document.source.length,
     functionRange,
@@ -1944,53 +1942,6 @@ function deduplicatePostCallEffects(effects: readonly DraftEffect[]): readonly D
   });
 }
 
-function buildBindingIndex(
-  document: SourceDoc,
-  functionRange: TextRange,
-  variables: readonly DefUseVariable[],
-  functionNode: Node,
-): BindingIndex {
-  const variableById = new Map(variables.map((variable) => [variable.id, variable]));
-  const symbolById = new Map(document.symbols.symbols.map((symbol) => [symbol.id, symbol]));
-  const variableBySymbolId = new Map<string, DefUseVariable>();
-  for (const symbol of document.symbols.symbols) {
-    if (symbol.kind !== "parameter" && symbol.kind !== "local-variable") continue;
-    const declarations = symbol.declarationRanges
-      .filter((range) => containsRange(functionRange, range))
-      .sort((left, right) => left.from - right.from || left.to - right.to);
-    const first = declarations[0];
-    if (first === undefined) continue;
-    const kind = symbol.kind === "parameter" ? "parameter" : "local";
-    const variable = variableById.get(`variable:${kind}:${first.from}:${first.to}`);
-    if (variable !== undefined) variableBySymbolId.set(symbol.id, variable);
-  }
-  const variableByOccurrenceRange = new Map<string, DefUseVariable>();
-  const symbolByOccurrenceRange = new Map<string, SymbolRecord>();
-  for (const occurrence of document.symbols.occurrences) {
-    const occurrenceRange = rangeKey(occurrence.range);
-    const symbol = symbolById.get(occurrence.symbolId);
-    if (symbol !== undefined && containsRange(functionRange, occurrence.range)) {
-      symbolByOccurrenceRange.set(occurrenceRange, symbol);
-    }
-    const variable = variableBySymbolId.get(occurrence.symbolId);
-    if (variable !== undefined && containsRange(functionRange, occurrence.range)) {
-      variableByOccurrenceRange.set(occurrenceRange, variable);
-    }
-  }
-  const declarationNodeByRange = new Map<string, Node>();
-  for (const identifier of functionNode.descendantsOfType("identifier")) {
-    const range = checkedNodeRange(identifier, document.source.length);
-    if (
-      variables.some((variable) =>
-        variable.declarationRanges.some((item) => sameRange(item, range)),
-      )
-    ) {
-      declarationNodeByRange.set(rangeKey(range), identifier);
-    }
-  }
-  return { variableByOccurrenceRange, declarationNodeByRange, symbolByOccurrenceRange };
-}
-
 function collectPointerAliasInStates(
   cfg: FunctionCfg,
   context: ExtractionContext,
@@ -2501,7 +2452,10 @@ function unknownPointerAlias(): PointerAliasValue {
   return { targetIds: new Set(), unknown: true };
 }
 
-function addressedRootVariable(node: Node, bindings: BindingIndex): DefUseVariable | null {
+function addressedRootVariable(
+  node: Node,
+  bindings: FunctionVariableBindings,
+): DefUseVariable | null {
   const candidate = unwrapParentheses(node);
   if (candidate.type === "identifier") return bindingVariableForNode(candidate, bindings);
   if (candidate.type === "field_expression" || candidate.type === "subscript_expression") {
@@ -2511,7 +2465,10 @@ function addressedRootVariable(node: Node, bindings: BindingIndex): DefUseVariab
   return null;
 }
 
-function bindingVariableForNode(node: Node, bindings: BindingIndex): DefUseVariable | null {
+function bindingVariableForNode(
+  node: Node,
+  bindings: FunctionVariableBindings,
+): DefUseVariable | null {
   return (
     bindings.variableByOccurrenceRange.get(rangeKey(textRange(node.startIndex, node.endIndex))) ??
     null

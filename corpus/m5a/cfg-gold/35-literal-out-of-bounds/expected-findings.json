@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "sourceSha256": "1f05856ddaf82ec80d4c76d384cff1e430abcc8902d7a71036e969bdd5b5f0a3",
+  "findings": [
+    {
+      "function": "fn:literal_oob:0:48",
+      "ruleId": "literal-out-of-bounds",
+      "reason": "literal-index-not-less-than-extent",
+      "confidence": "certain",
+      "primaryRange": [43, 44],
+      "ownerNode": "n:syntax:return_statement:34:46",
+      "subject": "a",
+      "evidence": [
+        { "role": "bound", "range": [30, 31] },
+        { "role": "index", "range": [43, 44] }
+      ]
+    }
+  ]
+}

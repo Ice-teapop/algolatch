@@ -6,6 +6,7 @@ import {
   type SymbolRecord,
   type TextRange,
 } from "../core/model.js";
+import { collectFunctionArrayFacts } from "./array-facts.js";
 import { collectFunctionEffects } from "./def-use-effects.js";
 import { collectLoopPredicates } from "./loop-predicates.js";
 import { collectLoopRegions } from "./loop-regions.js";
@@ -138,6 +139,15 @@ export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDef
       ? collectReachingDefinitions({ cfg: input.cfg, facts })
       : Object.freeze([]);
   const loopRegions = status === "complete" ? collectLoopRegions(input.cfg) : Object.freeze([]);
+  const arrayFacts =
+    status === "complete"
+      ? collectFunctionArrayFacts({
+          functionNode: input.functionNode,
+          cfg: input.cfg,
+          document: input.document,
+          variables: outputVariables,
+        })
+      : Object.freeze({ shapes: Object.freeze([]), accesses: Object.freeze([]) });
   return Object.freeze({
     functionId: input.cfg.id,
     functionRange,
@@ -157,6 +167,8 @@ export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDef
             loopRegions,
           })
         : Object.freeze([]),
+    arrayShapes: arrayFacts.shapes,
+    arrayAccesses: arrayFacts.accesses,
   });
 }
 

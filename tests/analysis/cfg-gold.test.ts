@@ -104,6 +104,7 @@ describe("M5a CFG gold corpus contract", () => {
     expect(findings.length).toBeGreaterThan(0);
     expect(findings.some((finding) => finding.ruleId === "unreachable-code")).toBe(true);
     expect(findings.some((finding) => finding.ruleId === "uninitialized-read")).toBe(true);
+    expect(findings.some((finding) => finding.ruleId === "literal-out-of-bounds")).toBe(true);
     expect(findings.every((finding) => finding.reason.length > 0)).toBe(true);
   });
 

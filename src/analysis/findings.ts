@@ -32,8 +32,63 @@ export function collectFunctionFindings(input: FunctionFindingsInput): readonly 
   const findings = [
     ...collectUnreachableFindings(input.cfg),
     ...collectUninitializedReadFindings(input, nodesById, variablesById, definitionsById),
+    ...collectLiteralOutOfBoundsFindings(input, nodesById, variablesById),
   ].sort(compareFindings);
   return Object.freeze(findings);
+}
+
+function collectLiteralOutOfBoundsFindings(
+  input: FunctionFindingsInput,
+  nodesById: ReadonlyMap<string, CfgNode>,
+  variablesById: ReadonlyMap<string, DefUseVariable>,
+): readonly AnalysisFinding[] {
+  const shapesByVariableId = new Map(
+    input.defUse.arrayShapes.map((shape) => [shape.variableId, shape]),
+  );
+  const findings: AnalysisFinding[] = [];
+  for (const access of input.defUse.arrayAccesses) {
+    if (access.execution !== "always") continue;
+    const node = nodesById.get(access.nodeId);
+    const shape = shapesByVariableId.get(access.variableId);
+    const variable = variablesById.get(access.variableId);
+    const index = access.indices[0];
+    const dimension = shape?.dimensions[0];
+    if (
+      node === undefined ||
+      !node.reachable ||
+      shape === undefined ||
+      variable === undefined ||
+      index === undefined ||
+      dimension === undefined ||
+      index.literalIndex === null
+    ) {
+      continue;
+    }
+    const owner = primaryOwner(input.cfg, node);
+    if (owner === null) continue;
+    const negative = index.literalIndex < 0;
+    const upperViolation =
+      access.mode === "address"
+        ? index.literalIndex > dimension.extent
+        : index.literalIndex >= dimension.extent;
+    if (!negative && !upperViolation) continue;
+    findings.push(
+      freezeFinding({
+        functionId: input.cfg.id,
+        ruleId: "literal-out-of-bounds",
+        reason: negative ? "negative-literal-index" : "literal-index-not-less-than-extent",
+        primaryRange: index.indexRange,
+        ownerNodeId: owner.id,
+        subject: variable.name,
+        subjectVariableId: variable.id,
+        evidence: [
+          { role: "bound", range: dimension.extentRange },
+          { role: "index", range: index.indexRange },
+        ],
+      }),
+    );
+  }
+  return findings;
 }
 
 function collectUnreachableFindings(cfg: FunctionCfg): readonly AnalysisFinding[] {

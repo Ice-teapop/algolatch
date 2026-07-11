@@ -158,6 +158,36 @@ export interface ReachingDefinitionFact {
   readonly uses: readonly ReachingDefinitionUse[];
 }
 
+export interface ArrayDimensionFact {
+  /** Zero-based declarator order: a[2][3] has dimensions 0 and 1. */
+  readonly dimension: number;
+  readonly extent: number;
+  readonly extentRange: TextRange;
+}
+
+export interface ArrayShapeFact {
+  readonly variableId: string;
+  readonly declarationRange: TextRange;
+  readonly dimensions: readonly ArrayDimensionFact[];
+}
+
+export interface ArrayAccessIndexFact {
+  readonly dimension: number;
+  readonly indexRange: TextRange;
+  /** Exact safe integer for a single literal with optional unary sign; otherwise null. */
+  readonly literalIndex: number | null;
+}
+
+export interface ArrayAccessFact {
+  readonly id: string;
+  readonly variableId: string;
+  readonly nodeId: string;
+  readonly expressionRange: TextRange;
+  readonly mode: "value" | "address";
+  readonly execution: "always" | "conditional";
+  readonly indices: readonly ArrayAccessIndexFact[];
+}
+
 export type LoopKind = "while" | "do-while" | "for";
 export type LoopAvailability = "analyzable" | "unreachable" | "unsupported-control-flow";
 
@@ -296,6 +326,10 @@ export interface FunctionDefUse {
   readonly loopRegions: readonly LoopRegion[];
   /** One predicate fact per loop region in the same order. */
   readonly loopPredicates: readonly LoopPredicateFact[];
+  /** Exact literal extents for direct rank-one automatic local arrays only. */
+  readonly arrayShapes: readonly ArrayShapeFact[];
+  /** Evaluated direct accesses to published array shapes, in source order. */
+  readonly arrayAccesses: readonly ArrayAccessFact[];
 }
 
 export interface ProgramAnalysisSnapshot {
