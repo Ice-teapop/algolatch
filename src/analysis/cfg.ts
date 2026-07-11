@@ -34,6 +34,7 @@ interface FunctionBuildContext {
   readonly partialReasons: Map<string, CfgPartialReason>;
   readonly labels: Map<string, LabelTarget>;
   readonly loopAncestorsByNodeId: Map<number, ReadonlySet<string>>;
+  readonly shadowedSpecialCallRanges: ReadonlySet<string>;
 }
 
 interface LabelTarget {
@@ -64,6 +65,7 @@ const CONTROL_FLOW_NODES = new Set([
 ]);
 
 const LOOP_NODE_TYPES = new Set(["do_statement", "for_statement", "while_statement"]);
+const DIRECT_TERMINATORS = new Set(["exit", "abort", "_Exit", "quick_exit"]);
 
 const EDGE_ORDER: Readonly<Record<CfgEdgeKind, number>> = Object.freeze({
   entry: 0,
@@ -90,6 +92,7 @@ export function analyzeProgramCst(input: ProgramAnalysisInput): ProgramAnalysisS
         node,
         input.source.length,
         projectedByFunction.get(rangeKey(range)) ?? [],
+        input.document,
       );
       const defUse = collectFunctionDefUse({
         functionNode: node,
@@ -118,6 +121,7 @@ function buildFunctionCfg(
   functionNode: Node,
   sourceLength: number,
   projectedStatements: readonly SyntaxBlock[],
+  document: SourceDoc,
 ): FunctionCfg {
   const range = nodeRange(functionNode, sourceLength);
   const id = `function:${range.from}:${range.to}`;
@@ -136,6 +140,7 @@ function buildFunctionCfg(
     partialReasons: new Map(),
     labels: new Map(),
     loopAncestorsByNodeId: new Map(),
+    shadowedSpecialCallRanges: collectShadowedSpecialCallRanges(document, range, functionNode),
   };
 
   indexLabels(functionNode, context);
@@ -229,8 +234,8 @@ function buildNode(
     );
   }
   if (node.type === "expression_statement") {
-    const directCall = directCallName(node);
-    if (directCall === "exit" || directCall === "abort") {
+    const directCall = directCallName(node, context);
+    if (directCall !== null && DIRECT_TERMINATORS.has(directCall)) {
       addEdge(context, id, context.exitId, "terminate");
       return id;
     }
@@ -238,6 +243,9 @@ function buildNode(
       addEdge(context, id, continuationId, "branch-true");
       addEdge(context, id, context.exitId, "branch-false");
       return id;
+    }
+    if (directCall === "longjmp" || containsNestedTerminatorCall(node, context)) {
+      addPartial(context, "unsupported-syntax", node);
     }
   }
   if (
@@ -375,8 +383,8 @@ function addPhaseEdges(
   id: string,
   continuationId: string,
 ): void {
-  const directCall = directCallName(node);
-  if (directCall === "exit" || directCall === "abort") {
+  const directCall = directCallName(node, context);
+  if (directCall !== null && DIRECT_TERMINATORS.has(directCall)) {
     addEdge(context, id, context.exitId, "terminate");
     return;
   }
@@ -384,6 +392,9 @@ function addPhaseEdges(
     addEdge(context, id, continuationId, "branch-true");
     addEdge(context, id, context.exitId, "branch-false");
     return;
+  }
+  if (directCall === "longjmp" || containsNestedTerminatorCall(node, context)) {
+    addPartial(context, "unsupported-syntax", node);
   }
   addEdge(context, id, continuationId, "next");
 }
@@ -755,13 +766,178 @@ function declaredFunctionName(functionNode: Node, range: TextRange): string {
   return `<function@${range.from}>`;
 }
 
-function directCallName(node: Node): string | null {
+function directCallName(node: Node, context: FunctionBuildContext): string | null {
+  const expression = directCallExpression(node);
+  if (expression === null) return null;
+  let callee = expression.childForFieldName("function");
+  while (callee?.type === "parenthesized_expression") {
+    const children = callee.namedChildren.filter((candidate) => candidate.type !== "comment");
+    callee = children.length === 1 ? (children[0] ?? null) : null;
+  }
+  if (callee?.type !== "identifier") return null;
+  const range = textRange(callee.startIndex, callee.endIndex);
+  return context.shadowedSpecialCallRanges.has(rangeKey(range)) ? null : callee.text;
+}
+
+function directCallExpression(node: Node): Node | null {
+  if (node.type === "call_expression") return node;
   const children = node.namedChildren.filter((candidate) => candidate.type !== "comment");
-  const expression =
-    node.type === "call_expression" ? node : children.length === 1 ? children[0] : undefined;
-  if (expression?.type !== "call_expression") return null;
-  const callee = expression.childForFieldName("function");
-  return callee?.type === "identifier" ? callee.text : null;
+  return children.length === 1 && children[0]?.type === "call_expression" ? children[0] : null;
+}
+
+function containsNestedTerminatorCall(node: Node, context: FunctionBuildContext): boolean {
+  const direct = directCallExpression(node);
+  return node
+    .descendantsOfType("call_expression")
+    .some(
+      (call) =>
+        call.id !== direct?.id &&
+        (directCallName(call, context) === "longjmp" ||
+          DIRECT_TERMINATORS.has(directCallName(call, context) ?? "")),
+    );
+}
+
+function collectShadowedSpecialCallRanges(
+  document: SourceDoc,
+  functionRange: TextRange,
+  functionNode: Node,
+): ReadonlySet<string> {
+  const symbols = new Map(document.symbols.symbols.map((symbol) => [symbol.id, symbol]));
+  const specialNames = new Set(["assert", "exit", "abort", "_Exit", "quick_exit", "longjmp"]);
+  const macroEvents = collectRelevantMacroEvents(
+    functionNode,
+    new Set([...specialNames, "NDEBUG"]),
+  );
+  const assertIncludes = collectAssertIncludeEvents(functionNode);
+  return new Set(
+    document.symbols.occurrences
+      .filter((occurrence) => {
+        if (occurrence.role !== "use" || !containsRange(functionRange, occurrence.range))
+          return false;
+        const symbol = symbols.get(occurrence.symbolId);
+        return (
+          symbol !== undefined &&
+          specialNames.has(symbol.name) &&
+          (macroCouldBeActiveAt(macroEvents, symbol.name, occurrence.range.from) ||
+            (symbol.name === "assert" &&
+              assertEvaluationCouldBeSkippedAt(
+                macroEvents,
+                assertIncludes,
+                occurrence.range.from,
+              )) ||
+            (occurrence.resolution !== "unknown" &&
+              occurrence.resolution !== "builtin" &&
+              occurrence.resolution !== "user-macro"))
+        );
+      })
+      .map((occurrence) => rangeKey(occurrence.range)),
+  );
+}
+
+interface RelevantMacroEvent {
+  readonly action: "define" | "undef";
+  readonly conditional: boolean;
+  readonly name: string;
+  readonly offset: number;
+}
+
+interface AssertIncludeEvent {
+  readonly conditional: boolean;
+  readonly offset: number;
+}
+
+function collectRelevantMacroEvents(
+  functionNode: Node,
+  relevantNames: ReadonlySet<string>,
+): readonly RelevantMacroEvent[] {
+  let root = functionNode;
+  while (root.parent !== null) root = root.parent;
+  const definitions = [
+    ...root.descendantsOfType("preproc_def"),
+    ...root.descendantsOfType("preproc_function_def"),
+  ]
+    .map((node) => ({
+      action: "define" as const,
+      conditional: hasConditionalPreprocessorAncestor(node),
+      name: node.childForFieldName("name")?.text ?? "",
+      offset: node.startIndex,
+    }))
+    .filter((event) => relevantNames.has(event.name));
+  const undefinitions = root
+    .descendantsOfType("preproc_call")
+    .filter((node) => node.childForFieldName("directive")?.text.replace(/\s/g, "") === "#undef")
+    .map((node) => ({
+      action: "undef" as const,
+      conditional: hasConditionalPreprocessorAncestor(node),
+      name: node.childForFieldName("argument")?.text.trim().split(/\s/u)[0] ?? "",
+      offset: node.startIndex,
+    }))
+    .filter((event) => relevantNames.has(event.name));
+  return [...definitions, ...undefinitions].sort(
+    (left, right) => left.offset - right.offset || left.action.localeCompare(right.action),
+  );
+}
+
+function collectAssertIncludeEvents(functionNode: Node): readonly AssertIncludeEvent[] {
+  let root = functionNode;
+  while (root.parent !== null) root = root.parent;
+  return root
+    .descendantsOfType("preproc_include")
+    .filter((node) => node.childForFieldName("path")?.text === "<assert.h>")
+    .map((node) => ({
+      conditional: hasConditionalPreprocessorAncestor(node),
+      offset: node.startIndex,
+    }))
+    .sort((left, right) => left.offset - right.offset);
+}
+
+function macroCouldBeActiveAt(
+  events: readonly RelevantMacroEvent[],
+  name: string,
+  offset: number,
+): boolean {
+  let possiblyActive = false;
+  for (const event of events) {
+    if (event.offset >= offset) break;
+    if (event.name !== name) continue;
+    if (!event.conditional) {
+      possiblyActive = event.action === "define";
+      continue;
+    }
+    if (event.action === "define") possiblyActive = true;
+  }
+  return possiblyActive;
+}
+
+function assertEvaluationCouldBeSkippedAt(
+  macroEvents: readonly RelevantMacroEvent[],
+  includeEvents: readonly AssertIncludeEvent[],
+  offset: number,
+): boolean {
+  let couldSkipEvaluation = false;
+  for (const include of includeEvents) {
+    if (include.offset >= offset) break;
+    const ndebugCouldBeActive = macroCouldBeActiveAt(macroEvents, "NDEBUG", include.offset);
+    couldSkipEvaluation = include.conditional
+      ? couldSkipEvaluation || ndebugCouldBeActive
+      : ndebugCouldBeActive;
+  }
+  return couldSkipEvaluation;
+}
+
+function hasConditionalPreprocessorAncestor(node: Node): boolean {
+  let current = node.parent;
+  while (current !== null) {
+    if (
+      current.type === "preproc_if" ||
+      current.type === "preproc_ifdef" ||
+      current.type === "preproc_ifndef"
+    ) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
 }
 
 function nodeRange(node: Node, sourceLength: number): TextRange {
@@ -775,6 +951,10 @@ function nodeRange(node: Node, sourceLength: number): TextRange {
     throw new RangeError(`分析节点 range 非法：[${node.startIndex}, ${node.endIndex})`);
   }
   return textRange(node.startIndex, node.endIndex);
+}
+
+function containsRange(parent: TextRange, child: TextRange): boolean {
+  return child.from >= parent.from && child.to <= parent.to;
 }
 
 function assertInput(input: ProgramAnalysisInput): void {

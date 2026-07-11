@@ -292,17 +292,154 @@ describe("M5a CFG foundation", () => {
     expect(reachability(cfg, source)["abort();"]).toBe(false);
   });
 
-  it("does not terminate indirect or nested exit calls", () => {
+  it.each(["_Exit(0);", "quick_exit(0);"])(
+    "treats the standard direct terminator %s as no-return",
+    (terminator) => {
+      const source = `void f(void) { ${terminator} side(); }`;
+      const cfg = analyzeOne(parser, source);
+
+      expect(edgeShapes(cfg, source)).toContainEqual([terminator, "EXIT", "terminate"]);
+      expect(reachability(cfg, source)["side();"]).toBe(false);
+    },
+  );
+
+  it("marks longjmp control flow partial until its target is modeled", () => {
+    const source = "void f(void) { longjmp(env, 1); side(); }";
+    const cfg = analyzeOne(parser, source);
+
+    expect(cfg.partial).toBe(true);
+  });
+
+  it("terminates parenthesized direct exit and fails closed for nested exit calls", () => {
     const source = "void f(void) { (exit)(1); foo(exit(1)); return; }";
     const cfg = analyzeOne(parser, source);
 
     expect(edgeShapes(cfg, source)).toEqual([
       ["ENTRY", "(exit)(1);", "entry"],
-      ["(exit)(1);", "foo(exit(1));", "next"],
+      ["(exit)(1);", "EXIT", "terminate"],
       ["foo(exit(1));", "return;", "next"],
       ["return;", "EXIT", "return"],
     ]);
+    expect(cfg.partial).toBe(true);
+    expect(reachability(cfg, source)["foo(exit(1));"]).toBe(false);
   });
+
+  it("applies user-macro shadows to special calls in translation-unit source order", () => {
+    const source = [
+      "void before(void) { exit(1); before_side(); }",
+      "#define exit(code) record(code)",
+      "void active(void) { exit(1); active_side(); }",
+      "#undef exit",
+      "void restored(void) { exit(1); restored_side(); }",
+      "#define assert(value) record(value)",
+      "void custom_assert(void) { assert(0); assert_side(); }",
+    ].join("\n");
+    const snapshot = parser.inspect(source, 1, ({ rootNode, document }) =>
+      analyzeProgramCst({ source, revision: 1, rootNode, document }),
+    ).result;
+    const functions = new Map(snapshot.functions.map((cfg) => [cfg.name, cfg]));
+    const before = functions.get("before");
+    const active = functions.get("active");
+    const restored = functions.get("restored");
+    const customAssert = functions.get("custom_assert");
+    if (
+      before === undefined ||
+      active === undefined ||
+      restored === undefined ||
+      customAssert === undefined
+    ) {
+      throw new Error("fixture 缺少宏 source-order CFG");
+    }
+
+    expect(edgeShapes(before, source)).toContainEqual(["exit(1);", "EXIT", "terminate"]);
+    expect(edgeShapes(active, source)).toContainEqual(["exit(1);", "active_side();", "next"]);
+    expect(edgeShapes(restored, source)).toContainEqual(["exit(1);", "EXIT", "terminate"]);
+    expect(edgeShapes(customAssert, source)).toContainEqual([
+      "assert(0);",
+      "assert_side();",
+      "next",
+    ]);
+  });
+
+  it("does not claim termination when a conditional macro may shadow a special call", () => {
+    const source = [
+      "#if FLAG",
+      "#define quick_exit(code) record(code)",
+      "#endif",
+      "void f(void) { quick_exit(0); side(); }",
+    ].join("\n");
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toContainEqual(["quick_exit(0);", "side();", "next"]);
+    expect(reachability(cfg, source)["side();"]).toBe(true);
+  });
+
+  it("latches the NDEBUG contract when assert.h is included", () => {
+    const source = [
+      "#define NDEBUG",
+      "#include <assert.h>",
+      "#undef NDEBUG",
+      "void skipped(void) { assert(touch()); skipped_side(); }",
+      "#include <assert.h>",
+      "#define NDEBUG",
+      "void evaluated(void) { assert(touch()); evaluated_side(); }",
+    ].join("\n");
+    const snapshot = parser.inspect(source, 1, ({ rootNode, document }) =>
+      analyzeProgramCst({ source, revision: 1, rootNode, document }),
+    ).result;
+    const functions = new Map(snapshot.functions.map((cfg) => [cfg.name, cfg]));
+    const skipped = functions.get("skipped");
+    const evaluated = functions.get("evaluated");
+    if (skipped === undefined || evaluated === undefined) {
+      throw new Error("fixture 缺少 NDEBUG assert CFG");
+    }
+
+    expect(edgeShapes(skipped, source)).toContainEqual([
+      "assert(touch());",
+      "skipped_side();",
+      "next",
+    ]);
+    expect(edgeShapes(evaluated, source)).toContainEqual([
+      "assert(touch());",
+      "evaluated_side();",
+      "branch-true",
+    ]);
+    expect(edgeShapes(evaluated, source)).toContainEqual([
+      "assert(touch());",
+      "EXIT",
+      "branch-false",
+    ]);
+  });
+
+  it("does not branch assert when NDEBUG may be active at the assert.h include", () => {
+    const source = [
+      "#if FLAG",
+      "#define NDEBUG",
+      "#endif",
+      "#include <assert.h>",
+      "void f(void) { assert(touch()); side(); }",
+    ].join("\n");
+    const cfg = analyzeOne(parser, source);
+
+    expect(edgeShapes(cfg, source)).toContainEqual(["assert(touch());", "side();", "next"]);
+    expect(reachability(cfg, source)["side();"]).toBe(true);
+  });
+
+  it.each(["_Exit", "quick_exit", "longjmp"])(
+    "does not apply special control flow to the shadowed parameter %s",
+    (name) => {
+      const parameters =
+        name === "longjmp" ? `void (*${name})(void *, int)` : `void (*${name})(int)`;
+      const argumentsList = name === "longjmp" ? "env, 1" : "0";
+      const statement = `${name}(${argumentsList});`;
+      const source = `void f(${parameters}) { ${statement} side(); }`;
+      const cfg = analyzeOne(parser, source);
+
+      expect(edgeShapes(cfg, source)).toContainEqual([statement, "side();", "next"]);
+      expect(reachability(cfg, source)["side();"]).toBe(true);
+      expect(cfg.partial).toBe(false);
+    },
+  );
 
   it("dispatches switch cases and default while honoring break", () => {
     const source = "int f(int x) { switch (x) { case 1: x++; break; default: x--; } return x; }";

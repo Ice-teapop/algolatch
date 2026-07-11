@@ -6,6 +6,7 @@ import {
   type SymbolRecord,
   type TextRange,
 } from "../core/model.js";
+import { collectFunctionEffects } from "./def-use-effects.js";
 import type {
   DefUseDisabledReasonCode,
   DefUseTrackingMode,
@@ -28,15 +29,53 @@ interface DeclarationClassification {
   readonly trackable: boolean;
 }
 
-const DISABLED_REASON_ORDER: readonly DefUseDisabledReasonCode[] = Object.freeze([
-  "cfg-partial",
-  "invalid-function-cst",
-  "parse-error",
-  "preprocessor",
-  "projection-issue",
-  "parse-concern",
-  "raw-block",
-  "missing-function-projection",
+const DISABLED_REASON_ORDER_MAP = Object.freeze({
+  "cfg-partial": 0,
+  "invalid-function-cst": 1,
+  "parse-error": 2,
+  preprocessor: 3,
+  "projection-issue": 4,
+  "parse-concern": 5,
+  "raw-block": 6,
+  "missing-function-projection": 7,
+  "effect-cst-mismatch": 8,
+  "unsequenced-conflict": 9,
+  "unsupported-effect-order": 10,
+  "opaque-alias-effect": 11,
+} as const satisfies Readonly<Record<DefUseDisabledReasonCode, number>>);
+const DISABLED_REASON_ORDER = Object.freeze(
+  Object.keys(DISABLED_REASON_ORDER_MAP) as DefUseDisabledReasonCode[],
+);
+const KNOWN_SYSTEM_HEADERS = new Set([
+  "<assert.h>",
+  "<complex.h>",
+  "<ctype.h>",
+  "<errno.h>",
+  "<fenv.h>",
+  "<float.h>",
+  "<inttypes.h>",
+  "<iso646.h>",
+  "<limits.h>",
+  "<locale.h>",
+  "<math.h>",
+  "<setjmp.h>",
+  "<signal.h>",
+  "<stdalign.h>",
+  "<stdarg.h>",
+  "<stdatomic.h>",
+  "<stdbool.h>",
+  "<stddef.h>",
+  "<stdint.h>",
+  "<stdio.h>",
+  "<stdlib.h>",
+  "<stdnoreturn.h>",
+  "<string.h>",
+  "<tgmath.h>",
+  "<threads.h>",
+  "<time.h>",
+  "<uchar.h>",
+  "<wchar.h>",
+  "<wctype.h>",
 ]);
 
 export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDefUse {
@@ -49,8 +88,7 @@ export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDef
       .filter((node) => isUsableNode(node, sourceLength))
       .map((node) => [rangeKey(checkedNodeRange(node, sourceLength)), node]),
   );
-  const disabledReasons = collectDisabledReasons(input, functionRange);
-  const status = disabledReasons.length === 0 ? "complete" : "disabled";
+  const initialDisabledReasons = collectDisabledReasons(input, functionRange);
   const variables = input.document.symbols.symbols
     .filter(
       (symbol) =>
@@ -58,7 +96,13 @@ export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDef
         symbol.declarationRanges.some((range) => containsRange(functionRange, range)),
     )
     .map((symbol) =>
-      buildVariable(symbol, functionRange, identifierNodes, input.document, status === "complete"),
+      buildVariable(
+        symbol,
+        functionRange,
+        identifierNodes,
+        input.document,
+        initialDisabledReasons.length === 0,
+      ),
     )
     .sort(
       (left, right) =>
@@ -66,12 +110,32 @@ export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDef
           (right.declarationRanges[0]?.from ?? Number.POSITIVE_INFINITY) ||
         left.name.localeCompare(right.name),
     );
+  const effectCollection =
+    initialDisabledReasons.length === 0
+      ? collectFunctionEffects({
+          functionNode: input.functionNode,
+          cfg: input.cfg,
+          document: input.document,
+          variables,
+        })
+      : Object.freeze({ facts: Object.freeze([]), disabledReasons: Object.freeze([]) });
+  const disabledReasonSet = new Set<DefUseDisabledReasonCode>(initialDisabledReasons);
+  effectCollection.disabledReasons.forEach((reason) => disabledReasonSet.add(reason));
+  const disabledReasons = Object.freeze(
+    DISABLED_REASON_ORDER.filter((reason) => disabledReasonSet.has(reason)),
+  );
+  const status = disabledReasons.length === 0 ? "complete" : "disabled";
+  const outputVariables =
+    status === "complete" || initialDisabledReasons.length > 0
+      ? variables
+      : variables.map((variable) => Object.freeze({ ...variable, tracking: "untracked" as const }));
   return Object.freeze({
     functionId: input.cfg.id,
     functionRange,
     status,
     disabledReasons,
-    variables: Object.freeze(variables),
+    variables: Object.freeze(outputVariables),
+    facts: status === "complete" ? effectCollection.facts : Object.freeze([]),
   });
 }
 
@@ -167,7 +231,13 @@ function collectDisabledReasons(
   ) {
     reasons.add("parse-error");
   }
-  if (hasPreprocessorNode(input.functionNode)) reasons.add("preprocessor");
+  if (
+    hasPreprocessorNode(input.functionNode) ||
+    hasPriorUnknownInclude(input.functionNode) ||
+    usesDefinedMacro(input.functionNode)
+  ) {
+    reasons.add("preprocessor");
+  }
   if (input.document.issues.some((issue) => rangesOverlap(functionRange, issue.range))) {
     reasons.add("projection-issue");
   }
@@ -189,10 +259,92 @@ function collectDisabledReasons(
   return Object.freeze(DISABLED_REASON_ORDER.filter((reason) => reasons.has(reason)));
 }
 
+function hasPriorUnknownInclude(functionNode: Node): boolean {
+  let root = functionNode;
+  while (root.parent !== null) root = root.parent;
+  return root
+    .descendantsOfType("preproc_include")
+    .some(
+      (include) =>
+        include.startIndex < functionNode.startIndex &&
+        !KNOWN_SYSTEM_HEADERS.has(include.childForFieldName("path")?.text ?? ""),
+    );
+}
+
 function hasPreprocessorNode(node: Node): boolean {
   return node.namedChildren.some(
     (child) => child.type.startsWith("preproc_") || hasPreprocessorNode(child),
   );
+}
+
+function usesDefinedMacro(functionNode: Node): boolean {
+  let root = functionNode;
+  while (root.parent !== null) root = root.parent;
+  const events = [
+    ...root.descendantsOfType("preproc_def").map((node) => ({ node, action: "define" as const })),
+    ...root
+      .descendantsOfType("preproc_function_def")
+      .map((node) => ({ node, action: "define" as const })),
+    ...root
+      .descendantsOfType("preproc_call")
+      .filter((node) => node.childForFieldName("directive")?.text.replace(/\s/g, "") === "#undef")
+      .map((node) => ({ node, action: "undef" as const })),
+    ...root
+      .descendantsOfType("preproc_include")
+      .filter((node) => node.childForFieldName("path")?.text === "<assert.h>")
+      .map((node) => ({ node, action: "assert-include" as const })),
+  ]
+    .filter((event) => event.node.startIndex < functionNode.startIndex)
+    .sort((left, right) => left.node.startIndex - right.node.startIndex);
+  const activeMacros = new Set<string>();
+  const uncertainMacros = new Set<string>();
+  let assertContractUncertain = false;
+  for (const event of events) {
+    if (event.action === "assert-include") {
+      assertContractUncertain ||=
+        hasConditionalPreprocessorAncestor(event.node) ||
+        activeMacros.has("NDEBUG") ||
+        uncertainMacros.has("NDEBUG");
+      continue;
+    }
+    const name =
+      event.action === "define"
+        ? event.node.childForFieldName("name")?.text
+        : event.node.childForFieldName("argument")?.text.trim().split(/\s/)[0];
+    if (name === undefined || name.length === 0) continue;
+    if (hasConditionalPreprocessorAncestor(event.node)) {
+      uncertainMacros.add(name);
+      continue;
+    }
+    uncertainMacros.delete(name);
+    if (event.action === "define") activeMacros.add(name);
+    else activeMacros.delete(name);
+  }
+  if (assertContractUncertain && containsMacroToken(functionNode, new Set(["assert"]))) {
+    return true;
+  }
+  const possibleMacros = new Set([...activeMacros, ...uncertainMacros]);
+  return possibleMacros.size > 0 && containsMacroToken(functionNode, possibleMacros);
+}
+
+function hasConditionalPreprocessorAncestor(node: Node): boolean {
+  let current = node.parent;
+  while (current !== null) {
+    if (
+      current.type === "preproc_if" ||
+      current.type === "preproc_ifdef" ||
+      current.type === "preproc_ifndef"
+    ) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+function containsMacroToken(node: Node, activeMacros: ReadonlySet<string>): boolean {
+  if (node.childCount === 0) return activeMacros.has(node.text);
+  return node.children.some((child) => containsMacroToken(child, activeMacros));
 }
 
 function findFunctionBlock(blocks: readonly Block[], range: TextRange): Block | null {

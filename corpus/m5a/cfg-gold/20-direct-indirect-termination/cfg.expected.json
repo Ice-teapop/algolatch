@@ -79,8 +79,15 @@
       "key": "fn:indirect_calls:45:107",
       "name": "indirect_calls",
       "range": [45, 107],
-      "partial": false,
-      "partialReasons": [],
+      "partial": true,
+      "partialReasons": [
+        {
+          "code": "unsupported-syntax",
+          "nodeType": "expression_statement",
+          "range": [84, 97],
+          "text": "foo(exit(1));"
+        }
+      ],
       "nodes": [
         {
           "key": "entry",
@@ -123,7 +130,7 @@
           "nodeType": "expression_statement",
           "range": [84, 97],
           "ownerRange": [84, 97],
-          "reachable": true,
+          "reachable": false,
           "text": "foo(exit(1));"
         },
         {
@@ -134,7 +141,7 @@
           "nodeType": "return_statement",
           "range": [98, 105],
           "ownerRange": [98, 105],
-          "reachable": true,
+          "reachable": false,
           "text": "return;"
         }
       ],
@@ -146,8 +153,8 @@
         },
         {
           "from": "n:syntax:expression_statement:73:83",
-          "kind": "next",
-          "to": "n:syntax:expression_statement:84:97"
+          "kind": "terminate",
+          "to": "exit"
         },
         {
           "from": "n:syntax:expression_statement:84:97",

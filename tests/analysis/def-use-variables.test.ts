@@ -108,6 +108,77 @@ describe("M5a def-use variable inventory", () => {
     expect(disabled.variables).toEqual([]);
   });
 
+  it.each([
+    "#define F(x) ((x) + (x))\nint f(int i) { return F(i++); }",
+    "#define SET(x) ((x) = 1)\nint f(int i) { SET(i); return i; }",
+    "#define TY int\nint f(void) { TY x = 0; return x; }",
+    "#define M x++\nstruct S { int x; }; int f(void) { struct S s = {0}; sink(s.M, s.x); return 0; }",
+    "#define return return i++,\nint f(int i) { return i; }",
+  ])("fails closed when a translation-unit macro is used inside a function", (source) => {
+    const defUse = inspectDefUse(parser, source);
+
+    expect(defUse.status).toBe("disabled");
+    expect(defUse.disabledReasons).toContain("preprocessor");
+    expect(defUse.facts).toEqual([]);
+  });
+
+  it("does not apply macro definitions that are not active at the function", () => {
+    const beforeDefinition = inspectDefUse(
+      parser,
+      "int f(int x) { return LATER(x); }\n#define LATER(x) (x)",
+    );
+    const afterUndef = inspectDefUse(
+      parser,
+      "#define OLD(x) (x)\n#undef OLD\nint f(int x) { return OLD(x); }",
+    );
+
+    expect(beforeDefinition.disabledReasons).not.toContain("preprocessor");
+    expect(afterUndef.disabledReasons).not.toContain("preprocessor");
+  });
+
+  it("fails closed when conditional preprocessing makes macro state uncertain", () => {
+    const defUse = inspectDefUse(
+      parser,
+      "#define M i++\n#if 0\n#undef M\n#endif\nint f(int i) { M; return i; }",
+    );
+
+    expect(defUse.status).toBe("disabled");
+    expect(defUse.disabledReasons).toContain("preprocessor");
+  });
+
+  it("allows known system-header syntax but fails closed for an unknown local header", () => {
+    const system = inspectDefUse(
+      parser,
+      '#include <stdio.h>\nint f(void) { int n; scanf("%d", &n); return n; }',
+    );
+    const local = inspectDefUse(parser, '#include "custom.h"\nint f(int i) { return F(i++); }');
+    const unknownSystem = inspectDefUse(
+      parser,
+      "#include <course_macros.h>\nint f(int i) { return F(i++); }",
+    );
+
+    expect(system.disabledReasons).not.toContain("preprocessor");
+    expect(local.status).toBe("disabled");
+    expect(local.disabledReasons).toContain("preprocessor");
+    expect(unknownSystem.disabledReasons).toContain("preprocessor");
+  });
+
+  it("fails closed when NDEBUG changes the assert evaluation contract", () => {
+    const activeAtInclude = inspectDefUse(
+      parser,
+      "#define NDEBUG\n#include <assert.h>\nint f(int i) { assert(i++); return i; }",
+    );
+    const undefinedLater = inspectDefUse(
+      parser,
+      "#define NDEBUG\n#include <assert.h>\n#undef NDEBUG\nint f(int i) { assert(i++); return i; }",
+    );
+
+    for (const defUse of [activeAtInclude, undefinedLater]) {
+      expect(defUse.status).toBe("disabled");
+      expect(defUse.disabledReasons).toContain("preprocessor");
+    }
+  });
+
   it("refuses function declarators and mixed pointer-array declarators", () => {
     const variables = inspectVariables(parser, "int f(int cb(int)) { int (*p)[4]; return 0; }");
 

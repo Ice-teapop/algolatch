@@ -68,7 +68,11 @@ export type DefUseDisabledReasonCode =
   | "projection-issue"
   | "parse-concern"
   | "raw-block"
-  | "missing-function-projection";
+  | "missing-function-projection"
+  | "unsequenced-conflict"
+  | "unsupported-effect-order"
+  | "effect-cst-mismatch"
+  | "opaque-alias-effect";
 
 export interface DefUseVariable {
   /** Deterministic within the source revision; never exposes the lexical snapshot's symbol id. */
@@ -82,12 +86,59 @@ export interface DefUseVariable {
   readonly confidence: "certain" | "low" | "unknown";
 }
 
+export type DefUseEffectOrigin =
+  | "parameter"
+  | "declaration"
+  | "assignment"
+  | "compound-assignment"
+  | "update"
+  | "array-element"
+  | "call-argument";
+
+interface DefUseEffectBase {
+  readonly id: string;
+  readonly variableId: string;
+  readonly range: TextRange;
+}
+
+export interface DefUseUseEffect extends DefUseEffectBase {
+  readonly kind: "use";
+  readonly role: "value" | "array-element" | "index";
+  readonly execution: "always" | "conditional";
+}
+
+export interface DefUseDefinitionEffect extends DefUseEffectBase {
+  readonly kind: "def";
+  readonly strength: "strong" | "weak";
+  readonly valueState: "written" | "uninitialized" | "maybe-written";
+  readonly origin: DefUseEffectOrigin;
+}
+
+export interface DefUseEscapeEffect extends DefUseEffectBase {
+  readonly kind: "escape";
+  readonly origin: "stored-address" | "array-decay";
+}
+
+export type DefUseEffect = DefUseUseEffect | DefUseDefinitionEffect | DefUseEscapeEffect;
+
+export interface DefUseFact {
+  readonly nodeId: string;
+  readonly nodeRange: TextRange;
+  /**
+   * Deterministic transfer order within this node. Unsequenced effects are published only when
+   * they commute, so their listed order does not claim to be the runtime evaluation order.
+   */
+  readonly effects: readonly DefUseEffect[];
+}
+
 export interface FunctionDefUse {
   readonly functionId: string;
   readonly functionRange: TextRange;
   readonly status: "complete" | "disabled";
   readonly disabledReasons: readonly DefUseDisabledReasonCode[];
   readonly variables: readonly DefUseVariable[];
+  /** Complete functions contain one fact per CFG node in the same order; disabled functions none. */
+  readonly facts: readonly DefUseFact[];
 }
 
 export interface ProgramAnalysisSnapshot {
