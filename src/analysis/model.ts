@@ -131,6 +131,24 @@ export interface DefUseFact {
   readonly effects: readonly DefUseEffect[];
 }
 
+export interface ReachingDefinitionUse {
+  readonly useEffectId: string;
+  readonly availability: "tracked" | "escaped" | "unreachable";
+  /** Definition effect ids ordered by the function's deterministic effect universe. */
+  readonly definitionEffectIds: readonly string[];
+}
+
+export interface ReachingDefinitionFact {
+  readonly nodeId: string;
+  readonly nodeRange: TextRange;
+  readonly inDefinitionEffectIds: readonly string[];
+  readonly outDefinitionEffectIds: readonly string[];
+  readonly inEscapedVariableIds: readonly string[];
+  readonly outEscapedVariableIds: readonly string[];
+  /** One resolution per use effect in node effect order. */
+  readonly uses: readonly ReachingDefinitionUse[];
+}
+
 export interface FunctionDefUse {
   readonly functionId: string;
   readonly functionRange: TextRange;
@@ -139,6 +157,8 @@ export interface FunctionDefUse {
   readonly variables: readonly DefUseVariable[];
   /** Complete functions contain one fact per CFG node in the same order; disabled functions none. */
   readonly facts: readonly DefUseFact[];
+  /** Complete functions contain one reaching-definition fact per CFG node; disabled functions none. */
+  readonly reachingDefinitions: readonly ReachingDefinitionFact[];
 }
 
 export interface ProgramAnalysisSnapshot {

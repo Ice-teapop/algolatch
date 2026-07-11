@@ -23,4 +23,6 @@ export type {
   FunctionCfg,
   ProgramAnalysisInput,
   ProgramAnalysisSnapshot,
+  ReachingDefinitionFact,
+  ReachingDefinitionUse,
 } from "./model.js";

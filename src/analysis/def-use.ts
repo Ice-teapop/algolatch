@@ -7,6 +7,7 @@ import {
   type TextRange,
 } from "../core/model.js";
 import { collectFunctionEffects } from "./def-use-effects.js";
+import { collectReachingDefinitions } from "./reaching-definitions.js";
 import type {
   DefUseDisabledReasonCode,
   DefUseTrackingMode,
@@ -129,13 +130,18 @@ export function collectFunctionDefUse(input: FunctionVariableInput): FunctionDef
     status === "complete" || initialDisabledReasons.length > 0
       ? variables
       : variables.map((variable) => Object.freeze({ ...variable, tracking: "untracked" as const }));
+  const facts = status === "complete" ? effectCollection.facts : Object.freeze([]);
   return Object.freeze({
     functionId: input.cfg.id,
     functionRange,
     status,
     disabledReasons,
     variables: Object.freeze(outputVariables),
-    facts: status === "complete" ? effectCollection.facts : Object.freeze([]),
+    facts,
+    reachingDefinitions:
+      status === "complete"
+        ? collectReachingDefinitions({ cfg: input.cfg, facts })
+        : Object.freeze([]),
   });
 }
 
