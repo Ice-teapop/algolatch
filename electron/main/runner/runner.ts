@@ -744,7 +744,6 @@ export class Runner {
               SANITIZER_RUNTIME: this.#sanitizerRuntimePath,
             })
           : undefined,
-        mode === "leaks" ? "leaks" : "default",
       );
       const outcome = await this.#superviseProcess(
         specification,
@@ -1132,7 +1131,6 @@ export class Runner {
     strategy: ExecutionStrategy,
     seatbeltProfile: string,
     seatbeltParameters: Readonly<Record<string, string>> = Object.freeze({}),
-    environmentProfile: "default" | "leaks" = "default",
   ): SpawnSpecification {
     const limitedArguments = [
       limitsScriptPath,
@@ -1163,7 +1161,7 @@ export class Runner {
       command,
       args: Object.freeze(args),
       cwd: workDirectory,
-      env: minimalEnvironment(workDirectory, environmentProfile),
+      env: minimalEnvironment(workDirectory),
       detached: true,
       shell: false,
     });
@@ -1524,17 +1522,13 @@ function updateFingerprint(hash: ReturnType<typeof createHash>, value: string | 
   hash.update(bytes);
 }
 
-function minimalEnvironment(
-  workDirectory: string,
-  profile: "default" | "leaks",
-): Readonly<Record<string, string>> {
+function minimalEnvironment(workDirectory: string): Readonly<Record<string, string>> {
   return Object.freeze({
     HOME: workDirectory,
     LANG: "C",
     LC_ALL: "C",
     PATH: "/usr/bin:/bin",
     TMPDIR: workDirectory,
-    ...(profile === "leaks" ? { MallocStackLogging: "NO" } : {}),
   });
 }
 

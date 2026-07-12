@@ -3,6 +3,15 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.1.0-beta.8] - 2026-07-12
+
+### Fixed
+
+- Restored the allocation recording automatically enabled by `leaks --atExit`;
+  GitHub's macOS ARM runner otherwise reported a deliberate leak as zero. The
+  bounded quiet, no-stack-output, and no-content-output flags remain in place,
+  with the same Seatbelt and three-second resource boundary.
+
 ## [0.1.0-beta.7] - 2026-07-12
 
 ### Fixed

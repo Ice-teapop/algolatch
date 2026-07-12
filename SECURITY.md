@@ -3,7 +3,7 @@
 ## Supported releases
 
 Only the latest GitHub prerelease or stable release receives security fixes. The
-`0.1.0-beta.7` line is an unsigned, unnotarized testing build and is not a stable
+`0.1.0-beta.8` line is an unsigned, unnotarized testing build and is not a stable
 security-support commitment.
 
 ## Reporting a vulnerability
