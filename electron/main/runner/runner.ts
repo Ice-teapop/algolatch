@@ -98,8 +98,17 @@ const TEMP_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_EXECUTABLE_MODE = 0o700;
 const LEAKS_PATH = "/usr/bin/leaks";
-const LEAKS_ARGUMENTS = Object.freeze(["--quiet", "--nostacks", "--noContent", "--atExit", "--"]);
+const LEAKS_ARGUMENTS = Object.freeze([
+  "--quiet",
+  "--list",
+  "--nostacks",
+  "--nosources",
+  "--noContent",
+  "--atExit",
+  "--",
+]);
 const LEAKS_NORMAL_EXIT_REAP_GRACE_MS = 250;
+const LEAKS_POSITIVE_CONTROL_WALL_TIME_MS = 8_000;
 const VERIFIABLE_NON_ZERO_LEAK_REPORT =
   /\b[1-9][0-9]* leaks? for [1-9][0-9]* total leaked bytes\b/iu;
 
@@ -574,7 +583,7 @@ export class Runner {
         strategy,
         "direct",
         Object.freeze([]),
-        { onStderr: (chunk) => parser.push(chunk) },
+        { observer: { onStderr: (chunk) => parser.push(chunk) } },
       );
       parser.finish();
       if (session.cancelRequested || session.status !== "running") return;
@@ -702,7 +711,10 @@ export class Runner {
     strategy: ExecutionStrategy,
     mode: VerificationRunMode,
     writableFiles: readonly string[],
-    observer?: ProcessObserver,
+    options: Readonly<{
+      observer?: ProcessObserver;
+      supervisionProfile?: "leaks-positive-control";
+    }> = Object.freeze({}),
   ): Promise<VerificationRunResult> {
     const workDirectory = await this.#createPrivateTempDirectory("run-");
 
@@ -722,6 +734,12 @@ export class Runner {
         throw new RunnerFailure(
           "INVALID_REQUEST",
           "leaks 必须使用独立 plain 构建，拒绝 sanitizer 制品。",
+        );
+      }
+      if (options.supervisionProfile === "leaks-positive-control" && mode !== "leaks") {
+        throw new RunnerFailure(
+          "INTERNAL_ERROR",
+          "leaks 正控监督配置只能用于固定的 plain leaks 制品。",
         );
       }
 
@@ -749,14 +767,17 @@ export class Runner {
         specification,
         stdin,
         {
-          wallTimeMs: this.#limits.runWallTimeMs,
+          wallTimeMs:
+            options.supervisionProfile === "leaks-positive-control"
+              ? LEAKS_POSITIVE_CONTROL_WALL_TIME_MS
+              : this.#limits.runWallTimeMs,
           maxOutputBytes: this.#limits.maxOutputBytes,
           maxRssBytes: this.#limits.maxRssBytes,
           maxProcessCount: this.#limits.maxProcessCount,
           rssPollIntervalMs: this.#limits.rssPollIntervalMs,
           ...(mode === "leaks" ? { normalExitReapGraceMs: LEAKS_NORMAL_EXIT_REAP_GRACE_MS } : {}),
         },
-        observer,
+        options.observer,
       );
 
       const programStdout = outcome.stdout;
@@ -950,14 +971,22 @@ export class Runner {
   async #assertLeaksPositiveControl(strategy: ExecutionStrategy): Promise<void> {
     const source = [
       "#include <stdlib.h>",
+      "static void leak_once(void) {",
+      "  void *volatile pointer = malloc(32);",
+      "  if (pointer != NULL) {",
+      "    ((volatile unsigned char *)pointer)[0] = 1;",
+      "    pointer = NULL;",
+      "  }",
+      "}",
       "int main(void) {",
-      "  void *p = malloc(32);",
-      "  return p == 0;",
+      "  leak_once();",
+      "  return 0;",
       "}",
     ].join("\n");
     const compiled = await this.#compileValidated(source, "leak-control.c", strategy, "plain");
     const artifactId = requireCompileArtifact(compiled, "leaks 正控构建失败。");
     let verified = false;
+    const attemptEvidence: string[] = [];
     try {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const result = await this.#runValidated(
@@ -968,7 +997,9 @@ export class Runner {
           strategy,
           "leaks",
           Object.freeze([]),
+          { supervisionProfile: "leaks-positive-control" },
         );
+        attemptEvidence.push(summarizeLeaksPositiveControlAttempt(attempt + 1, result));
         const leakCheck = result.leakCheck;
         if (
           result.ok === false &&
@@ -989,7 +1020,7 @@ export class Runner {
     if (!verified) {
       throw new RunnerFailure(
         "LEAK_CHECK_FAILED",
-        "leaks 正控未检出故意泄漏，拒绝相信本次零泄漏结果。",
+        `leaks 正控未检出故意泄漏，拒绝相信本次零泄漏结果。${attemptEvidence.join("；")}`,
       );
     }
   }
@@ -1320,6 +1351,24 @@ function makeLeakCheck(outcome: ProcessOutcome): {
 
 function hasVerifiableNonZeroLeakReport(summary: string): boolean {
   return VERIFIABLE_NON_ZERO_LEAK_REPORT.test(summary);
+}
+
+function summarizeLeaksPositiveControlAttempt(
+  attempt: number,
+  result: VerificationRunResult,
+): string {
+  const leakCheck = result.leakCheck;
+  return [
+    `尝试${String(attempt)}[termination=${result.termination}`,
+    `exit=${result.exitCode === null ? "null" : String(result.exitCode)}`,
+    `signal=${result.signal ?? "null"}`,
+    `durationMs=${String(Math.round(result.durationMs))}`,
+    `error=${result.error?.code ?? "none"}`,
+    `verdict=${leakCheck?.verdict ?? "missing"}`,
+    `nonZeroReport=${String(
+      leakCheck !== undefined && hasVerifiableNonZeroLeakReport(leakCheck.summary),
+    )}]`,
+  ].join(",");
 }
 
 function requireCompileArtifact(result: CompileResult, message: string): string {

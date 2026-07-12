@@ -3,6 +3,21 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.1.0-beta.10] - 2026-07-12
+
+### Fixed
+
+- Made the fixed macOS `leaks` positive control erase its volatile pointer,
+  and reduced analysis overhead with list and no-source output modes while
+  retaining strict numeric non-zero leak evidence.
+- Added a private eight-second supervision profile only for that embedded
+  positive-control program. User sanitizer and user `leaks` executions remain
+  at three seconds with the same CPU, RSS, process, file, output, and Seatbelt
+  boundaries.
+- Included two bounded, sanitized positive-control outcome summaries in a
+  fail-closed error so hosted-runner failures remain diagnosable without
+  exposing raw output or paths.
+
 ## [0.1.0-beta.9] - 2026-07-12
 
 ### Fixed

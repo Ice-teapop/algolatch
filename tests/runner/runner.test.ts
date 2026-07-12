@@ -510,10 +510,12 @@ describe("Runner sample verification path", () => {
         expect(leaksIndex).toBeGreaterThanOrEqual(0);
         expect(specification.args).toContain(LEAKS_EXECUTION_PROFILE);
         expect(specification.args).not.toContain(COMPILE_EXECUTION_PROFILE);
-        expect(specification.args.slice(leaksIndex, leaksIndex + 7)).toEqual([
+        expect(specification.args.slice(leaksIndex, leaksIndex + 9)).toEqual([
           "/usr/bin/leaks",
           "--quiet",
+          "--list",
           "--nostacks",
+          "--nosources",
           "--noContent",
           "--atExit",
           "--",

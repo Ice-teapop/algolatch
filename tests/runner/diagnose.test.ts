@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -107,7 +107,12 @@ describe("M5b trusted deterministic diagnostics", () => {
       successfulSyntax,
       successfulCompile,
       successfulRun,
-      successfulCompile,
+      (specification, child) => {
+        const controlSource = readFileSync(join(specification.cwd, "leak-control.c"), "utf8");
+        expect(controlSource).toContain("void *volatile pointer = malloc(32);");
+        expect(controlSource).toContain("pointer = NULL;");
+        successfulCompile(specification, child);
+      },
       leaksFinding("1 leak for 32 total leaked bytes."),
       successfulCompile,
       leaksClean,
@@ -131,6 +136,8 @@ describe("M5b trusted deterministic diagnostics", () => {
     expect(host.specifications[3]?.args).not.toContain("-fsanitize=address,undefined");
     expect(host.specifications[5]?.args).not.toContain("-fsanitize=address,undefined");
     expect(host.specifications[4]?.args).toContain("/usr/bin/leaks");
+    expect(host.specifications[4]?.args).toContain("--list");
+    expect(host.specifications[4]?.args).toContain("--nosources");
     expect(host.specifications[6]?.args).toContain("/usr/bin/leaks");
 
     await expect(runner.diagnose(request, grant)).resolves.toMatchObject({
@@ -263,13 +270,56 @@ describe("M5b trusted deterministic diagnostics", () => {
     const runner = createTestRunner({ mode: "trusted-only", processHost: host });
     const request = { source: "int main(void){return 0;}", runtime: {} };
 
+    const result = await runner.diagnose(
+      request,
+      runner.createTrustedExecutionGrant("diagnose", request),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "LEAK_CHECK_FAILED" },
+    });
+    if (result.ok) throw new Error("positive-control failure unexpectedly succeeded");
+    expect(result.error.message).toContain("尝试1[termination=process-exit");
+    expect(result.error.message).toContain("尝试2[termination=process-exit");
+    expect(result.error.message).toContain("verdict=clean");
+    expect(result.error.message).not.toContain("leak-control.c");
+    expect(host.specifications).toHaveLength(6);
+    await runner.dispose();
+  });
+
+  it("reserves the extended profile for the embedded control and preserves the user limit", async () => {
+    const delayedFinding = (_specification: unknown, child: FakeChildProcess): void => {
+      setTimeout(() => {
+        child.emitStderr("1 leak for 32 total leaked bytes.");
+        child.complete(1);
+      }, 150);
+    };
+    const delayedClean = (_specification: unknown, child: FakeChildProcess): void => {
+      setTimeout(() => child.complete(0), 150);
+    };
+    const host = new FakeProcessHost([
+      successfulSyntax,
+      successfulCompile,
+      successfulRun,
+      successfulCompile,
+      delayedFinding,
+      successfulCompile,
+      delayedClean,
+    ]);
+    const runner = createTestRunner({
+      mode: "trusted-only",
+      processHost: host,
+      limits: { runWallTimeMs: 50, rssPollIntervalMs: 1_000 },
+    });
+    const request = { source: "int main(void){return 0;}", runtime: {} };
     await expect(
       runner.diagnose(request, runner.createTrustedExecutionGrant("diagnose", request)),
     ).resolves.toMatchObject({
       ok: false,
-      error: { code: "LEAK_CHECK_FAILED" },
+      error: { code: "RESOURCE_LIMIT" },
     });
-    expect(host.specifications).toHaveLength(6);
+    expect(host.specifications).toHaveLength(7);
+    expect(host.groupKills).toHaveLength(1);
     await runner.dispose();
   });
 
