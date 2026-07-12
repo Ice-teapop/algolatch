@@ -556,6 +556,56 @@ describe("Runner sample verification path", () => {
     await runner.dispose();
   });
 
+  it.each([
+    ["clean exit", 0, "Process: program\n0 leaks for 0 total leaked bytes.\n", true, "clean"],
+    [
+      "verified finding",
+      1,
+      "Process: program\n1 leak for 32 total leaked bytes.\n",
+      false,
+      "finding",
+    ],
+    ["unverified finding", 1, "Process: program\nleaks detected.\n", false, "tool-error"],
+  ] as const)(
+    "normalizes a completed leaks leader after bounded pipe cleanup: %s",
+    async (_label, exitCode, report, expectedOk, expectedVerdict) => {
+      const clock = new FakeClock();
+      const host = new FakeProcessHost([successfulCompile]);
+      const runner = createTestRunner({
+        mode: "seatbelt-best-effort",
+        processHost: host,
+        capabilityProbe: availableProbe(),
+        clock,
+        limits: { runWallTimeMs: 100, rssPollIntervalMs: 10_000 },
+      });
+      const compiled = await runner.compileForVerification(
+        { source: "int main(void){return 0;}", sourceName: "main.c" },
+        "plain",
+      );
+      if (!compiled.ok) throw new Error("verification compile fixture failed");
+
+      const resultPromise = runner.runForVerification({
+        artifactId: compiled.artifactId,
+        stdin: new Uint8Array(),
+        writableFiles: Object.freeze([]),
+        mode: "leaks",
+      });
+      const child = await waitForChild(host, 1);
+      child.emitStderr(report);
+      child.emitExit(exitCode);
+      clock.advanceBy(100);
+      child.emitClose(exitCode);
+
+      const result = await resultPromise;
+      expect(result.ok).toBe(expectedOk);
+      expect(result.leakCheck?.verdict).toBe(expectedVerdict);
+      expect(result.termination).toBe(
+        expectedVerdict === "tool-error" ? "wall-time-limit" : "process-exit",
+      );
+      await runner.dispose();
+    },
+  );
+
   it("uses the bounded 250 ms natural-reap profile only for a leaks run", async () => {
     const clock = new FakeClock();
     const host = new FakeProcessHost([successfulCompile]);

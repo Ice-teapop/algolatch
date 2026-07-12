@@ -294,8 +294,8 @@ describe("M5b trusted deterministic diagnostics", () => {
         child.complete(1);
       }, 150);
     };
-    const delayedClean = (_specification: unknown, child: FakeChildProcess): void => {
-      setTimeout(() => child.complete(0), 150);
+    const delayedKilledClose = (_specification: unknown, child: FakeChildProcess): void => {
+      setTimeout(() => child.emitClose(null, "SIGKILL"), 75);
     };
     const host = new FakeProcessHost([
       successfulSyntax,
@@ -304,7 +304,7 @@ describe("M5b trusted deterministic diagnostics", () => {
       successfulCompile,
       delayedFinding,
       successfulCompile,
-      delayedClean,
+      delayedKilledClose,
     ]);
     const runner = createTestRunner({
       mode: "trusted-only",

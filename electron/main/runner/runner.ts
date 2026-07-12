@@ -779,13 +779,14 @@ export class Runner {
         },
         options.observer,
       );
+      const effectiveOutcome = normalizeCompletedLeaksLeader(mode, outcome);
 
-      const programStdout = outcome.stdout;
-      const programStderr = outcome.stderr;
+      const programStdout = effectiveOutcome.stdout;
+      const programStderr = effectiveOutcome.stderr;
       const outputLimitExceeded =
         programStdout.byteLength + programStderr.byteLength > this.#limits.maxOutputBytes;
-      const leakCheck = mode === "leaks" ? makeLeakCheck(outcome) : undefined;
-      const processError = processOutcomeError(outcome, "程序运行失败。");
+      const leakCheck = mode === "leaks" ? makeLeakCheck(effectiveOutcome) : undefined;
+      const processError = processOutcomeError(effectiveOutcome, "程序运行失败。");
       const error = outputLimitExceeded
         ? Object.freeze({
             code: "RESOURCE_LIMIT" as const,
@@ -808,18 +809,18 @@ export class Runner {
       const base = {
         ok:
           !outputLimitExceeded &&
-          outcome.termination === "process-exit" &&
-          outcome.exitCode === 0 &&
-          !outcome.processControlFailed &&
+          effectiveOutcome.termination === "process-exit" &&
+          effectiveOutcome.exitCode === 0 &&
+          !effectiveOutcome.processControlFailed &&
           (leakCheck?.ok ?? true),
         stdout: reportedStdout,
         stderr: reportedStderr,
-        exitCode: outcome.exitCode,
-        signal: outcome.signal,
-        termination: outputLimitExceeded ? "output-limit" : outcome.termination,
-        durationMs: outcome.durationMs,
-        peakRssBytes: outcome.peakRssBytes,
-        peakProcessCount: outcome.peakProcessCount,
+        exitCode: effectiveOutcome.exitCode,
+        signal: effectiveOutcome.signal,
+        termination: outputLimitExceeded ? "output-limit" : effectiveOutcome.termination,
+        durationMs: effectiveOutcome.durationMs,
+        peakRssBytes: effectiveOutcome.peakRssBytes,
+        peakProcessCount: effectiveOutcome.peakProcessCount,
         outputBytes: reportedStdout.byteLength + reportedStderr.byteLength,
         executedNodeCount: null,
         operationCount: null,
@@ -1323,13 +1324,37 @@ function executionProfileForRun(
   return artifactRuntimeProfile === "sanitizer" ? SANITIZER_RUN_PROFILE : RUN_EXECUTION_PROFILE;
 }
 
+function normalizeCompletedLeaksLeader(
+  mode: VerificationRunMode,
+  outcome: ProcessOutcome,
+): ProcessOutcome {
+  if (
+    mode !== "leaks" ||
+    outcome.termination !== "wall-time-limit" ||
+    outcome.processControlFailed ||
+    outcome.signal !== null
+  ) {
+    return outcome;
+  }
+
+  const documentedCleanExit = outcome.exitCode === 0;
+  const verifiedFindingExit =
+    outcome.exitCode === 1 && hasVerifiableNonZeroLeakReport(leaksReportSummary(outcome));
+  if (!documentedCleanExit && !verifiedFindingExit) return outcome;
+
+  // `leaks --atExit` can exit with its documented result while an allocation-
+  // logging helper still owns an inherited pipe. The watchdog has already
+  // killed and reaped that process group here. Preserve fail-closed behavior
+  // unless the direct leaks leader completed with a trustworthy status.
+  return Object.freeze({ ...outcome, termination: "process-exit" });
+}
+
 function makeLeakCheck(outcome: ProcessOutcome): {
   readonly ok: boolean;
   readonly verdict: "clean" | "finding" | "tool-error";
   readonly summary: string;
 } {
-  const reportBytes = Buffer.concat([Buffer.from(outcome.stderr), Buffer.from(outcome.stdout)]);
-  const summary = new TextDecoder("utf-8", { fatal: false }).decode(reportBytes).trim();
+  const summary = leaksReportSummary(outcome);
   // `leaks(1)` defines exit 0 as "No leaks were detected". On macOS 27,
   // successful --atExit runs can omit the numeric footer entirely, so the
   // exit status is the contract. The acceptance gate separately runs a known
@@ -1347,6 +1372,11 @@ function makeLeakCheck(outcome: ProcessOutcome): {
     verdict,
     summary: summary.length > 0 ? summary : "leaks 未返回可验证报告。",
   });
+}
+
+function leaksReportSummary(outcome: ProcessOutcome): string {
+  const reportBytes = Buffer.concat([Buffer.from(outcome.stderr), Buffer.from(outcome.stdout)]);
+  return new TextDecoder("utf-8", { fatal: false }).decode(reportBytes).trim();
 }
 
 function hasVerifiableNonZeroLeakReport(summary: string): boolean {

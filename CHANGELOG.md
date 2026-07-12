@@ -3,6 +3,16 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.1.0-beta.12] - 2026-07-12
+
+### Fixed
+
+- Recognized a documented `leaks --atExit` leader exit after the bounded
+  watchdog successfully removes an allocation-logging helper that still owns
+  inherited pipes. Exit one still requires a numeric non-zero leak report;
+  missing exits, signals, malformed reports, and failed process-group cleanup
+  remain fail-closed. User CPU and three-second wall limits are unchanged.
+
 ## [0.1.0-beta.11] - 2026-07-12
 
 ### Fixed
