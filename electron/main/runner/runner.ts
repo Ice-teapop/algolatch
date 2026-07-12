@@ -98,6 +98,7 @@ const TEMP_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_EXECUTABLE_MODE = 0o700;
 const LEAKS_PATH = "/usr/bin/leaks";
+const LEAKS_NORMAL_EXIT_REAP_GRACE_MS = 250;
 const VERIFIABLE_NON_ZERO_LEAK_REPORT =
   /\b[1-9][0-9]* leaks? for [1-9][0-9]* total leaked bytes\b/iu;
 
@@ -751,6 +752,7 @@ export class Runner {
           maxRssBytes: this.#limits.maxRssBytes,
           maxProcessCount: this.#limits.maxProcessCount,
           rssPollIntervalMs: this.#limits.rssPollIntervalMs,
+          ...(mode === "leaks" ? { normalExitReapGraceMs: LEAKS_NORMAL_EXIT_REAP_GRACE_MS } : {}),
         },
         observer,
       );

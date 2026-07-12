@@ -3,6 +3,19 @@
 All notable changes to this project are documented in this file. The format is
 based on Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.1.0-beta.6] - 2026-07-12
+
+### Fixed
+
+- Preserved every deferred CodeMirror source transition within the current
+  document epoch, so a grouped CRLF undo cannot leave the source projection on
+  the preceding edit.
+- Applied the maximum 250 ms process-group reap grace only to macOS `leaks`
+  runs. Compile, ordinary run, and Trace keep the 50 ms default; all profiles
+  retain wall-time, RSS, process-count, kill, and explicit liveness gates.
+- Made Electron memory-diagnostic failures print their bounded error result in
+  CI instead of collapsing the evidence to `ok: false`.
+
 ## [0.1.0-beta.5] - 2026-07-12
 
 ### Fixed

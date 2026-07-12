@@ -33,6 +33,7 @@ import {
   exactSourceInputValidator,
   getExactSource,
 } from "./exact-source-history.js";
+import { createDeferredNotificationQueue } from "./deferred-notification-queue.js";
 
 export type CodeHighlightKind =
   "primary" | "symbol-declaration" | "symbol-use" | "diagnostic-warning" | "diagnostic-error";
@@ -137,9 +138,12 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
   let exactSource = "";
   let offsetMap = createSourceOffsetMap(exactSource);
   let destroyed = false;
-  let sourceNotification = 0;
   let selectionHighlights: readonly CodeHighlight[] = Object.freeze([]);
   let diagnosticHighlights: readonly CodeHighlight[] = Object.freeze([]);
+  const sourceNotifications = createDeferredNotificationQueue<{
+    readonly source: string;
+    readonly reason: CodeSourceChangeReason;
+  }>(({ source, reason }) => options.onSourceChange?.(source, reason));
 
   const mount = document.createElement("div");
   mount.className = "code-pane__editor";
@@ -168,20 +172,15 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
     highlightField,
     EditorView.updateListener.of((update) => {
       const nextSource = getExactSource(update.state);
-      const sourceChanged = nextSource !== exactSource;
-      if (sourceChanged) {
+      const stateSourceChanged = nextSource !== exactSource;
+      if (stateSourceChanged) {
         exactSource = nextSource;
         offsetMap = createSourceOffsetMap(nextSource);
         const reason = sourceChangeReason(update.transactions);
-        const notification = ++sourceNotification;
-        queueMicrotask(() => {
-          if (!destroyed && notification === sourceNotification) {
-            options.onSourceChange?.(nextSource, reason);
-          }
-        });
+        sourceNotifications.enqueue(Object.freeze({ source: nextSource, reason }));
       }
 
-      if (sourceChanged || !update.selectionSet || isProgrammatic(update.transactions)) {
+      if (stateSourceChanged || !update.selectionSet || isProgrammatic(update.transactions)) {
         return;
       }
       options.onSourceOffset(editorToSource(offsetMap, update.state.selection.main.head));
@@ -217,9 +216,9 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
         throw new TypeError("source 必须是字符串");
       }
 
+      sourceNotifications.reset();
       exactSource = source;
       offsetMap = createSourceOffsetMap(source);
-      sourceNotification += 1;
       selectionHighlights = Object.freeze([]);
       diagnosticHighlights = Object.freeze([]);
       view.setState(createExactSourceState(source, editorExtensions));
@@ -294,7 +293,7 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
         return;
       }
       destroyed = true;
-      sourceNotification += 1;
+      sourceNotifications.destroy();
       view.destroy();
       mount.remove();
     },

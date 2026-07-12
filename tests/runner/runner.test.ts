@@ -550,6 +550,44 @@ describe("Runner sample verification path", () => {
     await runner.dispose();
   });
 
+  it("uses the bounded 250 ms natural-reap profile only for a leaks run", async () => {
+    const clock = new FakeClock();
+    const host = new FakeProcessHost([successfulCompile]);
+    const runner = createTestRunner({
+      mode: "seatbelt-best-effort",
+      processHost: host,
+      capabilityProbe: availableProbe(),
+      clock,
+    });
+    const compileResult = await runner.compileForVerification(
+      { source: "int main(void){return 0;}", sourceName: "main.c" },
+      "plain",
+    );
+    if (!compileResult.ok) throw new Error("verification compile fixture failed");
+
+    host.groupAlive = true;
+    host.keepGroupAliveAfterClose = true;
+    const resultPromise = runner.runForVerification({
+      artifactId: compileResult.artifactId,
+      stdin: new Uint8Array(),
+      writableFiles: Object.freeze([]),
+      mode: "leaks",
+    });
+    const child = await waitForChild(host, 1);
+    child.complete(0);
+    clock.advanceBy(200);
+    expect(host.groupKills).toEqual([]);
+    host.groupAlive = false;
+    clock.advanceBy(10);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      ok: true,
+      termination: "process-exit",
+      leakCheck: { verdict: "clean" },
+    });
+    await runner.dispose();
+  });
+
   it("rejects the documented leaks exit status one", async () => {
     const leaksReport = "Process: program\n2 leaks for 16 total leaked bytes.\n";
     const host = new FakeProcessHost([

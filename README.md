@@ -2,7 +2,7 @@
 
 面向本科 C、数据结构与算法课程的本地 Electron 工作台。它把 `main.c` 保持为唯一事实源，同时将源码投影为可自由摆放的节点、可验证的控制连线、代码与运行证据，帮助用户从“看懂一段 C”逐步过渡到“组装、运行和改进算法”。
 
-当前版本为 `v0.1.0-beta.5` 发布候选：默认白底黑字，顶部 Dock 只保留“设置、预设块、Library、面板预览”四个入口；外部 AI、遥测和云同步均未启用。
+当前版本为 `v0.1.0-beta.6` 发布候选：默认白底黑字，顶部 Dock 只保留“设置、预设块、Library、面板预览”四个入口；外部 AI、遥测和云同步均未启用。
 
 ## 当前实现
 
@@ -46,7 +46,7 @@
 
 - 开发和 CI 固定 Node 24 LTS、npm 11.11.0，并由 lockfile、架构门禁和 `accept:m9` 验证发布元数据。
 - GitHub tag 工作流只为与 `package.json` 版本完全一致的 tag 生成一个 Universal DMG，随后生成并验证 `SHA256SUMS.txt`，最后创建 GitHub pre-release。
-- `v0.1.0-beta.5` 是明确的未签名、未公证测试包。稳定版 `v0.1.0` 在 Developer ID、Hardened Runtime、最小 entitlements、公证、staple 和安装态回归全部通过前禁止发布。
+- `v0.1.0-beta.6` 是明确的未签名、未公证测试包。稳定版 `v0.1.0` 在 Developer ID、Hardened Runtime、最小 entitlements、公证、staple 和安装态回归全部通过前禁止发布。
 
 ## 关键边界
 

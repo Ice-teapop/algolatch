@@ -15,6 +15,8 @@ export interface SupervisionLimits {
   readonly maxRssBytes: number;
   readonly maxProcessCount: number;
   readonly rssPollIntervalMs: number;
+  /** Internal process-profile override; bounded to 250 ms and never disables watchdogs. */
+  readonly normalExitReapGraceMs?: number | undefined;
 }
 
 export type ProcessTerminationReason =
@@ -50,7 +52,8 @@ const KILL_REAP_POLL_INTERVAL_MS = 10;
 // group by a few scheduler ticks on hosted macOS runners. Give normal exits a
 // tiny, bounded reap window before treating the group as a surviving child.
 // Resource and wall-time watchdogs remain active throughout this window.
-const NORMAL_EXIT_REAP_GRACE_MS = 50;
+const DEFAULT_NORMAL_EXIT_REAP_GRACE_MS = 50;
+const MAX_NORMAL_EXIT_REAP_GRACE_MS = 250;
 const NORMAL_EXIT_REAP_POLL_INTERVAL_MS = 10;
 
 export async function superviseProcess(
@@ -60,6 +63,14 @@ export async function superviseProcess(
   dependencies: SupervisorDependencies,
   observer?: ProcessObserver,
 ): Promise<ProcessOutcome> {
+  const normalExitReapGraceMs = limits.normalExitReapGraceMs ?? DEFAULT_NORMAL_EXIT_REAP_GRACE_MS;
+  if (
+    !Number.isSafeInteger(normalExitReapGraceMs) ||
+    normalExitReapGraceMs < 0 ||
+    normalExitReapGraceMs > MAX_NORMAL_EXIT_REAP_GRACE_MS
+  ) {
+    throw new RangeError("normal-exit reap grace 必须是 0 到 250 ms 的安全整数");
+  }
   const startedAt = dependencies.clock.now();
   let child: ManagedChildProcess;
 
@@ -260,7 +271,7 @@ export async function superviseProcess(
         return;
       }
       terminate("process-exit", true);
-    }, NORMAL_EXIT_REAP_GRACE_MS);
+    }, normalExitReapGraceMs);
     normalExitReapPollTimer = dependencies.clock.setTimeout(
       poll,
       NORMAL_EXIT_REAP_POLL_INTERVAL_MS,

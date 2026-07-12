@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { assertReleaseGateOrder } from "./lib/installed-dmg-gate.mjs";
 
 const expected = Object.freeze({
-  version: "0.1.0-beta.5",
+  version: "0.1.0-beta.6",
   engine: ">=24.0.0 <25",
   npm: "npm@11.11.0",
   repository: "https://github.com/Ice-teapop/c-block-algorithm-panel.git",

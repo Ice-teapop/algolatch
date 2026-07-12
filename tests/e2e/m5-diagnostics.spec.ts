@@ -162,7 +162,7 @@ test("clears old diagnostics without erasing a structure edit's new explanation"
   expect(await trustDialogCount()).toBe(1);
 });
 
-test("runs ASan/UBSan and an independent plain leaks gate under one exact grant", async () => {
+test("runs ASan/UBSan and an independent plain leaks gate under one exact grant", async ({}, testInfo) => {
   test.setTimeout(60_000);
   await acceptTrustedDiagnosis();
   const result = await page.evaluate(() =>
@@ -181,6 +181,18 @@ test("runs ASan/UBSan and an independent plain leaks gate under one exact grant"
       runtime: {},
     }),
   );
+  if (!result.ok) {
+    const detail = JSON.stringify(
+      { error: result.error, rawDiagnostics: result.rawDiagnostics },
+      null,
+      2,
+    );
+    await testInfo.attach("diagnose-failure.json", {
+      body: detail,
+      contentType: "application/json",
+    });
+    throw new Error(`真实内存诊断失败：${result.error.code} · ${result.error.message}`);
+  }
 
   expect(result).toMatchObject({
     ok: true,

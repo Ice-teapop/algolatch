@@ -109,13 +109,17 @@ describe("superviseProcess", () => {
     const clock = new FakeClock();
     const host = new FakeProcessHost();
     host.keepGroupAliveAfterClose = true;
-    const outcomePromise = superviseProcess(SPECIFICATION, new Uint8Array(), LIMITS, {
-      clock,
-      processHost: host,
-    });
+    const outcomePromise = superviseProcess(
+      SPECIFICATION,
+      new Uint8Array(),
+      { ...LIMITS, wallTimeMs: 500, normalExitReapGraceMs: 250 },
+      { clock, processHost: host },
+    );
 
     host.children[0]?.complete(0);
-    clock.advanceBy(50);
+    clock.advanceBy(249);
+    expect(host.groupKills).toEqual([]);
+    clock.advanceBy(1);
 
     await expect(outcomePromise).resolves.toMatchObject({
       termination: "process-exit",
@@ -154,7 +158,7 @@ describe("superviseProcess", () => {
     const outcomePromise = superviseProcess(
       SPECIFICATION,
       new Uint8Array(),
-      { ...LIMITS, wallTimeMs: 5 },
+      { ...LIMITS, wallTimeMs: 5, normalExitReapGraceMs: 250 },
       { clock, processHost: host },
     );
 
@@ -166,6 +170,44 @@ describe("superviseProcess", () => {
       processControlFailed: false,
     });
     expect(host.groupKills).toEqual([{ processGroupId: 4_242, signal: "SIGKILL" }]);
+  });
+
+  it("accepts a leaks-profile exit that reaps within the 250 ms hard cap", async () => {
+    const clock = new FakeClock();
+    const host = new FakeProcessHost();
+    host.keepGroupAliveAfterClose = true;
+    const outcomePromise = superviseProcess(
+      SPECIFICATION,
+      new Uint8Array(),
+      { ...LIMITS, wallTimeMs: 500, normalExitReapGraceMs: 250 },
+      { clock, processHost: host },
+    );
+
+    host.children[0]?.complete(0);
+    clock.advanceBy(200);
+    host.groupAlive = false;
+    clock.advanceBy(10);
+
+    await expect(outcomePromise).resolves.toMatchObject({
+      termination: "process-exit",
+      processControlFailed: false,
+    });
+    expect(host.groupKills).toEqual([]);
+  });
+
+  it("rejects a process profile that requests more than the 250 ms hard cap", async () => {
+    const clock = new FakeClock();
+    const host = new FakeProcessHost();
+
+    await expect(
+      superviseProcess(
+        SPECIFICATION,
+        new Uint8Array(),
+        { ...LIMITS, normalExitReapGraceMs: 251 },
+        { clock, processHost: host },
+      ),
+    ).rejects.toThrow(/0 到 250 ms/u);
+    expect(host.children).toEqual([]);
   });
 
   it("fails closed when the RSS monitor errors", async () => {
