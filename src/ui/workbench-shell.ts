@@ -121,7 +121,7 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = Object.freeze({
   "ai-privacy": "当前导师只读取本地分析证据，不联网、不上传源码，也不会自动改写代码。",
   keyboard: "方向键移动焦点；Delete 删除草稿；⌘/Ctrl+C 复制；⌘/Ctrl+Z 撤销。",
   accessibility: "所有菜单、分隔条、画布节点和详情窗均提供键盘路径与可读状态。",
-  "about-logs": "C Block Algorithm Panel 0.1.0-beta.10；日志和运行历史保存在项目目录。",
+  "about-logs": "C Block Algorithm Panel 0.1.0-beta.11；日志和运行历史保存在项目目录。",
 });
 
 export function mountWorkbench(

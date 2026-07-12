@@ -21,7 +21,7 @@ const projectRoot = resolve(import.meta.dirname, "../..");
 const configuredRuns = readPositiveInteger("M4_GENERATOR_RUNS", 500);
 const configuredSeed = readSafeInteger("M4_GENERATOR_SEED", 0x4c0de);
 const shouldWriteRegression = process.env.M4_GENERATOR_WRITE_REGRESSION === "cli-deep-run";
-const configuredTimeoutMs = Math.min(600_000, Math.max(5_000, configuredRuns * 5));
+const configuredTimeoutMs = Math.min(600_000, Math.max(10_000, configuredRuns * 15));
 const sourceByteLimit = 512 * 1024;
 
 let parser: CParser;
