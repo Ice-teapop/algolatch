@@ -237,12 +237,10 @@ async function stageToolchain(sourceRoot, destination) {
   for (const directory of ["include", "lib"]) {
     await copyRequiredDirectory(join(sourceRoot, directory), join(destination, directory));
   }
-  for (const directory of ["include", "lib"]) {
-    await copyRequiredDirectory(
-      join(sourceRoot, archiveTarget, directory),
-      join(destination, archiveTarget, directory),
-    );
-  }
+  await copyRequiredDirectory(
+    join(sourceRoot, archiveTarget, "lib"),
+    join(destination, archiveTarget, "lib"),
+  );
   await assertOrdinaryDirectoryTree(destination);
 }
 

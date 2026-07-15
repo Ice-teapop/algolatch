@@ -239,7 +239,8 @@ async function waitForTerminal(
   runner: ReturnType<typeof testRunner>,
   sessionId: string,
 ): Promise<TraceBatch> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
     const batch = runner.readTrace(sessionId, 0);
     if (!batch.ok || ["completed", "failed", "cancelled", "truncated"].includes(batch.status)) {
       return batch;
