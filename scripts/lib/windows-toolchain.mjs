@@ -165,7 +165,7 @@ export function createWindowsToolchainManifest(fileDigests) {
 
 export function isWindowsToolchainManifestPath(path) {
   if (WINDOWS_TOOLCHAIN_REQUIRED_MANIFEST_PATHS.includes(path)) return true;
-  return /^toolchain\/bin\/[A-Za-z0-9._-]+\.dll$/iu.test(String(path));
+  return /^toolchain\/bin\/[A-Za-z0-9._+-]+\.dll$/iu.test(String(path));
 }
 
 export async function hashWindowsToolchainExecutionChain(toolchainRoot, brokerPath) {

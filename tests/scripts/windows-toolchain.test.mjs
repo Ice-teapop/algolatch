@@ -168,6 +168,7 @@ describe("Windows embedded toolchain supply chain", () => {
     ]);
     expect(isWindowsToolchainManifestPath("toolchain/bin/mingw32-common.cfg")).toBe(true);
     expect(isWindowsToolchainManifestPath("toolchain/bin/x86_64-w64-windows-gnu.cfg")).toBe(true);
+    expect(isWindowsToolchainManifestPath("toolchain/bin/libc++.dll")).toBe(true);
     expect(isWindowsToolchainManifestPath("toolchain/bin/runtime-name.DLL")).toBe(true);
     expect(isWindowsToolchainManifestPath("toolchain/bin/llvm-ar.exe")).toBe(false);
   });
