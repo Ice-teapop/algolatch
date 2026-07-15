@@ -43,7 +43,7 @@
     "requestedExecutionLevel": "asInvoker",
     "forceCodeSigning": true,
     "signExecutable": true,
-    "signExts": ["!clang.exe", "!ld.lld.exe", "!algolatch-job-host.exe"],
+    "signExts": ["!clang.exe", "!clang-22.exe", "!ld.lld.exe", "!algolatch-job-host.exe"],
     "signtoolOptions": {
       "signingHashAlgorithms": ["sha256"]
     },

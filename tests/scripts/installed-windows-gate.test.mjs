@@ -154,56 +154,39 @@ describe("installed Windows release gate", () => {
     ).toThrow(/ProductVersion/u);
   });
 
-  it("locks the installed runtime manifest and both critical file digests", () => {
+  it("locks the installed runtime manifest and the complete execution-chain digests", () => {
     const manifest = runtimeManifest();
+    const expectedDigests = runtimeDigests();
     expect(validateWindowsRuntimeManifest(manifest)).toEqual(manifest);
-    expect(() =>
-      validateWindowsRuntimeDigests(manifest, {
-        "runtime/algolatch-job-host.exe": "a".repeat(64),
-        "toolchain/bin/clang.exe": "b".repeat(64),
-        "toolchain/bin/ld.lld.exe": "c".repeat(64),
-        "toolchain/bin/libwinpthread-1.dll": "d".repeat(64),
-      }),
-    ).not.toThrow();
+    expect(() => validateWindowsRuntimeDigests(manifest, expectedDigests)).not.toThrow();
     expect(() => validateWindowsRuntimeManifest({ ...manifest, llvmVersion: "0.0.0" })).toThrow(
       /锁定工具链/u,
     );
-    expect(() =>
-      validateWindowsRuntimeManifest({
-        ...manifest,
-        files: {
-          "runtime/algolatch-job-host.exe": "a".repeat(64),
-          "toolchain/bin/clang.exe": "b".repeat(64),
-          "toolchain/bin/libwinpthread-1.dll": "d".repeat(64),
-        },
-      }),
-    ).toThrow(/漏掉固定项.*ld\.lld/u);
-    expect(() =>
-      validateWindowsRuntimeDigests(manifest, {
-        "runtime/algolatch-job-host.exe": "a".repeat(64),
-        "toolchain/bin/clang.exe": "b".repeat(64),
-        "toolchain/bin/ld.lld.exe": "c".repeat(64),
-      }),
-    ).toThrow(/精确覆盖/u);
-    expect(() =>
-      validateWindowsRuntimeDigests(manifest, {
-        "runtime/algolatch-job-host.exe": "a".repeat(64),
-        "toolchain/bin/clang.exe": "b".repeat(64),
-        "toolchain/bin/ld.lld.exe": "c".repeat(64),
-        "toolchain/bin/libwinpthread-1.dll": "e".repeat(64),
-      }),
-    ).toThrow(/libwinpthread-1\.dll.*摘要不一致/u);
-    expect(() =>
-      validateWindowsRuntimeDigests(manifest, {
-        "runtime/algolatch-job-host.exe": "a".repeat(64),
-        "toolchain/bin/clang.exe": "b".repeat(64),
-        "toolchain/bin/ld.lld.exe": "e".repeat(64),
-        "toolchain/bin/libwinpthread-1.dll": "d".repeat(64),
-      }),
-    ).toThrow(/ld\.lld\.exe.*摘要不一致/u);
+    for (const missingPath of WINDOWS_REQUIRED_RUNTIME_FILE_PATHS) {
+      const files = { ...expectedDigests };
+      delete files[missingPath];
+      expect(() => validateWindowsRuntimeManifest({ ...manifest, files })).toThrow(
+        new RegExp(`漏掉固定项.*${escapeRegExp(missingPath)}`, "u"),
+      );
+    }
+    const incompleteDigests = { ...expectedDigests };
+    delete incompleteDigests["toolchain/bin/libwinpthread-1.dll"];
+    expect(() => validateWindowsRuntimeDigests(manifest, incompleteDigests)).toThrow(/精确覆盖/u);
+    for (const [path, expectedDigest] of Object.entries(expectedDigests)) {
+      const tamperedDigest = expectedDigest === "f".repeat(64) ? "0".repeat(64) : "f".repeat(64);
+      expect(() =>
+        validateWindowsRuntimeDigests(manifest, {
+          ...expectedDigests,
+          [path]: tamperedDigest,
+        }),
+      ).toThrow(new RegExp(`${escapeRegExp(path)}.*摘要不一致`, "u"));
+    }
     expect(WINDOWS_REQUIRED_RUNTIME_FILE_PATHS).toEqual([
       "toolchain/bin/clang.exe",
+      "toolchain/bin/clang-22.exe",
       "toolchain/bin/ld.lld.exe",
+      "toolchain/bin/mingw32-common.cfg",
+      "toolchain/bin/x86_64-w64-windows-gnu.cfg",
       "runtime/algolatch-job-host.exe",
     ]);
   });
@@ -361,13 +344,24 @@ function runtimeManifest() {
     target: WINDOWS_TOOLCHAIN.target,
     sourceUrl: WINDOWS_TOOLCHAIN.sourceUrl,
     sourceSha256: WINDOWS_TOOLCHAIN.sourceSha256,
-    files: {
-      "runtime/algolatch-job-host.exe": "a".repeat(64),
-      "toolchain/bin/clang.exe": "b".repeat(64),
-      "toolchain/bin/ld.lld.exe": "c".repeat(64),
-      "toolchain/bin/libwinpthread-1.dll": "d".repeat(64),
-    },
+    files: runtimeDigests(),
   };
+}
+
+function runtimeDigests() {
+  return {
+    "runtime/algolatch-job-host.exe": "a".repeat(64),
+    "toolchain/bin/clang-22.exe": "e".repeat(64),
+    "toolchain/bin/clang.exe": "b".repeat(64),
+    "toolchain/bin/ld.lld.exe": "c".repeat(64),
+    "toolchain/bin/libwinpthread-1.dll": "d".repeat(64),
+    "toolchain/bin/mingw32-common.cfg": "f".repeat(64),
+    "toolchain/bin/x86_64-w64-windows-gnu.cfg": "0".repeat(64),
+  };
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function windowsCapabilities() {

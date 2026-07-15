@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   WINDOWS_TOOLCHAIN,
+  WINDOWS_TOOLCHAIN_REQUIRED_MANIFEST_PATHS,
   assertWindowsToolchainSourceDigest,
   createWindowsToolchainManifest,
   hashWindowsToolchainExecutionChain,
@@ -105,13 +106,19 @@ describe("Windows embedded toolchain supply chain", () => {
     const linkerDigest = "3".repeat(64);
     const runtimeDigest = "4".repeat(64);
     const supportDigest = "5".repeat(64);
+    const clangBinaryDigest = "6".repeat(64);
+    const commonConfigDigest = "7".repeat(64);
+    const targetConfigDigest = "8".repeat(64);
     expect(
       createWindowsToolchainManifest({
         "runtime/algolatch-job-host.exe": brokerDigest,
         "toolchain/bin/zlib.dll": supportDigest,
         "toolchain/bin/ld.lld.exe": linkerDigest,
         "toolchain/bin/clang.exe": clangDigest,
+        "toolchain/bin/clang-22.exe": clangBinaryDigest,
         "toolchain/bin/libwinpthread-1.dll": runtimeDigest,
+        "toolchain/bin/mingw32-common.cfg": commonConfigDigest,
+        "toolchain/bin/x86_64-w64-windows-gnu.cfg": targetConfigDigest,
       }),
     ).toEqual({
       schemaVersion: 1,
@@ -123,9 +130,12 @@ describe("Windows embedded toolchain supply chain", () => {
       sourceSha256: WINDOWS_TOOLCHAIN.sourceSha256,
       files: {
         "runtime/algolatch-job-host.exe": brokerDigest,
+        "toolchain/bin/clang-22.exe": clangBinaryDigest,
         "toolchain/bin/clang.exe": clangDigest,
         "toolchain/bin/ld.lld.exe": linkerDigest,
         "toolchain/bin/libwinpthread-1.dll": runtimeDigest,
+        "toolchain/bin/mingw32-common.cfg": commonConfigDigest,
+        "toolchain/bin/x86_64-w64-windows-gnu.cfg": targetConfigDigest,
         "toolchain/bin/zlib.dll": supportDigest,
       },
     });
@@ -133,54 +143,63 @@ describe("Windows embedded toolchain supply chain", () => {
       Object.keys(
         createWindowsToolchainManifest({
           "runtime/algolatch-job-host.exe": brokerDigest,
+          "toolchain/bin/clang-22.exe": clangBinaryDigest,
           "toolchain/bin/ld.lld.exe": linkerDigest,
           "toolchain/bin/clang.exe": clangDigest,
+          "toolchain/bin/mingw32-common.cfg": commonConfigDigest,
+          "toolchain/bin/x86_64-w64-windows-gnu.cfg": targetConfigDigest,
         }).files,
       ),
     ).toEqual([
       "runtime/algolatch-job-host.exe",
+      "toolchain/bin/clang-22.exe",
       "toolchain/bin/clang.exe",
       "toolchain/bin/ld.lld.exe",
+      "toolchain/bin/mingw32-common.cfg",
+      "toolchain/bin/x86_64-w64-windows-gnu.cfg",
     ]);
+    expect(WINDOWS_TOOLCHAIN_REQUIRED_MANIFEST_PATHS).toEqual([
+      "toolchain/bin/clang.exe",
+      "toolchain/bin/clang-22.exe",
+      "toolchain/bin/ld.lld.exe",
+      "toolchain/bin/mingw32-common.cfg",
+      "toolchain/bin/x86_64-w64-windows-gnu.cfg",
+      "runtime/algolatch-job-host.exe",
+    ]);
+    expect(isWindowsToolchainManifestPath("toolchain/bin/mingw32-common.cfg")).toBe(true);
+    expect(isWindowsToolchainManifestPath("toolchain/bin/x86_64-w64-windows-gnu.cfg")).toBe(true);
     expect(isWindowsToolchainManifestPath("toolchain/bin/runtime-name.DLL")).toBe(true);
     expect(isWindowsToolchainManifestPath("toolchain/bin/llvm-ar.exe")).toBe(false);
   });
 
   it("rejects missing, additional, and malformed execution-chain records", () => {
-    const clangDigest = "1".repeat(64);
-    const brokerDigest = "2".repeat(64);
-    const linkerDigest = "3".repeat(64);
+    const requiredDigests = Object.fromEntries(
+      WINDOWS_TOOLCHAIN_REQUIRED_MANIFEST_PATHS.map((path, index) => [
+        path,
+        String(index + 1).repeat(64),
+      ]),
+    );
+    for (const missingPath of WINDOWS_TOOLCHAIN_REQUIRED_MANIFEST_PATHS) {
+      const incompleteDigests = { ...requiredDigests };
+      delete incompleteDigests[missingPath];
+      let thrown;
+      try {
+        createWindowsToolchainManifest(incompleteDigests);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown.message).toContain(missingPath);
+    }
     expect(() =>
       createWindowsToolchainManifest({
-        "runtime/algolatch-job-host.exe": brokerDigest,
-        "toolchain/bin/ld.lld.exe": linkerDigest,
-      }),
-    ).toThrow(/clang\.exe/u);
-    expect(() =>
-      createWindowsToolchainManifest({
-        "runtime/algolatch-job-host.exe": brokerDigest,
-        "toolchain/bin/clang.exe": clangDigest,
-      }),
-    ).toThrow(/ld\.lld/u);
-    expect(() =>
-      createWindowsToolchainManifest({
-        "toolchain/bin/clang.exe": clangDigest,
-        "toolchain/bin/ld.lld.exe": linkerDigest,
-      }),
-    ).toThrow(/algolatch-job-host/u);
-    expect(() =>
-      createWindowsToolchainManifest({
-        "toolchain/bin/clang.exe": clangDigest,
-        "toolchain/bin/ld.lld.exe": linkerDigest,
-        "runtime/algolatch-job-host.exe": brokerDigest,
-        "runtime/extra.exe": "3".repeat(64),
+        ...requiredDigests,
+        "runtime/extra.exe": "9".repeat(64),
       }),
     ).toThrow(/未声明/u);
     expect(() =>
       createWindowsToolchainManifest({
-        "toolchain/bin/clang.exe": clangDigest,
-        "toolchain/bin/ld.lld.exe": linkerDigest,
-        "runtime/algolatch-job-host.exe": brokerDigest,
+        ...requiredDigests,
         "toolchain/bin/tampered.dll": "0".repeat(63),
       }),
     ).toThrow(/摘要无效/u);
@@ -197,15 +216,21 @@ describe("Windows embedded toolchain supply chain", () => {
       await mkdir(runtime, { recursive: true });
       await Promise.all([
         writeFile(join(bin, "clang.exe"), "clang", "utf8"),
+        writeFile(join(bin, "clang-22.exe"), "clang-binary", "utf8"),
         writeFile(join(bin, "ld.lld.exe"), "linker", "utf8"),
+        writeFile(join(bin, "mingw32-common.cfg"), "common-config", "utf8"),
         writeFile(join(bin, "runtime.dll"), "runtime", "utf8"),
+        writeFile(join(bin, "x86_64-w64-windows-gnu.cfg"), "target-config", "utf8"),
         writeFile(broker, "broker", "utf8"),
       ]);
       const digests = await hashWindowsToolchainExecutionChain(toolchain, broker);
       expect(Object.keys(digests)).toEqual([
+        "toolchain/bin/clang-22.exe",
         "toolchain/bin/clang.exe",
         "toolchain/bin/ld.lld.exe",
+        "toolchain/bin/mingw32-common.cfg",
         "toolchain/bin/runtime.dll",
+        "toolchain/bin/x86_64-w64-windows-gnu.cfg",
         "runtime/algolatch-job-host.exe",
       ]);
       expect(() => createWindowsToolchainManifest(digests)).not.toThrow();

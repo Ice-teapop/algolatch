@@ -141,7 +141,10 @@ describe("bundled Windows toolchain capability", () => {
   it("accepts only the locked manifest and rejects changed critical files", () => {
     const root = mkdtempSync(join(tmpdir(), "algolatch-windows-runtime-"));
     const clang = join(root, "toolchain", "bin", "clang.exe");
+    const clangBinary = join(root, "toolchain", "bin", "clang-22.exe");
     const linker = join(root, "toolchain", "bin", "ld.lld.exe");
+    const commonConfig = join(root, "toolchain", "bin", "mingw32-common.cfg");
+    const targetConfig = join(root, "toolchain", "bin", "x86_64-w64-windows-gnu.cfg");
     const runtimeDll = join(root, "toolchain", "bin", "libwinpthread-1.dll");
     const jobHost = join(root, "runtime", "algolatch-job-host.exe");
     try {
@@ -152,7 +155,10 @@ describe("bundled Windows toolchain capability", () => {
         "#!/bin/sh\nprintf 'clang version 22.1.8\\nTarget: x86_64-w64-windows-gnu\\n'\n",
       );
       chmodSync(clang, 0o700);
+      writeFileSync(clangBinary, "locked-clang-binary");
       writeFileSync(linker, "locked-linker");
+      writeFileSync(commonConfig, "locked-common-config");
+      writeFileSync(targetConfig, "locked-target-config");
       writeFileSync(runtimeDll, "locked-runtime-dll");
       writeFileSync(jobHost, "job-host-test-double");
       writeFileSync(
@@ -168,9 +174,12 @@ describe("bundled Windows toolchain capability", () => {
           sourceSha256: "b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35",
           files: {
             "runtime/algolatch-job-host.exe": sha256(jobHost),
+            "toolchain/bin/clang-22.exe": sha256(clangBinary),
             "toolchain/bin/clang.exe": sha256(clang),
             "toolchain/bin/ld.lld.exe": sha256(linker),
             "toolchain/bin/libwinpthread-1.dll": sha256(runtimeDll),
+            "toolchain/bin/mingw32-common.cfg": sha256(commonConfig),
+            "toolchain/bin/x86_64-w64-windows-gnu.cfg": sha256(targetConfig),
           },
         }),
       );

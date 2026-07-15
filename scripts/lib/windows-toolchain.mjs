@@ -27,7 +27,10 @@ export const WINDOWS_TOOLCHAIN_MAX_DOWNLOAD_BYTES = 220 * 1024 * 1024;
 
 export const WINDOWS_TOOLCHAIN_REQUIRED_MANIFEST_PATHS = Object.freeze([
   "toolchain/bin/clang.exe",
+  "toolchain/bin/clang-22.exe",
   "toolchain/bin/ld.lld.exe",
+  "toolchain/bin/mingw32-common.cfg",
+  "toolchain/bin/x86_64-w64-windows-gnu.cfg",
   "runtime/algolatch-job-host.exe",
 ]);
 

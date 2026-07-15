@@ -223,8 +223,15 @@ async function stageToolchain(sourceRoot, destination) {
   const sourceBin = join(sourceRoot, "bin");
   const destinationBin = join(destination, "bin");
   await mkdir(destinationBin, { recursive: true });
-  await copyRequiredFile(join(sourceBin, "clang.exe"), join(destinationBin, "clang.exe"));
-  await copyRequiredFile(join(sourceBin, "ld.lld.exe"), join(destinationBin, "ld.lld.exe"));
+  for (const file of [
+    "clang.exe",
+    "clang-22.exe",
+    "ld.lld.exe",
+    "mingw32-common.cfg",
+    "x86_64-w64-windows-gnu.cfg",
+  ]) {
+    await copyRequiredFile(join(sourceBin, file), join(destinationBin, file));
+  }
 
   const runtimeDlls = (await readdir(sourceBin, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".dll"))

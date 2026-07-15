@@ -34,7 +34,12 @@ describe("Windows packaging contracts", () => {
         artifactName: "AlgoLatch-Setup-${version}-unsigned-${arch}.${ext}",
       },
     });
-    expect(formal.win.signExts).toEqual(["!clang.exe", "!ld.lld.exe", "!algolatch-job-host.exe"]);
+    expect(formal.win.signExts).toEqual([
+      "!clang.exe",
+      "!clang-22.exe",
+      "!ld.lld.exe",
+      "!algolatch-job-host.exe",
+    ]);
     expect(formal.electronDownload).toEqual(beta.electronDownload);
   });
 

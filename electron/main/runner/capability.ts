@@ -44,7 +44,10 @@ const WINDOWS_TOOLCHAIN_SOURCE_URL =
 const WINDOWS_REQUIRED_RUNTIME_HASH_PATHS = Object.freeze([
   "runtime/algolatch-job-host.exe",
   "toolchain/bin/clang.exe",
+  "toolchain/bin/clang-22.exe",
   "toolchain/bin/ld.lld.exe",
+  "toolchain/bin/mingw32-common.cfg",
+  "toolchain/bin/x86_64-w64-windows-gnu.cfg",
 ]);
 export const SEATBELT_CANARY_SENTINEL = "C_BLOCK_SEATBELT_CANARY_OK\n";
 
