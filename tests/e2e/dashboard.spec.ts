@@ -36,6 +36,10 @@ test.beforeAll(async () => {
     },
   });
   page = await application.firstWindow();
+  await page.evaluate(() => {
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.locator("#startup-loader")).toBeHidden();
 });
@@ -46,7 +50,7 @@ test.afterAll(async () => {
 });
 
 test("starts on an empty, dense Dashboard instead of silently loading a demo", async () => {
-  await expect(page.getByRole("tab", { name: "Dashboard" })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: "项目" })).toHaveAttribute(
     "aria-selected",
     "true",
   );
@@ -66,7 +70,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
   await dialog.getByRole("textbox", { name: "条目名称" }).fill("二分搜索");
   await dialog.getByRole("button", { name: "创建并打开" }).click();
 
-  await expect(page.getByRole("tab", { name: "搭建", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: "工作区", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",
   );
@@ -93,7 +97,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
   await reloadThroughApplicationLifecycle();
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.locator("#startup-loader")).toBeHidden();
-  await expect(page.getByRole("tab", { name: "Dashboard" })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: "项目" })).toHaveAttribute(
     "aria-selected",
     "true",
   );
@@ -103,7 +107,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
   await page.keyboard.press("Enter");
   await expect(page.locator("#file-name")).toHaveText("二分搜索.c");
   await expect(page.locator(".cm-line")).toHaveText(["int main(void) {", "  return 42;", "}", ""]);
-  await expect(page.getByRole("tab", { name: "搭建", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: "工作区", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",
   );
@@ -114,7 +118,7 @@ test("creates a real project folder, enters the workbench and reopens it after r
   const kindCell = rowAfterReload.locator("td").nth(1);
   await kindCell.click();
   await expect(page.locator("#file-name")).toHaveText("二分搜索.c");
-  await expect(page.getByRole("tab", { name: "搭建", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: "工作区", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",
   );

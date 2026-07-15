@@ -21,6 +21,9 @@ test.beforeAll(async () => {
     env: { ...inheritedEnvironment, PANEL_RUNNER_MODE: "trusted-only" },
   });
   page = await application.firstWindow();
+  await page.evaluate(() =>
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN"),
+  );
 });
 
 test.beforeEach(async () => {
@@ -43,7 +46,7 @@ test("maps clang byte columns onto the code and matching block after one native 
 
   await expect(panel).toHaveAttribute("data-state", "success", { timeout: 15_000 });
   await expect(page.locator('[data-run-field="diagnostics"]')).toContainText("unused variable");
-  await page.getByRole("tab", { name: "搭建", exact: true }).click();
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
   await expect(page.locator('.block-card__diagnostic[data-severity="warning"]')).toHaveText(
     "警告 1",
   );
@@ -55,7 +58,7 @@ test("maps clang byte columns onto the code and matching block after one native 
   await expect(page.locator('[data-code-highlight-kind="diagnostic-warning"]')).toHaveCount(1);
   expect(await trustDialogCount()).toBe(1);
 
-  await page.getByRole("tab", { name: "搭建", exact: true }).click();
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
   await page.locator(".cm-content").click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText("int x;\n");
@@ -74,7 +77,7 @@ test("injects frozen def-use, memory and finding facts into Explanation v2", asy
     "",
   ].join("\n");
   await pasteSource(source);
-  await page.getByRole("tab", { name: "搭建", exact: true }).click();
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
   await page.locator('.block-card[data-node-type="function_definition"]').click();
   await page.getByRole("tab", { name: "解释", exact: true }).click();
 
@@ -85,7 +88,7 @@ test("injects frozen def-use, memory and finding facts into Explanation v2", asy
   await expect(analysis).toContainText("释放调用");
   await expect(analysis).toContainText("释放后使用");
 
-  await page.getByRole("tab", { name: "搭建", exact: true }).click();
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
   await page.locator(".cm-content").click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText("int main(void) {");
@@ -111,7 +114,7 @@ test("drops a diagnosis result when the source changes during native authorizati
     )
     .toBe("function");
 
-  await page.getByRole("tab", { name: "搭建", exact: true }).click();
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
   await page.locator(".cm-content").click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText("int main(void) { return 1; }\n");
@@ -139,7 +142,7 @@ test("clears old diagnostics without erasing a structure edit's new explanation"
   const panel = page.locator("#run-panel .run-panel");
   await page.getByRole("button", { name: "静态诊断", exact: true }).click();
   await expect(panel).toHaveAttribute("data-state", "success", { timeout: 15_000 });
-  await page.getByRole("tab", { name: "搭建", exact: true }).click();
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
   await expect(page.locator('[data-code-highlight-kind="diagnostic-warning"]')).toHaveCount(1);
 
   await clickCodeOccurrence("41", 0);
@@ -208,7 +211,7 @@ test("runs ASan/UBSan and an independent plain leaks gate under one exact grant"
 });
 
 async function pasteSource(source: string): Promise<void> {
-  await page.getByRole("tab", { name: "搭建", exact: true }).click();
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
   await page.getByRole("button", { name: "粘贴源码" }).click();
   const dialog = page.getByRole("dialog", { name: "粘贴 C 源码" });
   await expect(dialog).toBeVisible();

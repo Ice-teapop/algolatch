@@ -30,6 +30,9 @@ test.beforeAll(async () => {
     },
   });
   page = await electronApplication.firstWindow();
+  await page.evaluate(() => {
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
+  });
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
 });
 

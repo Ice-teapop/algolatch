@@ -25,6 +25,9 @@ test.beforeAll(async () => {
     env: inheritedEnvironment,
   });
   page = await electronApplication.firstWindow();
+  await page.evaluate(() =>
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN"),
+  );
 });
 
 test.beforeEach(async () => {
@@ -278,7 +281,7 @@ async function openEditDock(): Promise<void> {
 }
 
 async function openBuildDock(): Promise<void> {
-  const buildTab = page.getByRole("tab", { name: "搭建", exact: true });
+  const buildTab = page.getByRole("tab", { name: "工作区", exact: true });
   await buildTab.click();
   await expect(buildTab).toHaveAttribute("aria-selected", "true");
 }

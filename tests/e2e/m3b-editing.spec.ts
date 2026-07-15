@@ -44,6 +44,9 @@ test.beforeAll(async () => {
     },
   });
   page = await electronApplication.firstWindow();
+  await page.evaluate(() =>
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN"),
+  );
   await expect(page.locator("#startup-loader")).toBeHidden();
   await electronApplication.evaluate(({ dialog }, path) => {
     const mutableDialog = dialog as unknown as {
@@ -61,7 +64,7 @@ test.beforeEach(async () => {
   await expect(page.locator("#startup-loader")).toBeHidden();
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.getByRole("button", { name: "粘贴源码" })).toBeEnabled();
-  await showDock("搭建");
+  await showDock("工作区");
 });
 
 test.afterAll(async () => {
@@ -70,7 +73,7 @@ test.afterAll(async () => {
 });
 
 test("supports direct input, bracket pairing, and exact CRLF undo", async () => {
-  await showDock("搭建");
+  await showDock("工作区");
   await page.getByRole("button", { name: "打开 C 文件" }).click();
   await expect(page.locator("#file-name")).toHaveText("m3b-crlf.c");
   await expect(page.locator("#source-meta")).toContainText("CRLF");
@@ -250,7 +253,7 @@ test("moves adjacent statements with buttons and supports a real drag while reje
   const b = draggableStatement("expression_statement", "b();");
   const c = draggableStatement("expression_statement", "c();");
   await expect(b).toHaveAttribute("draggable", "true");
-  await showDock("搭建");
+  await showDock("工作区");
   await b.dragTo(c);
   await confirmVisibleDiff();
   const swapped = dragSource
@@ -260,7 +263,7 @@ test("moves adjacent statements with buttons and supports a real drag while reje
   await expectEditorSource(swapped);
 
   const beforeRejectedDrop = await editorText();
-  await showDock("搭建");
+  await showDock("工作区");
   await dispatchExactStatementDrag(
     draggableStatement("expression_statement", "a();"),
     draggableStatement("expression_statement", "b();"),
@@ -271,7 +274,7 @@ test("moves adjacent statements with buttons and supports a real drag while reje
   );
   expect(await editorText()).toBe(beforeRejectedDrop);
 
-  await showDock("搭建");
+  await showDock("工作区");
   await dispatchExactStatementDrag(
     draggableStatement("expression_statement", "a();"),
     draggableStatement("expression_statement", "nested();"),
@@ -380,7 +383,7 @@ test("compiles the current CodeMirror source while projection sync is still pend
 });
 
 async function pasteSource(source: string): Promise<void> {
-  await showDock("搭建");
+  await showDock("工作区");
   await page.getByRole("button", { name: "粘贴源码" }).click();
   const dialog = page.getByRole("dialog", { name: "粘贴 C 源码" });
   await expect(dialog).toBeVisible();
@@ -389,11 +392,11 @@ async function pasteSource(source: string): Promise<void> {
   await expect(dialog).toBeHidden();
   await expect(page.locator("#file-name")).toHaveText("pasted.c");
   await expect(page.locator("#import-status")).toHaveAttribute("data-state", "ready");
-  await showDock("搭建");
+  await showDock("工作区");
   await expectEditorSource(source);
 }
 
-async function showDock(name: "搭建" | "编辑" | "运行"): Promise<void> {
+async function showDock(name: "工作区" | "编辑" | "运行"): Promise<void> {
   const tab = page.getByRole("tab", { name, exact: true });
   await expect(tab).toBeVisible();
   await tab.click();
@@ -427,7 +430,7 @@ function draggableStatement(nodeType: string, excerpt: string): Locator {
 }
 
 async function selectStatement(nodeType: string, excerpt: string): Promise<void> {
-  await showDock("搭建");
+  await showDock("工作区");
   const block = statementBlock(nodeType, excerpt);
   await expect(block).toHaveCount(1);
   await block.click();
@@ -474,7 +477,7 @@ async function replaceEditorSource(source: string): Promise<void> {
 }
 
 async function replaceEditorSourceWithoutWaiting(source: string): Promise<void> {
-  await showDock("搭建");
+  await showDock("工作区");
   const content = page.locator(".cm-content");
   await content.click();
   await page.keyboard.press("Meta+A");
@@ -495,7 +498,7 @@ async function undoAndAwaitProjection(source: string, metadata: string): Promise
 }
 
 async function expectEditorSource(source: string): Promise<void> {
-  await showDock("搭建");
+  await showDock("工作区");
   await expect.poll(editorText).toBe(normalizedEditorSource(source));
 }
 
@@ -510,7 +513,7 @@ async function editorText(): Promise<string> {
 }
 
 async function clickCodeOccurrence(needle: string, occurrence: number): Promise<void> {
-  await showDock("搭建");
+  await showDock("工作区");
   const point = await page.locator(".cm-content").evaluate(
     (content, target) => {
       const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
@@ -549,7 +552,7 @@ async function clickCodeOccurrence(needle: string, occurrence: number): Promise<
 }
 
 async function clickCodeOccurrenceInLine(lineText: string, needle: string): Promise<void> {
-  await showDock("搭建");
+  await showDock("工作区");
   const line = page.locator(".cm-line").filter({ hasText: lineText });
   await expect(line).toHaveCount(1);
   const point = await line.evaluate((element, target) => {
@@ -576,7 +579,7 @@ async function clickCodeOccurrenceInLine(lineText: string, needle: string): Prom
 }
 
 async function placeCursorAfterCodeOccurrence(needle: string, occurrence: number): Promise<void> {
-  await showDock("搭建");
+  await showDock("工作区");
   const point = await page.locator(".cm-content").evaluate(
     (content, target) => {
       const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);

@@ -71,6 +71,7 @@ test.beforeAll(async () => {
         directive: event.effectiveDirective,
       });
     });
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
   });
 
   await getElectronApplication().evaluate(({ dialog }, path) => {
@@ -203,7 +204,7 @@ test("selects nested for and return blocks and paints the primary CodeMirror ran
   await forBlock.click();
   await expect(forBlock).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#edit-panel")).toBeVisible();
-  await page.getByRole("tab", { name: "搭建", exact: true }).click();
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
   await expect(primary.first()).toBeVisible();
   expect((await primary.allTextContents()).join(" ")).toContain("for (int i = 0");
 
@@ -212,7 +213,7 @@ test("selects nested for and return blocks and paints the primary CodeMirror ran
   await expect(returnBlock).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('#block-tree .block-card[aria-selected="true"]')).toHaveCount(1);
   await expect(page.locator("#edit-panel")).toBeVisible();
-  await page.getByRole("tab", { name: "搭建", exact: true }).click();
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
   await expect(primary.first()).toBeVisible();
   expect((await primary.allTextContents()).join(" ")).toContain("return 0;");
 });
@@ -314,7 +315,7 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
     await expect(page.locator("#explanation-host")).toBeVisible();
     await expect(page.locator("#explanation-panel")).toBeVisible();
 
-    await page.getByRole("tab", { name: "搭建", exact: true }).click();
+    await page.getByRole("tab", { name: "工作区", exact: true }).click();
     await expect(page.locator("#block-tree")).toBeVisible();
     await expect(page.locator("#code-pane")).toBeVisible();
 
@@ -322,7 +323,7 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
     await expect(page.locator("#run-panel")).toBeVisible();
     await expect(page.getByRole("button", { name: "编译并运行" })).toBeVisible();
 
-    await page.getByRole("tab", { name: "搭建", exact: true }).click();
+    await page.getByRole("tab", { name: "工作区", exact: true }).click();
     await expect(page.locator("#block-palette")).toBeVisible();
     await expect(page.locator("#block-tree")).toBeVisible();
     await expect(page.locator("#flow-canvas")).toBeVisible();
@@ -424,7 +425,7 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
 });
 
 test("navigates the four Dock roots and their branches entirely by keyboard", async () => {
-  const roots = ["设置", "预设块", "Library", "面板预览"].map(menuTrigger);
+  const roots = ["设置", "积木", "Library", "布局"].map(menuTrigger);
   await roots[0]?.focus();
   await expect(roots[0]!).toBeFocused();
   for (const root of roots.slice(1)) {
@@ -441,9 +442,9 @@ test("navigates the four Dock roots and their branches entirely by keyboard", as
   await expect(roots[3]!).toBeFocused();
 
   await page.keyboard.press("ArrowDown");
-  const previewMenu = page.getByRole("menu", { name: "面板预览" });
+  const previewMenu = page.getByRole("menu", { name: "布局" });
   await expect(previewMenu).toBeVisible();
-  await expect(previewMenu.getByRole("menuitem", { name: "项目", exact: true })).toBeFocused();
+  await expect(previewMenu.getByRole("menuitem", { name: "搭建", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowRight");
   const settingsMenu = page.getByRole("menu", { name: "设置" });
   await expect(settingsMenu).toBeVisible();

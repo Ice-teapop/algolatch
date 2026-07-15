@@ -37,6 +37,9 @@ test.beforeAll(async () => {
     env: { ...inheritedEnvironment, PANEL_RUNNER_MODE: "trusted-only" },
   });
   page = await application.firstWindow();
+  await page.evaluate(() =>
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN"),
+  );
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.locator("#startup-loader")).toBeHidden();
 
@@ -75,7 +78,7 @@ for (const corpusCase of corpusCases) {
         state.__m4CorpusPath = path;
       }, corpusCase.path);
 
-      await page.getByRole("tab", { name: "搭建", exact: true }).click();
+      await page.getByRole("tab", { name: "工作区", exact: true }).click();
       await page.locator("#open-source").click();
 
       await expect(page.locator("#import-status")).toHaveAttribute("data-state", "ready");

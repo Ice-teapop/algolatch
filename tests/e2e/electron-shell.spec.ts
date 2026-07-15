@@ -43,6 +43,11 @@ test.beforeAll(async () => {
     },
   });
   page = await electronApplication.firstWindow();
+  await page.addInitScript(() => {
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("#startup-loader")).toBeHidden();
 });
 
 test("imports through the native dialog without exposing an absolute path", async () => {

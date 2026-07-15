@@ -1095,7 +1095,7 @@ function createRemoteView(ownerDocument: Document, onOpenAiSettings?: () => void
     "始终不发送文件路径、stdin 或 args。完整源码只有在这里明确选择后才会附带。";
   contextDetails.append(contextSummary, contextLabel, contextBoundary);
 
-  form.append(scope, presetSection, transcript, composer, actions, contextDetails);
+  form.append(scope, presetSection, transcript, composer, contextDetails, actions);
   root.append(status, missing, form);
   return {
     root,

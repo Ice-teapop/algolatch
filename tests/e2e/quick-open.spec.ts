@@ -21,7 +21,10 @@ test.beforeAll(async () => {
     env: { ...inheritedEnvironment, PANEL_RUNNER_MODE: "trusted-only" },
   });
   page = await application.firstWindow();
-  await page.evaluate(() => globalThis.localStorage.clear());
+  await page.evaluate(() => {
+    globalThis.localStorage.clear();
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
+  });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#startup-loader")).toBeHidden();
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");

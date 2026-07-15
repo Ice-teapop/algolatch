@@ -143,6 +143,7 @@ interface AnalysisUiCopy {
   readonly noExtraEvidence: string;
   readonly noExtraGaps: string;
   readonly uncertainty: (confidence: string) => string;
+  readonly heading: string;
   readonly initialStatus: string;
   readonly initialScenario: string;
   readonly initialTrend: string;
@@ -239,6 +240,7 @@ const ANALYSIS_COPY: Readonly<Record<InterfaceLocale, AnalysisUiCopy>> = Object.
     initialStatus: "打开项目并运行案例后生成分析。",
     initialScenario: "尚未选择情景",
     initialTrend: "没有跨规模运行证据。",
+    heading: "分析",
   }),
   en: Object.freeze({
     summary: Object.freeze({
@@ -338,6 +340,7 @@ const ANALYSIS_COPY: Readonly<Record<InterfaceLocale, AnalysisUiCopy>> = Object.
     initialStatus: "Open a project and run a scenario to generate analysis.",
     initialScenario: "No scenario selected",
     initialTrend: "No cross-size run evidence.",
+    heading: "Analysis",
   }),
 });
 
@@ -582,6 +585,10 @@ export function createAnalysisDashboard(
   root.className = "analysis-dashboard";
   root.dataset.locale = locale;
 
+  const heading = document.createElement("h1");
+  heading.className = "analysis-dashboard__heading";
+  heading.textContent = copy.heading;
+
   const summary = document.createElement("dl");
   summary.className = "analysis-dashboard__summary";
   const summaryFields = new Map<string, HTMLElement>();
@@ -670,7 +677,7 @@ export function createAnalysisDashboard(
 
   main.append(trendSection.root, lower);
   lower.append(completionSection.root, pathSection.root, memorySection.root, aiSection.root);
-  root.append(summary, main);
+  root.append(heading, summary, main);
   host.replaceChildren(root);
 
   let rawState = emptyAnalysisDashboardState(locale);
@@ -694,6 +701,7 @@ export function createAnalysisDashboard(
   const applyStaticCopy = (): void => {
     copy = ANALYSIS_COPY[locale];
     root.dataset.locale = locale;
+    heading.textContent = copy.heading;
     for (const id of ["completion", "sizes", "coverage", "reference"] as const) {
       summaryTerms.get(id)!.textContent = copy.summary[id];
     }

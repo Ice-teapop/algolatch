@@ -42,7 +42,10 @@ test.beforeAll(async () => {
     };
     mutableDialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
   });
-  await page.evaluate(() => globalThis.localStorage.clear());
+  await page.evaluate(() => {
+    globalThis.localStorage.clear();
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
+  });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#startup-loader")).toBeHidden();
 });

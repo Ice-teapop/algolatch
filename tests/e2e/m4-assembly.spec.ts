@@ -22,14 +22,17 @@ test.beforeAll(async () => {
     env: { ...inheritedEnvironment, PANEL_RUNNER_MODE: "trusted-only" },
   });
   page = await application.firstWindow();
-  await page.evaluate(() => globalThis.localStorage.clear());
+  await page.evaluate(() => {
+    globalThis.localStorage.clear();
+    globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
+  });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.locator("#startup-loader")).toBeHidden();
   await page.getByRole("button", { name: "粘贴源码" }).click();
   await page.locator("#paste-source").fill("int main(void) {\n  return 0;\n}\n");
   await page.getByRole("button", { name: "载入工作台" }).click();
-  await expect(dock("搭建")).toHaveAttribute("aria-selected", "true");
+  await expect(dock("工作区")).toHaveAttribute("aria-selected", "true");
 });
 
 test.afterAll(async () => {
@@ -44,9 +47,9 @@ test("prioritizes the assembly canvas and switches extension pages from the top 
   expect(canvasBox.width).toBeGreaterThan(codeBox.width * 1.35);
 
   const dockLabels = await page.locator("[data-menu-root-trigger]").allTextContents();
-  expect(dockLabels).toEqual(["设置", "预设块", "Library", "面板预览"]);
+  expect(dockLabels).toEqual(["设置", "积木", "Library", "布局"]);
   await expect(page.getByRole("heading", { name: "AlgoLatch" })).toHaveCount(0);
-  await openMenuBranch("预设块", "自定义块生命周期");
+  await openMenuBranch("积木", "自定义");
   await expect(page.locator("#block-library-panel")).toBeVisible();
   await expect(page.locator("#build-panel")).toBeHidden();
   await openMenuBranch("Library", "完整软件手册");
@@ -55,14 +58,14 @@ test("prioritizes the assembly canvas and switches extension pages from the top 
   await expect(
     page.locator("[data-library-branch-id='manual'][aria-current='true']"),
   ).toBeVisible();
-  await dock("Dashboard").click();
-  await expect(dock("Dashboard")).toHaveAttribute("aria-selected", "true");
-  await dock("搭建").click();
-  await expect(page.getByRole("tabpanel", { name: "搭建" })).toBeVisible();
+  await dock("项目").click();
+  await expect(dock("项目")).toHaveAttribute("aria-selected", "true");
+  await dock("工作区").click();
+  await expect(page.getByRole("tabpanel", { name: "工作区" })).toBeVisible();
 });
 
 test("drags a multiline preset into a real slot and synchronizes exact C", async () => {
-  await dock("搭建").click();
+  await dock("工作区").click();
   const target = statement("return_statement", "return 0;");
   const slot = await slotFor(target, "before");
   const preset = page.locator(
@@ -73,13 +76,13 @@ test("drags a multiline preset into a real slot and synchronizes exact C", async
   await preset.dragTo(slot);
   await expect(dock("编辑")).toHaveAttribute("aria-selected", "true");
   await confirmVisibleDiff();
-  await expect(dock("搭建")).toHaveAttribute("aria-selected", "true");
+  await expect(dock("工作区")).toHaveAttribute("aria-selected", "true");
   await expect.poll(editorText).toContain("  while (condition) {\n    action();\n  }\n  return 0;");
   await expect(statement("while_statement", "while (condition)")).toBeVisible();
 });
 
 test("creates, uses, deprecates and retires a custom block without deleting generated C", async () => {
-  await openMenuBranch("预设块", "自定义块生命周期");
+  await openMenuBranch("积木", "自定义");
   await page.getByRole("textbox", { name: "积木名称" }).fill("我的累加");
   await page.getByRole("textbox", { name: "分类" }).fill("custom");
   await page.getByRole("combobox", { name: "学习阶段" }).selectOption("c.basics");
@@ -92,7 +95,7 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
     ),
   ).toBeNull();
 
-  await dock("搭建").click();
+  await dock("工作区").click();
   await page.getByRole("searchbox", { name: "筛选积木" }).fill("我的累加");
   const customPreset = page.locator(".block-palette__drag-surface").filter({ hasText: "我的累加" });
   const target = statement("return_statement", "return 0;");
@@ -100,17 +103,17 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
   await confirmVisibleDiff();
   await expect.poll(editorText).toContain("  total += 10;\n  return 0;");
 
-  await openMenuBranch("预设块", "自定义块生命周期");
+  await openMenuBranch("积木", "自定义");
   let customEntry = customLibraryEntry();
   await customEntry.getByRole("button", { name: "弃用" }).click();
   await expect(customEntry).toHaveAttribute("data-lifecycle", "deprecated");
-  await dock("搭建").click();
+  await dock("工作区").click();
   await page.getByRole("searchbox", { name: "筛选积木" }).fill("我的累加");
   await expect(
     page.locator(".block-palette__drag-surface").filter({ hasText: "我的累加" }),
   ).toHaveCount(0);
 
-  await openMenuBranch("预设块", "自定义块生命周期");
+  await openMenuBranch("积木", "自定义");
   customEntry = customLibraryEntry();
   await customEntry.getByRole("button", { name: "恢复" }).click();
   customEntry = customLibraryEntry();
