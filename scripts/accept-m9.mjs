@@ -498,7 +498,6 @@ includes(license, "Required Notice: Copyright (c) 2026 HAN Chen", "LICENSE");
 includes(license, "Commercial use requires a separate written license", "LICENSE");
 
 for (const document of [
-  ".github/SECURITY.md",
   "SECURITY.md",
   "PRIVACY.md",
   "NOTICE.md",
