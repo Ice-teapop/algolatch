@@ -236,7 +236,27 @@ test("keeps node inspector geometry stable while switching Explain and Edit", as
 test("keeps detached block source visible as grey code until the draft is deleted", async () => {
   const detailClose = page.locator("[data-flow-detail-close]");
   if (await detailClose.isVisible()) await detailClose.click();
-  const node = page.locator(".flow-node[data-node-kind='statement']").first();
+  const statementNodes = page.locator(".flow-node[data-node-kind='statement']");
+  const unobscuredIndex = await statementNodes.evaluateAll((nodes) => {
+    const minimap = document.querySelector<HTMLElement>(".flow-minimap");
+    const minimapBounds = minimap?.getBoundingClientRect();
+    return nodes.findIndex((node) => {
+      const bounds = node.getBoundingClientRect();
+      const center = {
+        x: bounds.left + bounds.width / 2,
+        y: bounds.top + bounds.height / 2,
+      };
+      return (
+        minimapBounds === undefined ||
+        center.x < minimapBounds.left ||
+        center.x > minimapBounds.right ||
+        center.y < minimapBounds.top ||
+        center.y > minimapBounds.bottom
+      );
+    });
+  });
+  expect(unobscuredIndex).toBeGreaterThanOrEqual(0);
+  const node = statementNodes.nth(unobscuredIndex);
   await node.click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+c" : "Control+c");
 

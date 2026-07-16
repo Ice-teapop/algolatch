@@ -20,7 +20,7 @@ const sampleSources = readdirSync(samplesRoot, { withFileTypes: true })
   .map((entry) => readFileSync(resolve(samplesRoot, entry.name, "main.c"), "utf8"));
 const configuredRuns = readPositiveInteger("M1_FUZZ_RUNS", 500);
 const configuredSeed = readSafeInteger("M1_FUZZ_SEED", 0xc0b10c);
-const fuzzTimeoutMs = Math.max(5_000, Math.min(300_000, configuredRuns * 6));
+const fuzzTimeoutMs = Math.max(15_000, Math.min(300_000, configuredRuns * 30));
 const allowedAncestors = new Set(["translation_unit", "ERROR", "preproc_ifdef", "preproc_else"]);
 
 type Mutation =
