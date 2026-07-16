@@ -23,7 +23,7 @@ import {
 interface FlowNodeDraft extends Omit<FlowNode, "defaultPosition"> {}
 
 const LANE_X = 224;
-const NODE_Y = 64;
+const NODE_Y = 72;
 const LAYOUT_ORIGIN = 48;
 const MAX_LABEL_LENGTH = 52;
 
@@ -154,9 +154,10 @@ export function createFlowProjection(
     );
   }
 
-  const positions = defaultPositions(drafts, analysis.functions);
+  const displayDrafts = disambiguateRepeatedNodeLabels(drafts, document.source);
+  const positions = defaultPositions(displayDrafts, analysis.functions);
   const nodes = Object.freeze(
-    drafts.map((draft) =>
+    displayDrafts.map((draft) =>
       Object.freeze({
         ...draft,
         defaultPosition: requiredPosition(positions, draft.id),
@@ -499,19 +500,81 @@ function defaultPositions(
   }
 
   const positions = new Map<string, FlowPoint>();
-  for (const [lane, laneNodes] of [...lanes.entries()].sort((left, right) => left[0] - right[0])) {
+  let laneOriginX = LAYOUT_ORIGIN;
+  for (const [, laneNodes] of [...lanes.entries()].sort((left, right) => left[0] - right[0])) {
     laneNodes.sort(compareFlowNodeDrafts);
+    const controlNodes = laneNodes.filter((node) => isLexicalControlNode(node));
+    const depths = new Map(
+      laneNodes.map((node) => [node.id, lexicalLaneDepth(node, controlNodes)] as const),
+    );
     laneNodes.forEach((node, row) => {
       positions.set(
         node.id,
         Object.freeze({
-          x: LAYOUT_ORIGIN + lane * LANE_X,
+          x: laneOriginX + (depths.get(node.id) ?? 0) * LANE_X,
           y: LAYOUT_ORIGIN + row * NODE_Y,
         }),
       );
     });
+    const maximumDepth = Math.max(0, ...depths.values());
+    laneOriginX += (maximumDepth + 1) * LANE_X;
   }
   return positions;
+}
+
+function isLexicalControlNode(node: FlowNodeDraft): boolean {
+  return (
+    node.kind === "branch" ||
+    node.kind === "loop" ||
+    node.kind === "switch" ||
+    node.kind === "assert"
+  );
+}
+
+function lexicalLaneDepth(node: FlowNodeDraft, controls: readonly FlowNodeDraft[]): number {
+  const nestedRange = node.nodeType === "for_initializer" ? node.ownerBlockRange : node.range;
+  return controls.filter(
+    (control) =>
+      control.id !== node.id &&
+      control.range.from <= nestedRange.from &&
+      control.range.to >= nestedRange.to &&
+      (control.range.from < nestedRange.from || control.range.to > nestedRange.to),
+  ).length;
+}
+
+function disambiguateRepeatedNodeLabels(
+  drafts: readonly FlowNodeDraft[],
+  source: string,
+): readonly FlowNodeDraft[] {
+  const counts = new Map<string, number>();
+  for (const draft of drafts) {
+    const key = repeatedLabelKey(draft);
+    if (key !== null) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Object.freeze(
+    drafts.map((draft) => {
+      const key = repeatedLabelKey(draft);
+      if (key === null || (counts.get(key) ?? 0) < 2) return draft;
+      return Object.freeze({
+        ...draft,
+        label: `L${String(sourceLineAt(source, draft.range.from))} · ${draft.label}`,
+      });
+    }),
+  );
+}
+
+function repeatedLabelKey(node: FlowNodeDraft): string | null {
+  const compact = node.sourceText.replace(/\s+/gu, " ").trim();
+  if (node.functionId === null || compact.length === 0) return null;
+  return `${node.functionId}\u0000${node.kind}\u0000${node.nodeType ?? ""}\u0000${compact}`;
+}
+
+function sourceLineAt(source: string, offset: number): number {
+  let line = 1;
+  for (let index = 0; index < offset; index += 1) {
+    if (source.charCodeAt(index) === 10) line += 1;
+  }
+  return line;
 }
 
 function compareFlowNodeDrafts(left: FlowNodeDraft, right: FlowNodeDraft): number {

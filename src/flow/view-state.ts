@@ -206,6 +206,25 @@ function validateAnchoredFlowViewState(
     positionedNodeIds.add(resolution.nodeId);
     positions[resolution.nodeId] = Object.freeze({ x: entry.point.x, y: entry.point.y });
   });
+  if (
+    savedFingerprint === projection.sourceFingerprint &&
+    positionedNodeIds.size === projection.nodes.length &&
+    matchesLegacyGeneratedLayout(positions, projection)
+  ) {
+    for (const node of projection.nodes) {
+      positions[node.id] = Object.freeze({
+        x: node.defaultPosition.x,
+        y: node.defaultPosition.y,
+      });
+    }
+    issues.push(
+      issue(
+        "legacy-generated-layout",
+        "$.positions",
+        "旧版单列自动布局已升级；自由拖动过的自定义布局不会被自动重排",
+      ),
+    );
+  }
 
   const selectedNodeIds: string[] = [];
   const selected = new Set<string>();
@@ -517,6 +536,75 @@ function defaultPositions(projection: FlowProjection): Record<string, FlowPoint>
       node.id,
       Object.freeze({ x: node.defaultPosition.x, y: node.defaultPosition.y }),
     ]),
+  );
+}
+
+function matchesLegacyGeneratedLayout(
+  positions: Readonly<Record<string, FlowPoint>>,
+  projection: FlowProjection,
+): boolean {
+  const legacy = legacyGeneratedPositions(projection);
+  let differsFromCurrent = false;
+  for (const node of projection.nodes) {
+    const saved = positions[node.id];
+    const oldDefault = legacy[node.id];
+    if (
+      saved === undefined ||
+      oldDefault === undefined ||
+      saved.x !== oldDefault.x ||
+      saved.y !== oldDefault.y
+    ) {
+      return false;
+    }
+    if (saved.x !== node.defaultPosition.x || saved.y !== node.defaultPosition.y) {
+      differsFromCurrent = true;
+    }
+  }
+  return differsFromCurrent;
+}
+
+function legacyGeneratedPositions(projection: FlowProjection): Record<string, FlowPoint> {
+  const functionOrder = new Map(projection.functions.map((fn, index) => [fn.id, index]));
+  const fallbackLane = projection.functions.length;
+  const lanes = new Map<number, FlowNode[]>();
+  for (const node of projection.nodes) {
+    const lane =
+      node.functionId === null
+        ? fallbackLane
+        : (functionOrder.get(node.functionId) ?? fallbackLane);
+    const nodes = lanes.get(lane) ?? [];
+    nodes.push(node);
+    lanes.set(lane, nodes);
+  }
+  const positions: Record<string, FlowPoint> = {};
+  for (const [lane, nodes] of [...lanes.entries()].sort((left, right) => left[0] - right[0])) {
+    nodes.sort(compareLegacyLayoutNodes);
+    nodes.forEach((node, row) => {
+      positions[node.id] = Object.freeze({ x: 48 + lane * 224, y: 48 + row * 64 });
+    });
+  }
+  return positions;
+}
+
+function compareLegacyLayoutNodes(left: FlowNode, right: FlowNode): number {
+  const kindOrder: Readonly<Record<FlowNodeKind, number>> = {
+    module: 0,
+    start: 0,
+    declaration: 1,
+    statement: 1,
+    branch: 1,
+    loop: 1,
+    switch: 1,
+    assert: 1,
+    control: 1,
+    raw: 1,
+    end: 2,
+  };
+  return (
+    kindOrder[left.kind] - kindOrder[right.kind] ||
+    left.range.from - right.range.from ||
+    right.range.to - left.range.to ||
+    left.id.localeCompare(right.id)
   );
 }
 

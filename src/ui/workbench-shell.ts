@@ -11,6 +11,7 @@ import {
   type WorkbenchMenuController,
   type WorkbenchMenuSelection,
 } from "./workbench-menu.js";
+import { installCodeTextareaIndentation } from "./code-textarea-keymap.js";
 
 export interface WorkbenchElements {
   readonly shell: HTMLElement;
@@ -205,6 +206,8 @@ export function mountWorkbench(
   const languageSelect = required(app, "#interface-language", HTMLSelectElement);
   const backgroundSelect = required(app, "#interface-background", HTMLSelectElement);
   const aiProviderSettingsHost = required(app, "#ai-provider-settings-host", HTMLElement);
+  const pasteSource = required(app, "#paste-source", HTMLTextAreaElement);
+  const pasteSourceIndentation = installCodeTextareaIndentation(pasteSource);
 
   const pagePanels = new Map<string, HTMLElement>();
   const pageHosts = new Map<string, HTMLElement>();
@@ -757,7 +760,7 @@ export function mountWorkbench(
     analysisHost: required(app, "#analysis-host", HTMLElement),
     dropOverlay: required(app, "#drop-overlay", HTMLElement),
     pasteDialog: required(app, "#paste-dialog", HTMLDialogElement),
-    pasteSource: required(app, "#paste-source", HTMLTextAreaElement),
+    pasteSource,
     pasteError: required(app, "#paste-error", HTMLElement),
     pasteConfirm: required(app, "#paste-confirm", HTMLButtonElement),
     pasteCancel: required(app, "#paste-cancel", HTMLButtonElement),
@@ -800,6 +803,7 @@ export function mountWorkbench(
       for (const [tab, listener] of runtimeTabListeners) {
         tab.removeEventListener("click", listener);
       }
+      pasteSourceIndentation.destroy();
       menu.destroy();
       pagePanels.clear();
       pageHosts.clear();

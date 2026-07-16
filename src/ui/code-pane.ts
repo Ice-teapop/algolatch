@@ -1,21 +1,24 @@
 import { basicSetup } from "codemirror";
 import {
+  indentWithTab,
   redo as redoCommand,
   redoDepth,
   undo as undoCommand,
   undoDepth,
 } from "@codemirror/commands";
 import { cpp } from "@codemirror/lang-cpp";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import {
   Annotation,
   EditorSelection,
+  EditorState,
+  Prec,
   StateEffect,
   StateField,
   Transaction,
   type Extension,
 } from "@codemirror/state";
-import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
+import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 
 import type { TextPatch } from "../core/editing/index.js";
@@ -43,6 +46,13 @@ export interface CodeHighlight {
   readonly range: TextRange;
   readonly kind: CodeHighlightKind;
   readonly title?: string;
+}
+
+export interface CodeDraftPreview {
+  readonly id: string;
+  readonly label: string;
+  readonly sourceText: string;
+  readonly status: "detached" | "invalid";
 }
 
 export interface CodePaneInputOptions {
@@ -78,6 +88,8 @@ export interface CodePane {
   setHighlights(highlights: readonly CodeHighlight[]): void;
   /** Diagnostic layer; it never replaces the current selection or symbol links. */
   setDiagnosticHighlights(highlights: readonly CodeHighlight[]): void;
+  /** Detached blocks are rendered as grey previews and are never inserted into the editor doc. */
+  setDraftPreviews(previews: readonly CodeDraftPreview[]): void;
   /** Clears both layers atomically after the exact source snapshot changes. */
   clearHighlights(): void;
   reveal(sourceRange: TextRange): void;
@@ -145,6 +157,7 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
   let destroyed = false;
   let selectionHighlights: readonly CodeHighlight[] = Object.freeze([]);
   let diagnosticHighlights: readonly CodeHighlight[] = Object.freeze([]);
+  let draftPreviews: readonly CodeDraftPreview[] = Object.freeze([]);
   const sourceNotifications = createDeferredNotificationQueue<{
     readonly source: string;
     readonly reason: CodeSourceChangeReason;
@@ -152,10 +165,37 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
 
   const mount = document.createElement("div");
   mount.className = "code-pane__editor";
-  host.append(mount);
+  const draftPreviewHost = document.createElement("section");
+  draftPreviewHost.className = "code-pane__draft-previews";
+  draftPreviewHost.hidden = true;
+  host.append(mount, draftPreviewHost);
+
+  const renderDraftPreviews = (): void => {
+    draftPreviewHost.replaceChildren();
+    draftPreviewHost.hidden = draftPreviews.length === 0;
+    if (draftPreviews.length === 0) return;
+    const heading = document.createElement("h3");
+    heading.textContent =
+      currentLocale() === "en" ? "Detached blocks · not in main.c" : "未接入积木 · 不在 main.c 中";
+    draftPreviewHost.append(heading);
+    for (const preview of draftPreviews) {
+      const item = document.createElement("article");
+      item.className = "code-pane__draft-preview";
+      item.dataset.status = preview.status;
+      const label = document.createElement("strong");
+      label.textContent = preview.label;
+      const source = document.createElement("pre");
+      source.textContent = preview.sourceText;
+      item.append(label, source);
+      draftPreviewHost.append(item);
+    }
+  };
 
   const editorExtensions = [
     basicSetup,
+    Prec.high(keymap.of([indentWithTab])),
+    indentUnit.of("  "),
+    EditorState.tabSize.of(2),
     // C parsing here is presentation-only; it never replaces the application's source model.
     cpp(),
     // A non-fallback style prevents CodeMirror's light default palette from leaking into
@@ -195,6 +235,7 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
   const view = new EditorView({ state, parent: mount });
   const onLocaleChange = (): void => {
     view.contentDOM.setAttribute("aria-label", codePaneAriaLabel(editable, currentLocale()));
+    renderDraftPreviews();
   };
   localeHost.addEventListener("workbench-locale-change", onLocaleChange);
 
@@ -279,6 +320,25 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
       renderHighlightLayers();
     },
 
+    setDraftPreviews(previews) {
+      assertActive(destroyed);
+      if (!Array.isArray(previews)) throw new TypeError("draft previews 必须是数组");
+      draftPreviews = Object.freeze(
+        previews.map((preview) => {
+          if (
+            typeof preview.id !== "string" ||
+            typeof preview.label !== "string" ||
+            typeof preview.sourceText !== "string" ||
+            (preview.status !== "detached" && preview.status !== "invalid")
+          ) {
+            throw new TypeError("draft preview 无效");
+          }
+          return Object.freeze({ ...preview });
+        }),
+      );
+      renderDraftPreviews();
+    },
+
     clearHighlights() {
       assertActive(destroyed);
       selectionHighlights = Object.freeze([]);
@@ -306,6 +366,7 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
       localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
       view.destroy();
       mount.remove();
+      draftPreviewHost.remove();
     },
   };
 }

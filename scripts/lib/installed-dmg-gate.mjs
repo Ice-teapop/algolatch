@@ -64,6 +64,19 @@ export function validateDeveloperIdSignatureDetails(output) {
   return team;
 }
 
+export function validateAdHocSignatureDetails(output) {
+  const details = String(output);
+  if (!/^Identifier=io\.han\.c-block-algorithm-panel$/mu.test(details)) {
+    throw new Error("Preview bundle 的签名 Identifier 与应用身份不一致");
+  }
+  if (!/^Signature=adhoc$/mu.test(details)) {
+    throw new Error("Preview bundle 缺少完整 ad-hoc 签名");
+  }
+  if (!/^TeamIdentifier=not set$/mu.test(details)) {
+    throw new Error("Preview bundle 不得冒充 Developer ID 签名");
+  }
+}
+
 export function validateGatekeeperAssessment(output) {
   if (!/^source=Notarized Developer ID$/mu.test(String(output))) {
     throw new Error("Gatekeeper 没有识别为 Notarized Developer ID");

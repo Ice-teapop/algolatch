@@ -11,6 +11,7 @@ import {
   requireMacPlatform,
   selectSingleArtifact,
   validateAsarEntries,
+  validateAdHocSignatureDetails,
   validateBundleMetadata,
   validateBundleExecutableName,
   validateDeveloperIdSignatureDetails,
@@ -83,17 +84,17 @@ try {
   const executableStat = await lstat(executablePath);
   if (!executableStat.isFile()) throw new Error("复制后的 Contents/MacOS 可执行文件无效");
   await access(executablePath, constants.X_OK);
+  await runFile(
+    "/usr/bin/codesign",
+    ["--verify", "--deep", "--strict", "--verbose=2", installedApp],
+    commandOptions,
+  );
+  const signature = await runFile(
+    "/usr/bin/codesign",
+    ["--display", "--verbose=4", installedApp],
+    commandOptions,
+  );
   if (requireAppleTrust) {
-    await runFile(
-      "/usr/bin/codesign",
-      ["--verify", "--deep", "--strict", "--verbose=2", installedApp],
-      commandOptions,
-    );
-    const signature = await runFile(
-      "/usr/bin/codesign",
-      ["--display", "--verbose=4", installedApp],
-      commandOptions,
-    );
     const applicationTeam = validateDeveloperIdSignatureDetails(
       `${signature.stdout}\n${signature.stderr}`,
     );
@@ -149,6 +150,8 @@ try {
     );
     validateGatekeeperAssessment(`${assessment.stdout}\n${assessment.stderr}`);
     await runFile("/usr/bin/xcrun", ["stapler", "validate", installedApp], commandOptions);
+  } else {
+    validateAdHocSignatureDetails(`${signature.stdout}\n${signature.stderr}`);
   }
   const { stdout: architectures } = await runFile(
     "/usr/bin/lipo",

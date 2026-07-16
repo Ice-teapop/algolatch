@@ -10,6 +10,7 @@ import {
   type FlowViewState,
 } from "../../src/flow/index.js";
 import { createTestParser } from "../core/parser-fixture.js";
+import { FIRST_ALGORITHM_SOURCE } from "../../src/tutorials/first-algorithm.js";
 import { analyzeFlowFixture, deeplyFrozen } from "./fixture.js";
 
 describe("flow view-state sidecar", () => {
@@ -99,6 +100,29 @@ describe("flow view-state sidecar", () => {
     const migrated = serializeFlowViewState(validation.value, projection);
     expect(JSON.parse(migrated)).toMatchObject({ schemaVersion: 2 });
     expect(migrated).not.toContain(target.id);
+  });
+
+  it("upgrades the old generated single-column layout without merging repeated nodes", () => {
+    const { projection } = analyzeFlowFixture(parser, FIRST_ALGORITHM_SOURCE);
+    const defaults = createDefaultFlowViewState(projection);
+    const legacyPositions = legacyGeneratedPositions(projection);
+    const serialized = serializeFlowViewState(
+      Object.freeze({ ...defaults, positions: Object.freeze(legacyPositions) }),
+      projection,
+    );
+
+    const validation = deserializeFlowViewState(serialized, projection);
+
+    expect(validation.ok).toBe(true);
+    if (!validation.ok) throw new Error("旧版自动布局应迁移");
+    expect(validation.issues.map((entry) => entry.code)).toContain("legacy-generated-layout");
+    expect(validation.value.positions).toEqual(defaults.positions);
+    const repeatedReturns = projection.nodes.filter(
+      (node) => node.sourceText.trim() === "return 1;",
+    );
+    expect(new Set(repeatedReturns.map((node) => validation.value.positions[node.id])).size).toBe(
+      3,
+    );
   });
 
   it("recovers unique anchors after a small source shift", () => {
@@ -213,4 +237,48 @@ function changedState(
     selectedNodeIds: Object.freeze([...selectedNodeIds]),
     detailNodeId,
   });
+}
+
+function legacyGeneratedPositions(
+  projection: FlowProjection,
+): Record<string, { x: number; y: number }> {
+  const functionOrder = new Map(projection.functions.map((fn, index) => [fn.id, index]));
+  const fallbackLane = projection.functions.length;
+  const lanes = new Map<number, FlowNode[]>();
+  for (const node of projection.nodes) {
+    const lane =
+      node.functionId === null
+        ? fallbackLane
+        : (functionOrder.get(node.functionId) ?? fallbackLane);
+    const entries = lanes.get(lane) ?? [];
+    entries.push(node);
+    lanes.set(lane, entries);
+  }
+  const kindOrder: Readonly<Record<FlowNode["kind"], number>> = {
+    module: 0,
+    start: 0,
+    declaration: 1,
+    statement: 1,
+    branch: 1,
+    loop: 1,
+    switch: 1,
+    assert: 1,
+    control: 1,
+    raw: 1,
+    end: 2,
+  };
+  const positions: Record<string, { x: number; y: number }> = {};
+  for (const [lane, nodes] of lanes) {
+    nodes.sort(
+      (left, right) =>
+        kindOrder[left.kind] - kindOrder[right.kind] ||
+        left.range.from - right.range.from ||
+        right.range.to - left.range.to ||
+        left.id.localeCompare(right.id),
+    );
+    nodes.forEach((node, row) => {
+      positions[node.id] = { x: 48 + lane * 224, y: 48 + row * 64 };
+    });
+  }
+  return positions;
 }

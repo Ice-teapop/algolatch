@@ -14,12 +14,14 @@ import {
   canonicalizeFlowCanvasWireEndpoints,
   createFlowCanvasDraftConnectionIntent,
   createFlowWirePath,
+  createFlowWireRoute,
   distanceToFlowWire,
   exceedsFlowCanvasDragThreshold,
   fitFlowCanvasViewport,
   flowWireLabelPoint,
   normalizeFlowCanvasDraftState,
   normalizeFlowCanvasViewState,
+  recoverDisconnectedFlowCanvasViewport,
   resolveFlowCanvasWireStart,
   type FlowCanvasDraftNode,
   type FlowCanvasWireEndpoint,
@@ -75,21 +77,70 @@ describe("M6 flow canvas contracts", () => {
     });
   });
 
-  it("builds deterministic cubic SVG wires without accepting invalid coordinates", () => {
+  it("recenters a restored viewport only when every projected node is off screen", () => {
+    const projection = fixtureProjection("sha256:viewport");
+    const base = normalizeFlowCanvasViewState(projection, null);
+    const disconnected = Object.freeze({
+      ...base,
+      viewport: Object.freeze({ x: 2493, y: 1112, zoom: 1 }),
+    });
+
+    const recovered = recoverDisconnectedFlowCanvasViewport(projection, disconnected, {
+      width: 1000,
+      height: 600,
+    });
+
+    expect(recovered).not.toEqual(disconnected.viewport);
+    expect(recovered.x).toBeLessThan(1000);
+    expect(recovered.y).toBeLessThan(600);
+    expect(
+      recoverDisconnectedFlowCanvasViewport(projection, base, { width: 1000, height: 600 }),
+    ).toEqual(base.viewport);
+  });
+
+  it("builds deterministic orthogonal SVG wires without accepting invalid coordinates", () => {
     expect(createFlowWirePath({ x: 10, y: 20 }, { x: 210, y: 120 })).toBe(
-      "M 10 20 C 100 20, 120 120, 210 120",
+      "M 10 20 L 10 39 Q 10 46 17 46 L 203 46 Q 210 46 210 53 L 210 120",
     );
     expect(() => createFlowWirePath({ x: Number.NaN, y: 0 }, { x: 1, y: 1 })).toThrow(/有限坐标/u);
   });
 
-  it("places wire labels at the deterministic cubic midpoint and rejects invalid endpoints", () => {
+  it("routes a top-to-bottom cable on the vertical axis instead of folding through its nodes", () => {
+    expect(createFlowWirePath({ x: 80, y: 32 }, { x: 80, y: 112 })).toBe("M 80 32 L 80 112");
+    expect(flowWireLabelPoint({ x: 80, y: 32 }, { x: 80, y: 112 })).toEqual({ x: 80, y: 72 });
+    expect(distanceToFlowWire({ x: 80, y: 72 }, { x: 80, y: 32 }, { x: 80, y: 112 })).toBe(0);
+  });
+
+  it("routes around unrelated node rectangles instead of drawing through them", () => {
+    const obstacle = { left: 40, top: 80, right: 120, bottom: 140 };
+    const route = createFlowWireRoute({ x: 80, y: 32 }, { x: 80, y: 220 }, 0, [obstacle]);
+
+    expect(route.length).toBeGreaterThan(2);
+    for (let index = 1; index < route.length; index += 1) {
+      const from = route[index - 1]!;
+      const to = route[index]!;
+      const crossesInterior =
+        from.x === to.x
+          ? from.x > obstacle.left &&
+            from.x < obstacle.right &&
+            Math.max(from.y, to.y) > obstacle.top &&
+            Math.min(from.y, to.y) < obstacle.bottom
+          : from.y > obstacle.top &&
+            from.y < obstacle.bottom &&
+            Math.max(from.x, to.x) > obstacle.left &&
+            Math.min(from.x, to.x) < obstacle.right;
+      expect(crossesInterior).toBe(false);
+    }
+  });
+
+  it("places wire labels on the longest orthogonal channel and rejects invalid endpoints", () => {
     expect(flowWireLabelPoint({ x: 10, y: 20 }, { x: 210, y: 120 })).toEqual({
       x: 110,
-      y: 70,
+      y: 46,
     });
     expect(flowWireLabelPoint({ x: 210, y: 120 }, { x: 10, y: 20 })).toEqual({
-      x: 110,
-      y: 70,
+      x: 86,
+      y: 142,
     });
     expect(() => flowWireLabelPoint({ x: Number.POSITIVE_INFINITY, y: 0 }, { x: 1, y: 1 })).toThrow(
       /有限端点/u,
@@ -97,10 +148,10 @@ describe("M6 flow canvas contracts", () => {
     expect(() => flowWireLabelPoint({ x: 0, y: 0 }, { x: 1, y: Number.NaN })).toThrow(/有限端点/u);
   });
 
-  it("uses the visible cubic geometry for edge insertion hit testing", () => {
+  it("uses the visible orthogonal geometry for edge insertion hit testing", () => {
     const from = { x: 10, y: 20 };
     const to = { x: 210, y: 120 };
-    expect(distanceToFlowWire({ x: 110, y: 70 }, from, to)).toBeLessThan(8);
+    expect(distanceToFlowWire({ x: 110, y: 46 }, from, to)).toBeLessThan(1);
     expect(distanceToFlowWire({ x: 110, y: 220 }, from, to)).toBeGreaterThan(100);
   });
 
@@ -186,8 +237,10 @@ describe("M6 flow canvas contracts", () => {
     });
 
     expect(resolveFlowCanvasWireStart(projection, aOutput, null)).toEqual({
-      status: "occupied-output",
-      edgeIds: [edge.id],
+      status: "reconnect",
+      anchor: bInput,
+      detached: aOutput,
+      replaceEdgeId: edge.id,
     });
   });
 
@@ -214,7 +267,7 @@ describe("M6 flow canvas contracts", () => {
     });
   });
 
-  it("starts a new cable from a fan-out output unless a specific edge was selected", () => {
+  it("rewires the only cable on a fan-out socket and never implies an unsupported graph-only add", () => {
     const fixture = reconnectProjection();
     const projection = Object.freeze({
       ...fixture.projection,
@@ -238,14 +291,16 @@ describe("M6 flow canvas contracts", () => {
     });
 
     expect(resolveFlowCanvasWireStart(projection, fixture.aOutput, null)).toEqual({
-      status: "new",
-      anchor: fixture.aOutput,
-      detached: null,
-      replaceEdgeId: null,
+      status: "reconnect",
+      anchor: fixture.bInput,
+      detached: fixture.aOutput,
+      replaceEdgeId: fixture.edge.id,
     });
     expect(resolveFlowCanvasWireStart(projection, fixture.aOutput, fixture.edge.id)).toEqual({
-      status: "occupied-output",
-      edgeIds: [fixture.edge.id],
+      status: "reconnect",
+      anchor: fixture.bInput,
+      detached: fixture.aOutput,
+      replaceEdgeId: fixture.edge.id,
     });
   });
 

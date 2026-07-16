@@ -47,9 +47,13 @@ export interface FlowSourceEditorOptions {
 export interface FlowSourceEditor {
   replaceNodeSource(node: FlowNode, replacement: string): void;
   deleteNodes(nodes: readonly FlowNode[]): void;
+  assessConnection(intent: ConnectionIntent): FlowSourceConnectionAssessment;
   connectNodes(intent: ConnectionIntent): boolean;
   connectDraft(intent: FlowCanvasDraftConnectionIntent): boolean;
 }
+
+export type FlowSourceConnectionAssessment =
+  { readonly accepted: true } | { readonly accepted: false; readonly message: string };
 
 export class FlowSourceCommitError extends Error {
   readonly sourceChanged = true;
@@ -167,6 +171,15 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
       );
     },
 
+    assessConnection(intent: ConnectionIntent): FlowSourceConnectionAssessment {
+      const current = options.getSession();
+      const projection = options.getProjection();
+      if (current === null || projection === null || options.getProjectionMode() !== "synced") {
+        return rejectedSourceConnection("源码、CFG 或解析器尚未同步");
+      }
+      return assessSourceBackedConnection(current.analysis, projection, intent);
+    },
+
     connectNodes(intent: ConnectionIntent): boolean {
       const current = options.getSession();
       const projection = options.getProjection();
@@ -183,6 +196,8 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
       if (graphPlan.status === "rejected") {
         throw new Error(`${graphPlan.code}：${graphPlan.message}`);
       }
+      const sourceAssessment = assessSourceBackedConnection(current.analysis, projection, intent);
+      if (!sourceAssessment.accepted) throw new Error(sourceAssessment.message);
       if (
         graphPlan.operation === "replace" &&
         (intent.kind === "branch-true" || intent.kind === "branch-false")
@@ -201,7 +216,9 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
         ) {
           throw new Error("分支连线已经过期或不属于可重排的结构化控制节点");
         }
-        if (currentTarget.id === toNode.id) throw new Error("插头仍位于原端口，无需改接");
+        if (displaced.from.nodeId === fromNode.id && displaced.to.nodeId === toNode.id) {
+          throw new Error("插头仍位于原端口，无需改接");
+        }
         const branchMove = planBranchSuccessorMove(
           parser,
           current.imported.source,
@@ -270,52 +287,56 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
       const toNode = projection.nodes.find((node) => node.id === intent.toNodeId);
       const displacedId = graphPlan.displacedEdgeIds[0];
       const displaced = projection.edges.find((edge) => edge.id === displacedId);
-      const currentTarget = projection.nodes.find((node) => node.id === displaced?.to.nodeId);
+      const previousSource = projection.nodes.find((node) => node.id === displaced?.from.nodeId);
+      const previousTarget = projection.nodes.find((node) => node.id === displaced?.to.nodeId);
       if (
         fromNode === undefined ||
         toNode === undefined ||
         displaced === undefined ||
-        currentTarget === undefined
+        previousSource === undefined ||
+        previousTarget === undefined
       ) {
         throw new Error("连线节点或被拔出的原连接已经过期");
       }
-      if (currentTarget.id === toNode.id) throw new Error("插头仍位于原端口，无需改接");
+      if (previousSource.id === fromNode.id && previousTarget.id === toNode.id) {
+        throw new Error("插头仍位于原端口，无需改接");
+      }
+      const keepsSource =
+        displaced.from.nodeId === fromNode.id && displaced.from.portId === intent.fromPortId;
+      const keepsTarget =
+        displaced.to.nodeId === toNode.id && displaced.to.portId === intent.toPortId;
+      if (keepsSource === keepsTarget) {
+        throw new Error("改接一次必须只移动控制线的一端");
+      }
       if (fromNode.kind !== "statement" || toNode.kind !== "statement") {
         throw new Error("安全相邻改线首版只交换普通表达式语句，不移动声明或控制结构");
       }
-      const fromTarget = uniqueStatementTarget(
+      const swapTargets = resolveSequentialRewireSwapTargets(
         current.analysis.statementEdits.statements,
         fromNode,
+        toNode,
+        previousTarget,
+        keepsSource,
       );
-      const toTarget = uniqueStatementTarget(current.analysis.statementEdits.statements, toNode);
-      if (
-        fromTarget === null ||
-        toTarget === null ||
-        fromTarget.parentMode !== "statement-list" ||
-        toTarget.parentMode !== "statement-list" ||
-        fromTarget.blocker !== null ||
-        toTarget.blocker !== null ||
-        fromTarget.parentRange.from !== toTarget.parentRange.from ||
-        fromTarget.parentRange.to !== toTarget.parentRange.to ||
-        toTarget.nextSiblingId !== fromTarget.id
-      ) {
-        throw new Error("改线两端必须是同一列表内相邻且当前顺序为“目标 → 起点”的语句");
+      if (swapTargets === null) {
+        throw new Error("顺序线只能通过一次相邻语句交换完成改接");
       }
+      const [firstSwapTarget, secondSwapTarget] = swapTargets;
       const statementPlan = planStatementOperation(
         current.imported.source,
         current.analysis.statementEdits,
         {
           kind: "swap-adjacent-statements",
           baseRevision: current.analysis.statementEdits.revision,
-          targetId: fromTarget.id,
+          targetId: firstSwapTarget.id,
           expectedTargetText: current.imported.source.slice(
-            fromTarget.range.from,
-            fromTarget.range.to,
+            firstSwapTarget.range.from,
+            firstSwapTarget.range.to,
           ),
-          adjacentTargetId: toTarget.id,
+          adjacentTargetId: secondSwapTarget.id,
           expectedAdjacentTargetText: current.imported.source.slice(
-            toTarget.range.from,
-            toTarget.range.to,
+            secondSwapTarget.range.from,
+            secondSwapTarget.range.to,
           ),
         },
       );
@@ -355,7 +376,7 @@ export function createFlowSourceEditor(options: FlowSourceEditorOptions): FlowSo
       if (candidateEdge.length !== 1) {
         throw new Error("重解析后的 CFG 未精确出现请求的顺序边");
       }
-      assertDisplacedEdgeAbsent(candidateProjection, fromMatches[0]!, currentTarget, "next");
+      assertOriginalEdgeAbsent(candidateProjection, previousSource, previousTarget, "next");
       const preview = statementPlan.patches
         .map(
           (patch) =>
@@ -733,6 +754,164 @@ function uniqueStatementTarget(
       target.range.to === node.ownerBlockRange.to,
   );
   return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+/**
+ * Mirrors the source-backed subset of the graph planner. The canvas uses this before painting a
+ * target green, so a graph-only operation is never advertised as a C operation that can commit.
+ */
+function assessSourceBackedConnection(
+  analysis: CAnalysisSnapshot,
+  projection: FlowProjection,
+  intent: ConnectionIntent,
+): FlowSourceConnectionAssessment {
+  const graphPlan = planFlowConnection(projection, intent);
+  if (graphPlan.status === "rejected") {
+    return rejectedSourceConnection(`${graphPlan.code}：${graphPlan.message}`);
+  }
+  if (graphPlan.operation !== "replace") {
+    return rejectedSourceConnection("当前 C 写回只支持改接现有控制线；新增语句请先拖入积木草稿");
+  }
+  const displacedId = graphPlan.displacedEdgeIds[0];
+  const displaced = projection.edges.find((edge) => edge.id === displacedId);
+  const fromNode = projection.nodes.find((node) => node.id === intent.fromNodeId);
+  const toNode = projection.nodes.find((node) => node.id === intent.toNodeId);
+  if (displaced === undefined || fromNode === undefined || toNode === undefined) {
+    return rejectedSourceConnection("待改接的节点或控制线已经过期");
+  }
+  const keepsSource =
+    displaced.from.nodeId === fromNode.id && displaced.from.portId === intent.fromPortId;
+  const keepsTarget = displaced.to.nodeId === toNode.id && displaced.to.portId === intent.toPortId;
+  if (keepsSource === keepsTarget) {
+    return rejectedSourceConnection("改接一次必须只移动控制线的一端");
+  }
+
+  if (intent.kind === "branch-true" || intent.kind === "branch-false") {
+    if (!keepsSource || !["branch", "loop", "assert"].includes(fromNode.kind)) {
+      return rejectedSourceConnection("分支线目前只能移动目标端，不能改变条件来源");
+    }
+    const currentTarget = projection.nodes.find((node) => node.id === displaced.to.nodeId);
+    if (currentTarget === undefined || currentTarget.id === toNode.id) {
+      return rejectedSourceConnection("分支插头仍位于原端口");
+    }
+    const current = uniqueStatementTarget(analysis.statementEdits.statements, currentTarget);
+    const requested = uniqueStatementTarget(analysis.statementEdits.statements, toNode);
+    if (
+      current === null ||
+      requested === null ||
+      current.parentMode !== "statement-list" ||
+      requested.parentMode !== "statement-list" ||
+      current.parentRange.from !== requested.parentRange.from ||
+      current.parentRange.to !== requested.parentRange.to ||
+      current.nodeType !== "expression_statement" ||
+      requested.nodeType !== "expression_statement"
+    ) {
+      return rejectedSourceConnection("分支目标必须是同一语句列表中的普通表达式语句");
+    }
+    try {
+      assertForwardSiblingPath(analysis.statementEdits.statements, current, requested);
+    } catch (error: unknown) {
+      return rejectedSourceConnection(error instanceof Error ? error.message : String(error));
+    }
+    return Object.freeze({ accepted: true });
+  }
+
+  if (intent.kind !== "next") {
+    return rejectedSourceConnection("该控制线没有可证明安全的 C 源码改接方案");
+  }
+  const previousTarget = projection.nodes.find((node) => node.id === displaced.to.nodeId);
+  if (previousTarget === undefined) {
+    return rejectedSourceConnection("原连接的目标节点已经过期");
+  }
+  if (fromNode.kind !== "statement" || toNode.kind !== "statement") {
+    return rejectedSourceConnection("顺序线只能在普通表达式语句之间改接");
+  }
+  const swapTargets = resolveSequentialRewireSwapTargets(
+    analysis.statementEdits.statements,
+    fromNode,
+    toNode,
+    previousTarget,
+    keepsSource,
+  );
+  if (swapTargets === null) {
+    return rejectedSourceConnection("顺序线只能通过一次相邻语句交换完成改接");
+  }
+  return Object.freeze({ accepted: true });
+}
+
+function resolveSequentialRewireSwapTargets(
+  targets: readonly StatementEditTarget[],
+  requestedSource: FlowNode,
+  requestedTarget: FlowNode,
+  previousTarget: FlowNode,
+  keepsSource: boolean,
+): readonly [StatementEditTarget, StatementEditTarget] | null {
+  const source = uniqueStatementTarget(targets, requestedSource);
+  const target = uniqueStatementTarget(targets, requestedTarget);
+  if (target !== null && source !== null && areSafeAdjacentSwapTargets(target, source)) {
+    return Object.freeze([target, source]);
+  }
+  if (!keepsSource) return null;
+  const displacedTarget = uniqueStatementTarget(targets, previousTarget);
+  return displacedTarget !== null &&
+    target !== null &&
+    areSafeAdjacentSwapTargets(displacedTarget, target)
+    ? Object.freeze([displacedTarget, target])
+    : null;
+}
+
+function areSafeAdjacentSwapTargets(
+  first: StatementEditTarget | null,
+  second: StatementEditTarget | null,
+): boolean {
+  return (
+    first !== null &&
+    second !== null &&
+    first.parentMode === "statement-list" &&
+    second.parentMode === "statement-list" &&
+    first.blocker === null &&
+    second.blocker === null &&
+    first.parentRange.from === second.parentRange.from &&
+    first.parentRange.to === second.parentRange.to &&
+    first.nextSiblingId === second.id
+  );
+}
+
+function rejectedSourceConnection(message: string): FlowSourceConnectionAssessment {
+  return Object.freeze({ accepted: false, message });
+}
+
+function assertOriginalEdgeAbsent(
+  candidate: FlowProjection,
+  previousSource: FlowNode,
+  previousTarget: FlowNode,
+  kind: ConnectionIntent["kind"],
+): void {
+  const sourceMatches = candidate.nodes.filter(
+    (node) =>
+      node.kind === previousSource.kind &&
+      node.nodeType === previousSource.nodeType &&
+      node.sourceText === previousSource.sourceText,
+  );
+  const targetMatches = candidate.nodes.filter(
+    (node) =>
+      node.kind === previousTarget.kind &&
+      node.nodeType === previousTarget.nodeType &&
+      node.sourceText === previousTarget.sourceText,
+  );
+  if (sourceMatches.length !== 1 || targetMatches.length !== 1) {
+    throw new Error("改线后无法唯一确认原连接的两个源码锚点");
+  }
+  if (
+    candidate.edges.some(
+      (edge) =>
+        edge.from.nodeId === sourceMatches[0]!.id &&
+        edge.to.nodeId === targetMatches[0]!.id &&
+        edge.kind === kind,
+    )
+  ) {
+    throw new Error("重解析后的 CFG 仍包含被替换的原连接");
+  }
 }
 
 function assertOptions(options: FlowSourceEditorOptions): void {

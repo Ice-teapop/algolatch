@@ -67,6 +67,7 @@ import {
   type FlowNodeRuntimeSnapshot,
 } from "./flow-node-evidence.js";
 import { FlowSourceCommitError } from "./flow-source-editor.js";
+import { installCodeTextareaIndentation } from "../ui/code-textarea-keymap.js";
 
 export interface FlowWorkbenchControllerOptions {
   readonly elements: WorkbenchElements;
@@ -74,9 +75,11 @@ export interface FlowWorkbenchControllerOptions {
   readonly onNodeSelect: (node: FlowNode) => void;
   readonly onReplaceNodeSource: (node: FlowNode, source: string) => void;
   readonly onDeleteNodes: (nodes: readonly FlowNode[]) => void;
+  readonly onConnectionPreflight: (intent: ConnectionIntent) => { readonly accepted: boolean };
   readonly onConnectionIntent: (intent: ConnectionIntent) => boolean;
   readonly resolvePreset: (presetId: string) => ResolvedFlowPreset | null;
   readonly onDraftConnectionIntent: (intent: FlowCanvasDraftConnectionIntent) => boolean;
+  readonly onDraftPresentationChange: (nodes: readonly FlowCanvasDraftNode[]) => void;
   readonly onLearningObservation?: ((observation: FlowLearningObservation) => void) | undefined;
   readonly onSourceUndo: () => void;
   readonly onVirtualPlaybackNode?:
@@ -273,8 +276,8 @@ export function createFlowWorkbenchController(
           : "拖到标记“可连接”的端口 · 空白取消"
         : mode === "edge"
           ? english
-            ? "Drag the rewire input plug · output stays fixed · Esc cancels"
-            : "拖动“拖动改接”输入插头 · 输出端固定 · Esc 取消"
+            ? "Drag either cable plug · highlighted sockets are safe · Esc cancels"
+            : "拖动任一端插头 · 仅高亮安全端口 · Esc 取消"
           : mode === "multi"
             ? english
               ? `${String(selectedCount)} selected · align or distribute`
@@ -324,6 +327,20 @@ export function createFlowWorkbenchController(
     onConnectionIntent(gesture) {
       handleConnectionIntent(gesture);
     },
+    onConnectionPreflight(gesture) {
+      if (gesture.edgeKind === null) return Object.freeze({ accepted: false });
+      return options.onConnectionPreflight(
+        Object.freeze({
+          sourceFingerprint: gesture.sourceFingerprint,
+          fromNodeId: gesture.fromNodeId,
+          fromPortId: gesture.fromPortId,
+          toNodeId: gesture.toNodeId,
+          toPortId: gesture.toPortId,
+          kind: gesture.edgeKind,
+          replaceEdgeId: gesture.replaceEdgeId,
+        }),
+      );
+    },
     onDraftConnectionIntent(intent) {
       const beforeProjection = projection;
       const historyDepth = undoHistory.length;
@@ -356,7 +373,7 @@ export function createFlowWorkbenchController(
             ),
           ),
         });
-        canvas.setDraftVisualState(currentDraftState);
+        presentDraftState();
         persist();
       } catch (error: unknown) {
         undoHistory.splice(historyDepth);
@@ -378,6 +395,7 @@ export function createFlowWorkbenchController(
     onUndo: undo,
     onDraftStateChange(state, reason) {
       currentDraftState = state;
+      publishDraftPresentation();
       if (!restoring && reason !== "restore") {
         pendingSidecarRestore = null;
         persist();
@@ -424,7 +442,7 @@ export function createFlowWorkbenchController(
         connection: null,
         virtualEdges: Object.freeze([...(currentDraftState.virtualEdges ?? [])]),
       });
-      canvas.setDraftVisualState(currentDraftState);
+      presentDraftState();
       persist();
       const count = copied.length;
       options.onStatus(
@@ -446,6 +464,15 @@ export function createFlowWorkbenchController(
       );
     },
   });
+  function publishDraftPresentation(): void {
+    options.onDraftPresentationChange(Object.freeze([...currentDraftState.nodes]));
+  }
+
+  function presentDraftState(): void {
+    canvas.setDraftVisualState(currentDraftState);
+  }
+
+  publishDraftPresentation();
   const onCanvasLocaleChange = (): void => {
     renderCanvasInteractionContext();
     if (lastLocalizedStatus !== null) {
@@ -550,7 +577,7 @@ export function createFlowWorkbenchController(
     checkpoint(false);
     try {
       currentDraftState = connectVirtualFlowOverlay(current, currentDraftState, intent);
-      canvas.setDraftVisualState(currentDraftState);
+      presentDraftState();
       persist();
       const edge = currentDraftState.virtualEdges?.find(
         (candidate) =>
@@ -596,7 +623,7 @@ export function createFlowWorkbenchController(
       currentViewState = snapshot.view;
       currentDraftState = snapshot.drafts;
       canvas.setViewState(snapshot.view);
-      canvas.setDraftVisualState(snapshot.drafts);
+      presentDraftState();
     } finally {
       restoring = false;
     }
@@ -683,7 +710,7 @@ export function createFlowWorkbenchController(
       currentViewState = createDefaultFlowViewState(current);
       canvas.setProjection(current);
       canvas.setViewState(currentViewState);
-      canvas.setDraftVisualState(currentDraftState);
+      presentDraftState();
     } finally {
       restoring = false;
     }
@@ -693,7 +720,7 @@ export function createFlowWorkbenchController(
     restored: Extract<FlowProjectionSidecarRestore, { readonly ok: true }>,
   ): void {
     currentDraftState = restored.draftState;
-    canvas.setDraftVisualState(currentDraftState);
+    presentDraftState();
     currentViewState = restored.viewState;
     canvas.setViewState(currentViewState);
   }
@@ -918,7 +945,7 @@ export function createFlowWorkbenchController(
       connection: null,
       virtualEdges: Object.freeze([...(currentDraftState.virtualEdges ?? [])]),
     });
-    canvas.setDraftVisualState(currentDraftState);
+    presentDraftState();
     persist();
     options.onStatus(
       preset.source === null
@@ -971,7 +998,7 @@ export function createFlowWorkbenchController(
         try {
           canvas.setProjection(nextProjection);
           currentViewState = canvas.getViewState();
-          canvas.setDraftVisualState(currentDraftState);
+          presentDraftState();
           retryPendingSidecarRestore(false);
         } finally {
           restoring = false;
@@ -1188,6 +1215,7 @@ function renderWorkbenchNodeDetail(
   const textarea = ownerDocument.createElement("textarea");
   textarea.value = node.sourceText;
   textarea.spellcheck = false;
+  installCodeTextareaIndentation(textarea);
   textarea.disabled = node.locked || node.kind === "start" || node.kind === "end";
   textarea.setAttribute("aria-label", `${node.label}${english ? " C source" : " 的 C 源码"}`);
   const save = ownerDocument.createElement("button");
@@ -1529,9 +1557,11 @@ function assertOptions(options: FlowWorkbenchControllerOptions): void {
     typeof options.onNodeSelect !== "function" ||
     typeof options.onReplaceNodeSource !== "function" ||
     typeof options.onDeleteNodes !== "function" ||
+    typeof options.onConnectionPreflight !== "function" ||
     typeof options.onConnectionIntent !== "function" ||
     typeof options.resolvePreset !== "function" ||
     typeof options.onDraftConnectionIntent !== "function" ||
+    typeof options.onDraftPresentationChange !== "function" ||
     (options.onLearningObservation !== undefined &&
       typeof options.onLearningObservation !== "function") ||
     typeof options.onSourceUndo !== "function" ||

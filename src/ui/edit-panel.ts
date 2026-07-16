@@ -1,6 +1,7 @@
 import { BINARY_OPERATORS, type BinaryOperator } from "../core/editing/operators.js";
 import type { EditTarget } from "../core/editing/targets.js";
 import type { InterfaceLocale } from "../shared/interface-locale.js";
+import { installCodeTextareaIndentation } from "./code-textarea-keymap.js";
 
 export type EditPanelStatusKind =
   "idle" | "ready" | "working" | "success" | "error" | "parse-error";
@@ -814,6 +815,7 @@ function rawTextarea(
   control.wrap = "off";
   control.spellcheck = false;
   control.value = normalizeTextareaNewlines(originalText);
+  installCodeTextareaIndentation(control);
   return {
     control,
     read: () => readRawTextareaValue(control.value, originalText),

@@ -255,11 +255,12 @@ npm run build
 - Trace 提供执行行与分支路径，不采集任意变量值。
 - 静态分析是保守事实和提示，不是完整形式化证明。
 - AI 是可选外部服务；回答和提案不能替代编译、测试或源码门禁。
-- `v0.0.1` 是改名前的历史未签名包。`v0.0.2` 正式通道强制 Developer ID、
-  Hardened Runtime、固定最小 entitlements、公证、staple、quarantine 后
-  Gatekeeper 检查，以及 Windows Authenticode 和 NSIS 安装态回归；凭据或任一
-  平台门禁缺失时不创建联合 Release。Windows Job Object 不提供文件或网络
-  隔离。
+- `v0.0.1` 是改名前的历史未签名包。macOS 正式通道强制 Developer ID、
+  Hardened Runtime、固定最小 entitlements、公证、staple 与 quarantine 后
+  Gatekeeper 检查；Windows 正式通道强制 Authenticode 与 NSIS 安装态回归。
+  两个平台可以独立发布，但不得互相替代门禁；联合 Release 必须同时满足两套
+  门禁。明确标记的 unsigned prerelease 使用独立资产和校验清单。Windows Job
+  Object 不提供文件或网络隔离。
 
 ## 决策记录
 

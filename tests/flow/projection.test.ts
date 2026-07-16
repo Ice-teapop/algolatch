@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createFlowProjection } from "../../src/flow/index.js";
 import type { CParser } from "../../src/core/index.js";
+import { FIRST_ALGORITHM_SOURCE } from "../../src/tutorials/first-algorithm.js";
 import { createTestParser } from "../core/parser-fixture.js";
 import { analyzeFlowFixture, deeplyFrozen } from "./fixture.js";
 
@@ -64,6 +65,29 @@ describe("source-authoritative flow projection", () => {
       expect(from?.ports.some((port) => port.id === edge.from.portId)).toBe(true);
       expect(to?.ports.some((port) => port.id === edge.to.portId)).toBe(true);
     }
+  });
+
+  it("keeps repeated guard returns distinct and places nested branches in readable lanes", () => {
+    const { projection } = analyzeFlowFixture(parser, FIRST_ALGORITHM_SOURCE);
+    const repeatedReturns = projection.nodes.filter(
+      (node) => node.sourceText.trim() === "return 1;",
+    );
+    const outerBranch = projection.nodes.find((node) => node.range.from === 52);
+    const outerReturn = projection.nodes.find((node) => node.range.from === 102);
+    const loop = projection.nodes.find((node) => node.kind === "loop");
+    const loopBodyDeclaration = projection.nodes.find((node) => node.range.from === 227);
+    const nestedBranch = projection.nodes.find((node) => node.range.from === 242);
+    const nestedReturn = projection.nodes.find((node) => node.range.from === 280);
+
+    expect(repeatedReturns).toHaveLength(3);
+    expect(new Set(repeatedReturns.map((node) => node.id)).size).toBe(3);
+    expect(new Set(repeatedReturns.map((node) => `${node.range.from}:${node.range.to}`)).size).toBe(
+      3,
+    );
+    expect(repeatedReturns.every((node) => /^L\d+ · return 1;$/u.test(node.label))).toBe(true);
+    expect(outerReturn?.defaultPosition.x).toBeGreaterThan(outerBranch?.defaultPosition.x ?? 0);
+    expect(loopBodyDeclaration?.defaultPosition.x).toBeGreaterThan(loop?.defaultPosition.x ?? 0);
+    expect(nestedReturn?.defaultPosition.x).toBeGreaterThan(nestedBranch?.defaultPosition.x ?? 0);
   });
 
   it("projects valid translation-unit declarations as locked module nodes without raw/partial labels", () => {

@@ -162,6 +162,7 @@ export type FlowViewStateIssueCode =
   | "anchor-mismatch"
   | "ambiguous-anchor"
   | "legacy-stale-source"
+  | "legacy-generated-layout"
   | "unknown-node"
   | "duplicate-selection";
 

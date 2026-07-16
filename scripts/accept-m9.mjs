@@ -273,9 +273,21 @@ check(
   builder.mac?.artifactName === "AlgoLatch-${version}-${arch}.${ext}",
   "DMG artifactName 必须包含版本、架构和扩展名",
 );
+check(builder.afterPack === "scripts/after-pack-macos.mjs", "正式 macOS 构建缺少签名前清理");
+check(
+  builder.mac?.extendInfo?.NSDocumentsFolderUsageDescription ===
+    "AlgoLatch stores the local projects you create in its dedicated Documents workspace.",
+  "正式 macOS 构建缺少 Documents 用途说明",
+);
 check(betaBuilder.productName === "AlgoLatch", "Beta 构建 productName 必须为 AlgoLatch");
 check(betaBuilder.directories?.output === "release-beta", "未签名 Beta 必须使用独立输出目录");
-check(betaBuilder.mac?.identity === null, "未签名 Beta 必须显式设置 mac.identity=null");
+check(betaBuilder.mac?.identity === "-", "未签名 Beta 必须对完整 bundle 使用 ad-hoc 签名");
+check(betaBuilder.afterPack === "scripts/after-pack-macos.mjs", "Beta macOS 构建缺少签名前清理");
+check(
+  betaBuilder.mac?.extendInfo?.NSDocumentsFolderUsageDescription ===
+    "AlgoLatch stores the local projects you create in its dedicated Documents workspace.",
+  "Beta macOS 构建缺少 Documents 用途说明",
+);
 check(betaBuilder.mac?.hardenedRuntime === false, "未签名 Beta 必须禁用 Hardened Runtime");
 check(betaBuilder.mac?.notarize === false, "未签名 Beta 必须禁用 notarization");
 check(betaBuilder.dmg?.sign === false, "未签名 Beta DMG 必须显式设置 sign=false");

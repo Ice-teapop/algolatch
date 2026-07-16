@@ -10,6 +10,24 @@ import {
   type FlowProjection,
   type FlowViewState,
 } from "../flow/index.js";
+import {
+  createFlowWirePath,
+  createFlowWirePathFromRoute,
+  createFlowWireRoute,
+  distanceToFlowWire,
+  distanceToFlowWireRoute,
+  flowWireLabelPoint,
+  flowWireLabelPointFromRoute,
+  type FlowWireObstacle,
+} from "./flow-wire-router.js";
+import { installCodeTextareaIndentation } from "./code-textarea-keymap.js";
+
+export {
+  createFlowWirePath,
+  createFlowWireRoute,
+  distanceToFlowWire,
+  flowWireLabelPoint,
+} from "./flow-wire-router.js";
 
 export type FlowCanvasViewChangeReason =
   | "projection"
@@ -72,10 +90,6 @@ export type FlowCanvasWireStart =
     }
   | {
       readonly status: "ambiguous";
-      readonly edgeIds: readonly string[];
-    }
-  | {
-      readonly status: "occupied-output";
       readonly edgeIds: readonly string[];
     };
 
@@ -186,6 +200,9 @@ export interface FlowCanvasOptions {
   readonly onViewStateChange?:
     ((state: FlowViewState, reason: FlowCanvasViewChangeReason) => void) | undefined;
   readonly onConnectionIntent?: ((gesture: FlowCanvasConnectionGesture) => void) | undefined;
+  /** Final source-level gate used by port highlighting as well as drop commit. */
+  readonly onConnectionPreflight?:
+    ((gesture: FlowCanvasConnectionGesture) => { readonly accepted: boolean }) | undefined;
   readonly onDraftConnectionIntent?:
     ((intent: FlowCanvasDraftConnectionIntent) => void) | undefined;
   readonly onVirtualConnectionIntent?:
@@ -396,7 +413,10 @@ export function createFlowCanvas(
 
   const detail = createDetailWindow(ownerDocument, english());
   const minimap = createMinimap(ownerDocument, english());
-  root.append(wires, viewport, marquee, emptyState, wireStatus, minimap.root, detail.window);
+  const hud = ownerDocument.createElement("div");
+  hud.className = "flow-canvas__hud";
+  hud.append(minimap.root);
+  root.append(wires, viewport, marquee, emptyState, wireStatus, hud, detail.window);
   host.replaceChildren(root);
 
   let projection: FlowProjection | null = null;
@@ -416,6 +436,7 @@ export function createFlowCanvas(
   } | null = null;
   let wireStatusTimer: ReturnType<typeof setTimeout> | null = null;
   let lastInteractionContextKey = "";
+  let restoredViewportRecoveryPending = false;
   const nodeElements = new Map<string, HTMLElement>();
   const edgeElements = new Map<string, SVGPathElement>();
   const edgeLabelElements = new Map<string, SVGTextElement>();
@@ -424,6 +445,8 @@ export function createFlowCanvas(
   const draftNodeElements = new Map<string, HTMLElement>();
   let minimapWorldBounds: Bounds | null = null;
   let minimapAnimationFrame: number | null = null;
+  let controlWireRouteSignature = "";
+  const controlWireRoutes = new Map<string, readonly FlowPoint[]>();
 
   function setDetailPosition(left: number, top: number): void {
     const maximumLeft = Math.max(0, root.clientWidth - detail.window.offsetWidth);
@@ -465,11 +488,34 @@ export function createFlowCanvas(
       projection === null
         ? cloneViewState(candidate)
         : normalizeFlowCanvasViewState(projection, candidate);
+    restoredViewportRecoveryPending = reason === "restore";
+    recoverRestoredViewportIfReady();
     renderViewport();
     renderSelection();
     renderDetail();
     publishViewState(reason);
   };
+
+  function recoverRestoredViewportIfReady(): boolean {
+    if (!restoredViewportRecoveryPending || projection === null) return false;
+    const bounds = root.getBoundingClientRect();
+    const size = {
+      width: root.clientWidth || bounds.width,
+      height: root.clientHeight || bounds.height,
+    };
+    if (size.width < 64 || size.height < 64) return false;
+    const recovered = recoverDisconnectedFlowCanvasViewport(projection, viewState, size);
+    restoredViewportRecoveryPending = false;
+    if (
+      recovered.x === viewState.viewport.x &&
+      recovered.y === viewState.viewport.y &&
+      recovered.zoom === viewState.viewport.zoom
+    ) {
+      return false;
+    }
+    viewState = cloneViewState(viewState, { viewport: recovered });
+    return true;
+  }
 
   const nodeForId = (nodeId: string): FlowNode | undefined =>
     projection?.nodes.find((node) => node.id === nodeId);
@@ -507,6 +553,8 @@ export function createFlowCanvas(
       const path = ownerDocument.createElementNS(SVG_NAMESPACE, "path");
       path.classList.add("flow-canvas__wire");
       path.dataset.flowEdgeId = edge.id;
+      path.dataset.fromNodeId = edge.from.nodeId;
+      path.dataset.toNodeId = edge.to.nodeId;
       path.dataset.edgeKind = edge.kind;
       path.dataset.editable = String(edge.editable);
       if (edge.id === edgeInsertionPreviewId) path.classList.add("is-insertion-preview");
@@ -514,6 +562,8 @@ export function createFlowCanvas(
         const hit = ownerDocument.createElementNS(SVG_NAMESPACE, "path");
         hit.classList.add("flow-canvas__wire-hit");
         hit.dataset.flowEdgeHitId = edge.id;
+        hit.dataset.fromNodeId = edge.from.nodeId;
+        hit.dataset.toNodeId = edge.to.nodeId;
         hit.dataset.editable = "true";
         group.append(hit);
         edgeHitElements.set(edge.id, hit);
@@ -657,6 +707,7 @@ export function createFlowCanvas(
   function renderWires(): void {
     if (projection === null) return;
     const nodes = new Map(projection.nodes.map((node) => [node.id, node]));
+    refreshControlWireRouteCache();
     for (const edge of projection.edges) {
       const path = edgeElements.get(edge.id);
       const fromNode = nodes.get(edge.from.nodeId);
@@ -675,12 +726,13 @@ export function createFlowCanvas(
       }
       const from = flowPortPoint(fromNode, fromPort, positionFor(fromNode));
       const to = flowPortPoint(toNode, toPort, positionFor(toNode));
-      const wirePath = createFlowWirePath(from, to);
+      const route = controlWireRoute(edge, fromNode, toNode, from, to);
+      const wirePath = createFlowWirePathFromRoute(route);
       path.setAttribute("d", wirePath);
       edgeHitElements.get(edge.id)?.setAttribute("d", wirePath);
       const label = edgeLabelElements.get(edge.id);
       if (label !== undefined) {
-        const labelPoint = flowWireLabelPoint(from, to);
+        const labelPoint = flowWireLabelPointFromRoute(route);
         label.setAttribute("x", formatCoordinate(labelPoint.x));
         label.setAttribute("y", formatCoordinate(labelPoint.y - 5));
       }
@@ -688,6 +740,54 @@ export function createFlowCanvas(
     for (const edge of projection.dataEdges) renderDataWire(edge, nodes);
     renderVirtualWires();
     renderGestureWire();
+  }
+
+  function refreshControlWireRouteCache(): void {
+    const signature = [
+      projection?.sourceFingerprint ?? "",
+      ...(projection?.nodes ?? []).map((node) => {
+        const position = positionFor(node);
+        return `${node.id}:${String(position.x)},${String(position.y)}`;
+      }),
+      ...(draftState?.nodes ?? []).map(
+        (node) => `${node.id}:${String(node.position.x)},${String(node.position.y)}`,
+      ),
+    ].join("|");
+    if (signature === controlWireRouteSignature) return;
+    controlWireRouteSignature = signature;
+    controlWireRoutes.clear();
+  }
+
+  function controlWireRoute(
+    edge: FlowEdge,
+    fromNode: FlowNode,
+    toNode: FlowNode,
+    from: FlowPoint,
+    to: FlowPoint,
+  ): readonly FlowPoint[] {
+    const cached = controlWireRoutes.get(edge.id);
+    if (cached !== undefined) return cached;
+    const excluded = new Set([fromNode.id, toNode.id]);
+    const obstacles: FlowWireObstacle[] = [
+      ...(projection?.nodes ?? [])
+        .filter((node) => !excluded.has(node.id))
+        .map((node) => obstacleAt(positionFor(node))),
+      ...(draftState?.nodes ?? [])
+        .filter((node) => !excluded.has(node.id))
+        .map((node) => obstacleAt(node.position)),
+    ];
+    const route = createFlowWireRoute(from, to, flowWireLane(edge), obstacles);
+    controlWireRoutes.set(edge.id, route);
+    return route;
+  }
+
+  function obstacleAt(position: FlowPoint): FlowWireObstacle {
+    return Object.freeze({
+      left: position.x,
+      top: position.y,
+      right: position.x + NODE_WIDTH,
+      bottom: position.y + NODE_HEIGHT,
+    });
   }
 
   function renderVirtualEdges(): void {
@@ -783,6 +883,14 @@ export function createFlowCanvas(
       element.setAttribute("aria-selected", String(isSelected));
       element.tabIndex = isSelected ? 0 : -1;
     }
+    for (const edge of projection?.dataEdges ?? []) {
+      edgeElements
+        .get(edge.id)
+        ?.classList.toggle(
+          "is-contextual",
+          selected.has(edge.fromNodeId) || selected.has(edge.toNodeId),
+        );
+    }
     renderEdgeSelection();
     publishInteractionContext();
   }
@@ -829,14 +937,14 @@ export function createFlowCanvas(
     }
     const edge = projection.edges.find((candidate) => candidate.id === selectedEdgeId);
     if (edge === undefined) return;
-    markSelectedCableEnd(edge.from.nodeId, edge.from.portId, "fixed-output");
+    markSelectedCableEnd(edge.from.nodeId, edge.from.portId, "reconnect-output");
     markSelectedCableEnd(edge.to.nodeId, edge.to.portId, "reconnect-input");
   }
 
   function markSelectedCableEnd(
     nodeId: string,
     portId: string,
-    role: "fixed-output" | "reconnect-input",
+    role: "reconnect-output" | "reconnect-input",
   ): void {
     const node = nodeElements.get(nodeId);
     const port = [...(node?.querySelectorAll<HTMLElement>("[data-flow-port-id]") ?? [])].find(
@@ -846,14 +954,7 @@ export function createFlowCanvas(
     const english = root.closest<HTMLElement>("[data-locale='en']") !== null;
     port.dataset.selectedCableEnd = "true";
     port.dataset.cableRole = role;
-    port.dataset.cableLabel =
-      role === "reconnect-input"
-        ? english
-          ? "drag to rewire"
-          : "拖动改接"
-        : english
-          ? "fixed output"
-          : "固定输出";
+    port.dataset.cableLabel = english ? "drag to rewire" : "拖动改接";
   }
 
   function selectEdge(edgeId: string | null): void {
@@ -864,8 +965,8 @@ export function createFlowCanvas(
       if (edge !== undefined) {
         announceWire(
           text(
-            "已选择连接线。拖动标记“拖动改接”的输入插头；输出端由 C 控制流固定。",
-            "Cable selected. Drag the input plug marked ‘drag to rewire’; the output end is fixed by C control flow.",
+            "已选择连接线。可拖动任一端插头；只有能安全落成 C 的端口会高亮。",
+            "Cable selected. Drag either plug; only sockets with a safe C rewrite are highlighted.",
           ),
           "ready",
           true,
@@ -1003,7 +1104,7 @@ export function createFlowCanvas(
         portElement.dataset.channel = port.channel;
         portElement.dataset.editable = String(port.editable);
         portElement.dataset.edgeKind = port.edgeKind ?? "input";
-        portElement.style.top = `calc(50% + ${String(portVerticalOffset(node.ports ?? [], port))}px)`;
+        portElement.style.left = `calc(50% + ${String(portHorizontalOffset(node.ports ?? [], port))}px)`;
         portElement.disabled = !port.editable;
         portElement.setAttribute("aria-label", `${node.label}：${port.label}`);
         portElement.title = port.label;
@@ -1196,16 +1297,6 @@ export function createFlowCanvas(
     }
     const requested = wireEndpoint("projection", node.id, port);
     const wireStart = resolveFlowCanvasWireStart(projection, requested, selectedEdgeId);
-    if (wireStart.status === "occupied-output") {
-      announceWire(
-        text(
-          "这个输出插座已经接线。请抓住连接线另一端的输入插头进行改接。",
-          "This output socket is already connected. Grab the input plug at the other end to rewire it.",
-        ),
-        "warning",
-      );
-      return;
-    }
     if (wireStart.status === "ambiguous") {
       announceWire(
         text(
@@ -1367,19 +1458,30 @@ export function createFlowCanvas(
         : projection.edges.find((edge) => edge.id === reconnectingEdgeId);
     if (reconnectingEdge !== undefined && reconnectingEdge.kind !== canonical.edgeKind)
       return false;
+    const candidate = Object.freeze({
+      sourceFingerprint: projection.sourceFingerprint,
+      fromNodeId: canonical.from.nodeId,
+      fromPortId: canonical.from.portId,
+      toNodeId: canonical.to.nodeId,
+      toPortId: canonical.to.portId,
+      edgeKind: canonical.edgeKind,
+      replaceEdgeId: reconnectingEdge?.id ?? null,
+    });
+    const graphPlan = planFlowConnection(
+      projection,
+      Object.freeze({
+        sourceFingerprint: candidate.sourceFingerprint,
+        fromNodeId: candidate.fromNodeId,
+        fromPortId: candidate.fromPortId,
+        toNodeId: candidate.toNodeId,
+        toPortId: candidate.toPortId,
+        kind: candidate.edgeKind,
+        replaceEdgeId: candidate.replaceEdgeId,
+      }),
+    );
     return (
-      planFlowConnection(
-        projection,
-        Object.freeze({
-          sourceFingerprint: projection.sourceFingerprint,
-          fromNodeId: canonical.from.nodeId,
-          fromPortId: canonical.from.portId,
-          toNodeId: canonical.to.nodeId,
-          toPortId: canonical.to.portId,
-          kind: canonical.edgeKind,
-          replaceEdgeId: reconnectingEdge?.id ?? null,
-        }),
-      ).status === "accepted"
+      graphPlan.status === "accepted" &&
+      (options.onConnectionPreflight?.(candidate).accepted ?? true)
     );
   }
 
@@ -1454,10 +1556,7 @@ export function createFlowCanvas(
 
     const edgeHit = target.closest<SVGPathElement>("[data-flow-edge-hit-id]");
     if (edgeHit !== null && event.button === 0) {
-      const edgeId = edgeHit.dataset.flowEdgeHitId ?? "";
-      const edge = projection?.edges.find(
-        (candidate) => candidate.id === edgeId && candidate.editable,
-      );
+      const edge = nearestEditableControlEdgeAtClientPoint(event.clientX, event.clientY, 12);
       if (edge !== undefined) {
         event.preventDefault();
         selectEdge(edge.id);
@@ -1947,6 +2046,58 @@ export function createFlowCanvas(
         );
   }
 
+  function nearestEditableControlEdgeAtClientPoint(
+    clientX: number,
+    clientY: number,
+    tolerancePx: number,
+    kind: FlowEdge["kind"] | null = null,
+  ): FlowEdge | undefined {
+    if (
+      projection === null ||
+      !Number.isFinite(clientX) ||
+      !Number.isFinite(clientY) ||
+      !Number.isFinite(tolerancePx) ||
+      tolerancePx <= 0
+    ) {
+      return undefined;
+    }
+    const world = clientToWorld(root, viewState, clientX, clientY);
+    const nodes = new Map(projection.nodes.map((node) => [node.id, node]));
+    refreshControlWireRouteCache();
+    let nearest: { readonly edge: FlowEdge; readonly distance: number } | undefined;
+    for (const edge of projection.edges) {
+      if (!edge.editable || (kind !== null && edge.kind !== kind)) continue;
+      const fromNode = nodes.get(edge.from.nodeId);
+      const toNode = nodes.get(edge.to.nodeId);
+      const fromPort = fromNode?.ports.find((port) => port.id === edge.from.portId);
+      const toPort = toNode?.ports.find((port) => port.id === edge.to.portId);
+      if (
+        fromNode === undefined ||
+        toNode === undefined ||
+        fromPort === undefined ||
+        toPort === undefined ||
+        fromNode.locked ||
+        toNode.locked ||
+        !toPort.editable
+      ) {
+        continue;
+      }
+      const from = flowPortPoint(fromNode, fromPort, positionFor(fromNode));
+      const to = flowPortPoint(toNode, toPort, positionFor(toNode));
+      const route = controlWireRoute(edge, fromNode, toNode, from, to);
+      const distance = distanceToFlowWireRoute(world, route);
+      if (
+        distance <= tolerancePx / viewState.viewport.zoom &&
+        (nearest === undefined ||
+          distance < nearest.distance ||
+          (distance === nearest.distance && edge.id === selectedEdgeId))
+      ) {
+        nearest = { edge, distance };
+      }
+    }
+    return nearest?.edge;
+  }
+
   const onWheel = (event: WheelEvent): void => {
     if (destroyed || projection === null) return;
     const target = closestElement(event.target);
@@ -2121,9 +2272,19 @@ export function createFlowCanvas(
     ) {
       event.preventDefault();
       options.onHistoryCheckpoint?.();
-      if (viewState.selectedNodeIds.length > 0) options.onCopyNodes?.(viewState.selectedNodeIds);
-      if (draftState !== null && (draftState.selectedNodeIds?.length ?? 0) > 0) {
-        const selected = new Set(draftState.selectedNodeIds);
+      // Snapshot before invoking callbacks: onCopyNodes synchronously presents the new draft back
+      // to this canvas. Reading live selection afterwards would copy that just-created draft a
+      // second time during the same Cmd/Ctrl+C key event.
+      const projectedSelection = Object.freeze([...viewState.selectedNodeIds]);
+      const draftSelection = Object.freeze([...(draftState?.selectedNodeIds ?? [])]);
+      if (projectedSelection.length > 0) {
+        options.onCopyNodes?.(projectedSelection);
+        viewState = cloneViewState(viewState, { selectedNodeIds: [], detailNodeId: null });
+        renderSelection();
+        renderDetail();
+        publishViewState("selection");
+      } else if (draftState !== null && draftSelection.length > 0) {
+        const selected = new Set(draftSelection);
         const copies = draftState.nodes
           .filter((node) => selected.has(node.id))
           .map((node, index) =>
@@ -2369,6 +2530,11 @@ export function createFlowCanvas(
     typeof ResizeObserver === "undefined"
       ? null
       : new ResizeObserver(() => {
+          const recovered = recoverRestoredViewportIfReady();
+          if (recovered) {
+            renderViewport();
+            publishViewState("restore");
+          }
           renderMinimap();
           clampDetailGeometry();
         });
@@ -2432,46 +2598,7 @@ export function createFlowCanvas(
       tolerancePx = 14,
     ): FlowEdge | null {
       assertActive(destroyed);
-      if (
-        projection === null ||
-        !Number.isFinite(clientX) ||
-        !Number.isFinite(clientY) ||
-        !Number.isFinite(tolerancePx) ||
-        tolerancePx <= 0
-      ) {
-        return null;
-      }
-      const world = clientToWorld(root, viewState, clientX, clientY);
-      const nodes = new Map(projection.nodes.map((node) => [node.id, node]));
-      let nearest: { readonly edge: FlowEdge; readonly distance: number } | null = null;
-      for (const edge of projection.edges) {
-        if (edge.kind !== "next") continue;
-        const fromNode = nodes.get(edge.from.nodeId);
-        const toNode = nodes.get(edge.to.nodeId);
-        const fromPort = fromNode?.ports.find((port) => port.id === edge.from.portId);
-        const toPort = toNode?.ports.find((port) => port.id === edge.to.portId);
-        if (
-          fromNode === undefined ||
-          toNode === undefined ||
-          fromPort === undefined ||
-          toPort === undefined ||
-          fromNode.locked ||
-          toNode.locked ||
-          !toPort.editable
-        ) {
-          continue;
-        }
-        const from = flowPortPoint(fromNode, fromPort, positionFor(fromNode));
-        const to = flowPortPoint(toNode, toPort, positionFor(toNode));
-        const distance = distanceToFlowWire(world, from, to);
-        if (
-          distance <= tolerancePx / viewState.viewport.zoom &&
-          (nearest === null || distance < nearest.distance)
-        ) {
-          nearest = { edge, distance };
-        }
-      }
-      return nearest?.edge ?? null;
+      return nearestEditableControlEdgeAtClientPoint(clientX, clientY, tolerancePx, "next") ?? null;
     },
     setEdgeInsertionPreview(edgeId: string | null): void {
       assertActive(destroyed);
@@ -2607,6 +2734,38 @@ export function normalizeFlowCanvasViewState(
   });
 }
 
+export function recoverDisconnectedFlowCanvasViewport(
+  projection: FlowProjection,
+  state: FlowViewState,
+  canvas: FlowCanvasSize,
+): FlowViewState["viewport"] {
+  if (
+    !Number.isFinite(canvas.width) ||
+    !Number.isFinite(canvas.height) ||
+    canvas.width < 64 ||
+    canvas.height < 64
+  ) {
+    return state.viewport;
+  }
+  const visible = visibleWorldBounds(state, canvas);
+  const positions = projection.nodes.map(
+    (node) => state.positions[node.id] ?? node.defaultPosition,
+  );
+  const hasVisibleNode = positions.some((position) =>
+    rectanglesIntersect(visible, {
+      left: position.x,
+      top: position.y,
+      right: position.x + NODE_WIDTH,
+      bottom: position.y + NODE_HEIGHT,
+    }),
+  );
+  if (hasVisibleNode) return state.viewport;
+  const bounds = positionsToBounds(positions);
+  return bounds === null
+    ? state.viewport
+    : fitFlowCanvasViewport(bounds, canvas, VIEWPORT_FIT_PADDING, 1);
+}
+
 export interface FlowCanvasAlignItem {
   readonly id: string;
   readonly position: FlowPoint;
@@ -2666,71 +2825,12 @@ export function alignFlowCanvasPositions(
   return result;
 }
 
-export function createFlowWirePath(from: FlowPoint, to: FlowPoint): string {
-  if (!isFinitePoint(from) || !isFinitePoint(to)) throw new TypeError("wire 端点必须是有限坐标");
-  const controlDistance = Math.max(36, Math.abs(to.x - from.x) * 0.45);
-  return `M ${formatCoordinate(from.x)} ${formatCoordinate(from.y)} C ${formatCoordinate(from.x + controlDistance)} ${formatCoordinate(from.y)}, ${formatCoordinate(to.x - controlDistance)} ${formatCoordinate(to.y)}, ${formatCoordinate(to.x)} ${formatCoordinate(to.y)}`;
-}
-
-export function flowWireLabelPoint(from: FlowPoint, to: FlowPoint): FlowPoint {
-  if (!isFinitePoint(from) || !isFinitePoint(to)) throw new TypeError("连线标签需要有限端点");
-  const controlDistance = Math.max(36, Math.abs(to.x - from.x) * 0.45);
-  return cubicPoint(
-    from,
-    point(from.x + controlDistance, from.y),
-    point(to.x - controlDistance, to.y),
-    to,
-    0.5,
-  );
-}
-
-export function distanceToFlowWire(pointValue: FlowPoint, from: FlowPoint, to: FlowPoint): number {
-  if (!isFinitePoint(pointValue) || !isFinitePoint(from) || !isFinitePoint(to)) {
-    throw new TypeError("wire 距离需要有限坐标");
-  }
-  const controlDistance = Math.max(36, Math.abs(to.x - from.x) * 0.45);
-  const firstControl = point(from.x + controlDistance, from.y);
-  const secondControl = point(to.x - controlDistance, to.y);
-  let minimum = Number.POSITIVE_INFINITY;
-  let previous = from;
-  for (let step = 1; step <= 32; step += 1) {
-    const current = cubicPoint(from, firstControl, secondControl, to, step / 32);
-    minimum = Math.min(minimum, distanceToSegment(pointValue, previous, current));
-    previous = current;
-  }
-  return minimum;
-}
-
-function cubicPoint(
-  start: FlowPoint,
-  first: FlowPoint,
-  second: FlowPoint,
-  end: FlowPoint,
-  t: number,
-): FlowPoint {
-  const inverse = 1 - t;
-  return point(
-    inverse ** 3 * start.x +
-      3 * inverse ** 2 * t * first.x +
-      3 * inverse * t ** 2 * second.x +
-      t ** 3 * end.x,
-    inverse ** 3 * start.y +
-      3 * inverse ** 2 * t * first.y +
-      3 * inverse * t ** 2 * second.y +
-      t ** 3 * end.y,
-  );
-}
-
-function distanceToSegment(value: FlowPoint, start: FlowPoint, end: FlowPoint): number {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const lengthSquared = dx * dx + dy * dy;
-  if (lengthSquared === 0) return Math.hypot(value.x - start.x, value.y - start.y);
-  const ratio = Math.max(
-    0,
-    Math.min(1, ((value.x - start.x) * dx + (value.y - start.y) * dy) / lengthSquared),
-  );
-  return Math.hypot(value.x - (start.x + ratio * dx), value.y - (start.y + ratio * dy));
+function flowWireLane(edge: FlowEdge): number {
+  if (edge.kind === "branch-true") return -1;
+  if (edge.kind === "branch-false") return 1;
+  if (edge.kind === "continue" || edge.kind === "goto") return 2 + Math.min(2, edge.slot);
+  if (edge.kind === "return" || edge.kind === "terminate") return -2;
+  return Math.min(3, edge.slot);
 }
 
 /**
@@ -2755,9 +2855,10 @@ export function canonicalizeFlowCanvasWireEndpoints(
 }
 
 /**
- * Models grabbing a physical cable. Unconnected sockets anchor a new cable; connected input plugs
- * detach while the output socket stays fixed. Occupied outputs remain fixed because changing a C
- * CFG source generally requires a multi-edge rewrite. Multiple incoming cables are never guessed.
+ * Models grabbing a physical cable. Unconnected sockets anchor a new cable. Either endpoint of a
+ * uniquely identified connected cable may be unplugged while the opposite endpoint stays fixed;
+ * the source-level preflight still decides whether that move has a safe C rewrite. Multiple cables
+ * are never guessed.
  */
 export function resolveFlowCanvasWireStart(
   projection: FlowProjection | null,
@@ -2784,26 +2885,6 @@ export function resolveFlowCanvasWireStart(
       anchor: requested,
       detached: null,
       replaceEdgeId: null,
-    });
-  }
-  const requestedNode = projection.nodes.find((node) => node.id === requested.nodeId);
-  const requestedPort = requestedNode?.ports.find((port) => port.id === requested.portId);
-  if (
-    requested.direction === "output" &&
-    requestedPort?.capacity === "many" &&
-    selectedEdgeId === null
-  ) {
-    return Object.freeze({
-      status: "new" as const,
-      anchor: requested,
-      detached: null,
-      replaceEdgeId: null,
-    });
-  }
-  if (requested.direction === "output") {
-    return Object.freeze({
-      status: "occupied-output" as const,
-      edgeIds: Object.freeze(incident.map((edge) => edge.id)),
     });
   }
   const selected =
@@ -2946,20 +3027,14 @@ function renderNode(
     portElement.dataset.editable = String(port.editable);
     portElement.dataset.fanOut = String(port.allowsFanOut);
     portElement.dataset.edgeKind = port.edgeKind ?? "input";
-    portElement.style.top = `calc(50% + ${String(portVerticalOffset(node.ports, port))}px)`;
+    portElement.style.left = `calc(50% + ${String(portHorizontalOffset(node.ports, port))}px)`;
     const connected = edges.some((edge) =>
       port.direction === "output"
         ? edge.from.nodeId === node.id && edge.from.portId === port.id
         : edge.to.nodeId === node.id && edge.to.portId === port.id,
     );
     portElement.dataset.connected = String(connected);
-    const connectionAffordance = !connected
-      ? "new"
-      : port.direction === "input"
-        ? "reconnect"
-        : port.capacity === "many"
-          ? "fanout"
-          : "fixed";
+    const connectionAffordance = !connected ? "new" : "reconnect";
     portElement.dataset.connectionAffordance = connectionAffordance;
     // Read-only CFG outputs may still be used as playback-overlay anchors. Dropping them on
     // another projected node remains blocked; only virtual nodes accept these anchors.
@@ -2968,31 +3043,19 @@ function renderNode(
     const connectionInstruction =
       connectionAffordance === "reconnect"
         ? english
-          ? ", connected; drag to unplug and rewire"
+          ? ", connected; drag this plug to rewire"
           : "，已连接，拖动可拔出并改接"
-        : connectionAffordance === "fanout"
-          ? english
-            ? ", connected; drag to add a branch"
-            : "，已连接，可从此增加分支"
-          : connectionAffordance === "fixed"
-            ? english
-              ? ", fixed output; drag the input plug at the other end to rewire"
-              : "，输出端固定；请拖动另一端的输入插头改接"
-            : english
-              ? ", unconnected; drag to plug in"
-              : "，未连接，拖动可插接";
+        : english
+          ? ", unconnected; drag to plug in"
+          : "，未连接，拖动可插接";
     portElement.setAttribute(
       "aria-label",
       `${nodeLabel}${english ? ": " : "："}${portLabel}${connectionInstruction}`,
     );
     portElement.title =
       connectionAffordance === "reconnect"
-        ? `${portLabel} · ${english ? "drag the input plug to rewire" : "拖动输入插头改接"}`
-        : connectionAffordance === "fanout"
-          ? `${portLabel} · ${english ? "drag to add a branch" : "拖动增加分支"}`
-          : connectionAffordance === "fixed"
-            ? `${portLabel} · ${english ? "fixed output" : "输出端固定"}`
-            : `${portLabel} · ${english ? "drag to connect" : "拖动插接"}`;
+        ? `${portLabel} · ${english ? "drag this plug to rewire" : "拖动此插头改接"}`
+        : `${portLabel} · ${english ? "drag to connect" : "拖动插接"}`;
     element.append(portElement);
   }
   if (node.lockReasons.length > 0) {
@@ -3003,19 +3066,19 @@ function renderNode(
 
 function flowPortPoint(node: FlowNode, port: FlowPort, position: FlowPoint): FlowPoint {
   return point(
-    position.x + (port.direction === "output" ? NODE_WIDTH : 0),
-    position.y + NODE_HEIGHT / 2 + portVerticalOffset(node.ports, port),
+    position.x + NODE_WIDTH / 2 + portHorizontalOffset(node.ports, port),
+    position.y + (port.direction === "output" ? NODE_HEIGHT : 0),
   );
 }
 
 function draftPortPoint(node: FlowCanvasDraftNode, port: FlowCanvasDraftPort): FlowPoint {
   return point(
-    node.position.x + (port.direction === "output" ? NODE_WIDTH : 0),
-    node.position.y + NODE_HEIGHT / 2 + portVerticalOffset(node.ports ?? [], port),
+    node.position.x + NODE_WIDTH / 2 + portHorizontalOffset(node.ports ?? [], port),
+    node.position.y + (port.direction === "output" ? NODE_HEIGHT : 0),
   );
 }
 
-function portVerticalOffset(
+function portHorizontalOffset(
   ports: readonly (FlowPort | FlowCanvasDraftPort)[],
   port: FlowPort | FlowCanvasDraftPort,
 ): number {
@@ -3026,7 +3089,7 @@ function portVerticalOffset(
     0,
     peers.findIndex((candidate) => candidate.id === port.id),
   );
-  return peers.length <= 1 ? 0 : (index - (peers.length - 1) / 2) * 14;
+  return peers.length <= 1 ? 0 : (index - (peers.length - 1) / 2) * 24;
 }
 
 function renderDefaultDetail(
@@ -3146,6 +3209,7 @@ function renderDefaultDraftDetail(
       : (node.sourceText ?? "");
   textarea.disabled = node.blockKind === "virtual";
   textarea.spellcheck = false;
+  if (!textarea.disabled) installCodeTextareaIndentation(textarea);
   textarea.setAttribute("aria-label", `${node.label}${english ? " draft source" : " 草稿源码"}`);
   const save = ownerDocument.createElement("button");
   save.type = "button";

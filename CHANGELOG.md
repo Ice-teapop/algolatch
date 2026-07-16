@@ -9,6 +9,8 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 
 ## [Unreleased]
 
+## [0.0.2-preview.2] - 2026-07-16
+
 ### Added
 
 - A fail-closed macOS distribution path that requires Developer ID signing,
@@ -31,6 +33,9 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 - Windows `windows-2025` CI and an independent Windows release path that can
   publish an Authenticode-signed EXE and `SHA256SUMS.txt` after the Windows
   gates pass, without Apple credentials or a macOS artifact.
+- A combined unsigned preview workflow that builds, installs, launches and
+  verifies the macOS Universal DMG and Windows x64 installer before publishing
+  both artifacts with one SHA-256 manifest.
 
 ### Changed
 
@@ -53,6 +58,22 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 - Separated platform release readiness. Windows can ship after its own signing
   and installed-state gates pass; macOS remains on the explicitly unsigned test
   channel until a Developer ID and notarization credentials are available.
+
+### Fixed
+
+- Routed control wires around unrelated nodes with deterministic orthogonal
+  paths, unified visible geometry with hit testing, and required source/CFG
+  preflight before showing a reconnection target as valid.
+- Made either uniquely identified cable plug available for reconnection while
+  preventing ambiguous multi-cable ports from guessing which edge to move.
+- Kept disconnected draft source visible as a grey, non-executable preview and
+  removed it from the code panel immediately when the draft block is deleted.
+- Restored editor-style Tab and Shift+Tab indentation in C source fields.
+- Kept the canvas overview pinned to the visible bottom-right corner through
+  pan, zoom and panel resizing.
+- Stabilized the macOS preview bundle identity with a complete ad-hoc signature,
+  removed signing detritus before signing, and added the Documents usage text
+  used by the operating-system permission prompt.
 
 ### Security
 

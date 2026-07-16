@@ -663,7 +663,7 @@ h2 {
   min-height: 0;
   overflow: hidden;
   background: var(--input-surface);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .code-pane__editor {
@@ -674,6 +674,57 @@ h2 {
 .code-pane__editor,
 .code-pane .cm-editor {
   height: 100%;
+}
+
+.code-pane__draft-previews {
+  grid-row: 3;
+  max-height: 34%;
+  overflow: auto;
+  border-top: 1px solid var(--line-strong);
+  color: var(--muted);
+  background: var(--surface-soft);
+}
+
+.code-pane__draft-previews h3 {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 4px 9px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.code-pane__draft-preview {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+  padding: 4px 9px;
+  border-bottom: 1px solid var(--line);
+  opacity: 0.66;
+}
+
+.code-pane__draft-preview[data-status="invalid"] {
+  color: var(--danger);
+  background: var(--danger-soft);
+  opacity: 0.86;
+}
+
+.code-pane__draft-preview strong,
+.code-pane__draft-preview pre {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 9px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.code-pane__draft-preview pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .projection-status {
@@ -3459,6 +3510,17 @@ h2 {
   grid-template-rows: 34px minmax(0, 1fr);
 }
 
+/* Both tab panels occupy the same explicit grid cell. Leaving the third child to
+   auto-placement creates an implicit row when Edit is shown, which shifts it
+   below Explain and lets it overflow the inspector by a few pixels. */
+.panel--inspector > .inspector-view {
+  grid-row: 2;
+  grid-column: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
 .panel--inspector .panel-tabs {
   gap: 20px;
   padding: 0 16px;
@@ -3574,6 +3636,7 @@ h2 {
 
 .flow-canvas {
   position: relative;
+  container-type: size;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -3672,16 +3735,18 @@ h2 {
 
 .flow-canvas__wire[data-editable="true"] {
   stroke: var(--ink-secondary);
+  opacity: 0.56;
 }
 
 .flow-canvas__wire.is-selected {
   stroke: var(--accent);
   stroke-width: 2.8;
+  opacity: 1;
 }
 
 .flow-canvas__wire.is-reconnecting {
   stroke-dasharray: 3 4;
-  opacity: 0.28;
+  opacity: 0.78;
 }
 
 .flow-canvas__wire.is-insertion-preview {
@@ -3694,7 +3759,11 @@ h2 {
   stroke: var(--muted-subtle);
   stroke-width: 1;
   stroke-dasharray: 4 4;
-  opacity: 0.58;
+  opacity: 0.08;
+}
+
+.flow-canvas__wire--data.is-contextual {
+  opacity: 0.68;
 }
 
 .flow-canvas__wire--virtual {
@@ -3710,11 +3779,17 @@ h2 {
 
 .flow-canvas__wire[data-edge-kind="branch-true"] {
   stroke: var(--success);
+  opacity: 0.82;
 }
 
 .flow-canvas__wire[data-edge-kind="branch-false"],
 .flow-canvas__wire[data-edge-kind="terminate"] {
   stroke: var(--danger);
+  opacity: 0.82;
+}
+
+.flow-canvas.is-wiring .flow-canvas__wire:not(.is-reconnecting) {
+  opacity: 0.12;
 }
 
 .flow-canvas__wire-label {
@@ -3777,7 +3852,8 @@ h2 {
 .flow-node {
   position: absolute;
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  column-gap: 6px;
   align-items: center;
   height: 32px;
   min-height: 32px !important;
@@ -3886,11 +3962,15 @@ h2 {
 
 .flow-node__kind,
 .flow-node__status {
+  min-width: 0;
+  overflow: hidden;
   color: var(--muted-subtle);
   font-size: 8px;
   font-weight: 650;
   letter-spacing: 0.04em;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .flow-node__label {
@@ -3903,11 +3983,10 @@ h2 {
 
 .flow-node__port {
   position: absolute;
-  top: 50%;
   width: 20px;
   height: 20px;
   padding: 0;
-  transform: translateY(-50%);
+  transform: translateX(-50%);
   border: 0;
   border-radius: 50%;
   background: transparent;
@@ -3928,11 +4007,13 @@ h2 {
 }
 
 .flow-node__port--input {
-  left: -11px;
+  top: -11px;
+  left: 50%;
 }
 
 .flow-node__port--output {
-  right: -11px;
+  bottom: -11px;
+  left: 50%;
 }
 
 .flow-node__port:disabled {
@@ -3997,6 +4078,14 @@ h2 {
 .flow-canvas.is-wiring
   .flow-node__port--output[data-wire-target="detached"][data-wire-label]::before {
   right: 12px;
+}
+
+.flow-node__port--output[data-selected-cable-end="true"][data-cable-label]::before,
+.flow-canvas.is-wiring
+  .flow-node__port--output[data-wire-target="compatible"][data-wire-label]::before,
+.flow-canvas.is-wiring
+  .flow-node__port--output[data-wire-target="detached"][data-wire-label]::before {
+  top: 22px;
 }
 
 .flow-node__port[data-selected-cable-end="true"][data-cable-label]::before {
@@ -4179,18 +4268,43 @@ h2 {
   box-shadow: inset 3px 0 0 var(--warning);
 }
 
+.flow-canvas__hud {
+  position: absolute;
+  z-index: 18;
+  inset: 0;
+  contain: layout paint;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 .flow-minimap {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
-  z-index: 18;
+  z-index: 1;
+  inset: auto 12px 12px auto;
   display: grid;
   width: 176px;
+  max-width: calc(100% - 24px);
+  max-height: calc(100% - 24px);
   grid-template-rows: 24px 112px;
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 2px;
   background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+  pointer-events: auto;
+  transform: none;
+}
+
+/* A short canvas cannot contain the full overview. Keep the control anchored inside the
+   bottom-right corner instead of letting the map rise under the toolbar and obscure nodes. */
+@container (max-height: 190px) {
+  .flow-minimap {
+    width: auto;
+    grid-template-rows: 24px;
+  }
+
+  .flow-minimap__map {
+    display: none !important;
+  }
 }
 
 .flow-minimap[data-collapsed="true"] {

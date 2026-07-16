@@ -5,6 +5,7 @@ import {
   requireMacPlatform,
   selectSingleArtifact,
   validateAsarEntries,
+  validateAdHocSignatureDetails,
   validateBundleMetadata,
   validateBundleExecutableName,
   validateDeveloperIdSignatureDetails,
@@ -71,6 +72,24 @@ describe("installed DMG release gate", () => {
         "主应用",
       ),
     ).toThrow(/最小集合/u);
+  });
+
+  it("requires Preview bundles to be coherently ad-hoc signed under the app identity", () => {
+    expect(() =>
+      validateAdHocSignatureDetails(
+        "Identifier=io.han.c-block-algorithm-panel\nSignature=adhoc\nTeamIdentifier=not set\nInternal requirements count=1 size=68",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateAdHocSignatureDetails(
+        "Identifier=Electron\nSignature=adhoc\nTeamIdentifier=not set\nInternal requirements=none",
+      ),
+    ).toThrow(/Identifier/u);
+    expect(() =>
+      validateAdHocSignatureDetails(
+        "Identifier=io.han.c-block-algorithm-panel\nTeamIdentifier=not set",
+      ),
+    ).toThrow(/ad-hoc/u);
   });
 
   it("rejects unsafe bundle executable names", () => {

@@ -7,6 +7,7 @@ import type {
   RetiredLearningTemplateTombstone,
 } from "../learning/index.js";
 import type { InterfaceLocale } from "../shared/interface-locale.js";
+import { installCodeTextareaIndentation } from "./code-textarea-keymap.js";
 
 export type BlockLibraryManagerStatus = "ready" | "success" | "error";
 
@@ -239,6 +240,7 @@ export function createBlockLibraryManager(
   sourceInput.className = "block-library-manager__source";
   sourceInput.required = true;
   sourceInput.rows = 5;
+  const sourceIndentation = installCodeTextareaIndentation(sourceInput);
 
   const nameField = createField(ownerDocument, labelInput);
   const stageField = createField(ownerDocument, stageSelect);
@@ -525,6 +527,7 @@ export function createBlockLibraryManager(
       form.removeEventListener("submit", onSubmit);
       localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
       localeObserver?.disconnect();
+      sourceIndentation.destroy();
       actionButtons = [];
       root.remove();
     },

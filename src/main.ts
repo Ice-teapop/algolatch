@@ -40,6 +40,7 @@ import { createWorkspaceLessonIntegration } from "./app/workspace-lesson-integra
 import type { AiWorkspaceIntegration } from "./app/ai-workspace-integration.js";
 import { createMainAiWorkspace } from "./app/main-ai-workspace.js";
 import { installApplicationPersistence } from "./app/application-persistence.js";
+import { draftCodePreviewsFor } from "./app/draft-code-preview.js";
 import { initializeWorkbenchApplication } from "./renderer/application-bootstrap.js";
 import { createFlowProjection } from "./flow/index.js";
 import { assertValidSourceText } from "./shared/source-import.js";
@@ -143,9 +144,11 @@ flowWorkbench = createFlowWorkbenchController({
   },
   onReplaceNodeSource: (node, source) => flowSourceEditor.replaceNodeSource(node, source),
   onDeleteNodes: (nodes) => flowSourceEditor.deleteNodes(nodes),
+  onConnectionPreflight: (intent) => flowSourceEditor.assessConnection(intent),
   onConnectionIntent: (intent) => flowSourceEditor.connectNodes(intent),
   resolvePreset: (presetId) => learningSurface?.resolvePreset(presetId) ?? null,
   onDraftConnectionIntent: (intent) => flowSourceEditor.connectDraft(intent),
+  onDraftPresentationChange: (nodes) => codePane.setDraftPreviews(draftCodePreviewsFor(nodes)),
   onLearningObservation: (observation) => forwardFlowLearningObservation(guidedLesson, observation),
   onSourceUndo: () => codePane.undo(),
   onVirtualPlaybackNode(node) {

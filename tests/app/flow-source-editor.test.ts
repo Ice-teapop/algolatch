@@ -159,6 +159,140 @@ describe("flow source editor connection postconditions", () => {
     expect(liveSource).toBe(source);
   });
 
+  it("rewires the source plug by swapping the adjacent statement before the fixed target", () => {
+    let source = [
+      "int main(void) {",
+      "  int a = 1, b = 2, c = 3;",
+      "  a++;",
+      "  b++;",
+      "  c++;",
+      "  return a + b + c;",
+      "}",
+      "",
+    ].join("\n");
+    let revision = 1;
+    let session = analyzeSession(parser, source, revision);
+    let projection = createFlowProjection(session.programAnalysis, session.analysis.document);
+    const editor = createFlowSourceEditor({
+      getSession: () => session,
+      getProjection: () => projection,
+      getParser: () => parser,
+      getProjectionMode: () => "synced",
+      getEditorSource: () => source,
+      applyPatches(patches) {
+        source = applyTextPatches(source, patches).source;
+        return true;
+      },
+      resetProjection: vi.fn(),
+      nextRevision: () => ++revision,
+      adopt(imported, analysis) {
+        session = analyzeSession(parser, imported.source, analysis.editTargets.revision, analysis);
+        projection = createFlowProjection(session.programAnalysis, session.analysis.document);
+      },
+      confirm: () => true,
+      onCommitted: vi.fn(),
+    });
+    const a = requiredNode(projection, "a++;");
+    const b = requiredNode(projection, "b++;");
+    const c = requiredNode(projection, "c++;");
+    const oldEdge = projection.edges.find(
+      (edge) => edge.from.nodeId === a.id && edge.to.nodeId === b.id && edge.kind === "next",
+    );
+    const output = c.ports.find((port) => port.direction === "output" && port.edgeKind === "next");
+    const input = b.ports.find((port) => port.direction === "input");
+    if (oldEdge === undefined || output === undefined || input === undefined) {
+      throw new Error("fixture 缺少可移动的线端");
+    }
+
+    const intent: ConnectionIntent = Object.freeze({
+      sourceFingerprint: projection.sourceFingerprint,
+      fromNodeId: c.id,
+      fromPortId: output.id,
+      toNodeId: b.id,
+      toPortId: input.id,
+      kind: "next",
+      replaceEdgeId: oldEdge.id,
+    });
+    expect(editor.assessConnection(intent)).toEqual({ accepted: true });
+    expect(editor.connectNodes(intent)).toBe(true);
+    expect(source.indexOf("c++;")).toBeLessThan(source.indexOf("b++;"));
+    const nextB = requiredNode(projection, "b++;");
+    const nextC = requiredNode(projection, "c++;");
+    expect(
+      projection.edges.some(
+        (edge) =>
+          edge.from.nodeId === nextC.id && edge.to.nodeId === nextB.id && edge.kind === "next",
+      ),
+    ).toBe(true);
+  });
+
+  it("rewires the target plug by swapping the original target with its next statement", () => {
+    let source = [
+      "int main(void) {",
+      "  int a = 1, b = 2, c = 3;",
+      "  a++;",
+      "  b++;",
+      "  c++;",
+      "  return a + b + c;",
+      "}",
+      "",
+    ].join("\n");
+    let revision = 1;
+    let session = analyzeSession(parser, source, revision);
+    let projection = createFlowProjection(session.programAnalysis, session.analysis.document);
+    const editor = createFlowSourceEditor({
+      getSession: () => session,
+      getProjection: () => projection,
+      getParser: () => parser,
+      getProjectionMode: () => "synced",
+      getEditorSource: () => source,
+      applyPatches(patches) {
+        source = applyTextPatches(source, patches).source;
+        return true;
+      },
+      resetProjection: vi.fn(),
+      nextRevision: () => ++revision,
+      adopt(imported, analysis) {
+        session = analyzeSession(parser, imported.source, analysis.editTargets.revision, analysis);
+        projection = createFlowProjection(session.programAnalysis, session.analysis.document);
+      },
+      confirm: () => true,
+      onCommitted: vi.fn(),
+    });
+    const a = requiredNode(projection, "a++;");
+    const b = requiredNode(projection, "b++;");
+    const c = requiredNode(projection, "c++;");
+    const oldEdge = projection.edges.find(
+      (edge) => edge.from.nodeId === a.id && edge.to.nodeId === b.id && edge.kind === "next",
+    );
+    const output = a.ports.find((port) => port.direction === "output" && port.edgeKind === "next");
+    const input = c.ports.find((port) => port.direction === "input");
+    if (oldEdge === undefined || output === undefined || input === undefined) {
+      throw new Error("fixture 缺少可移动的目标线端");
+    }
+
+    const intent: ConnectionIntent = Object.freeze({
+      sourceFingerprint: projection.sourceFingerprint,
+      fromNodeId: a.id,
+      fromPortId: output.id,
+      toNodeId: c.id,
+      toPortId: input.id,
+      kind: "next",
+      replaceEdgeId: oldEdge.id,
+    });
+    expect(editor.assessConnection(intent)).toEqual({ accepted: true });
+    expect(editor.connectNodes(intent)).toBe(true);
+    expect(source.indexOf("c++;")).toBeLessThan(source.indexOf("b++;"));
+    const nextA = requiredNode(projection, "a++;");
+    const nextC = requiredNode(projection, "c++;");
+    expect(
+      projection.edges.some(
+        (edge) =>
+          edge.from.nodeId === nextA.id && edge.to.nodeId === nextC.id && edge.kind === "next",
+      ),
+    ).toBe(true);
+  });
+
   it("commits the named lesson preset through a compiling slot and full CFG gate", () => {
     let source = FIRST_ALGORITHM_SKELETON_SOURCE;
     let revision = 1;

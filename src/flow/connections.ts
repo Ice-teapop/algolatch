@@ -155,11 +155,21 @@ function findReplacement(projection: FlowProjection, intent: ConnectionIntent): 
   if (edge.kind !== intent.kind) {
     return reject(intent, "replacement-mismatch", "待替换边与插头的控制流语义不一致");
   }
-  if (edge.from.nodeId !== intent.fromNodeId) {
-    return reject(intent, "replacement-mismatch", "首版只允许拔出输入端插头并保留原输出插座");
+  const keepsSource =
+    edge.from.nodeId === intent.fromNodeId &&
+    (intent.fromPortId === null || edge.from.portId === intent.fromPortId);
+  const keepsTarget =
+    edge.to.nodeId === intent.toNodeId &&
+    (intent.toPortId === null || edge.to.portId === intent.toPortId);
+  if (!keepsSource && !keepsTarget) {
+    return reject(
+      intent,
+      "replacement-mismatch",
+      "改接一次只能移动一端；另一端必须仍插在原来的控制端口",
+    );
   }
-  if (intent.fromPortId !== null && edge.from.portId !== intent.fromPortId) {
-    return reject(intent, "replacement-mismatch", "待替换边不属于指定输出插座");
+  if (keepsSource && keepsTarget) {
+    return reject(intent, "replacement-mismatch", "连接的两个端点都没有变化");
   }
   return Object.freeze({ status: "accepted", edge });
 }

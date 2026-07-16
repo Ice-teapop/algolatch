@@ -13,6 +13,7 @@
   "directories": {
     "output": "release"
   },
+  "afterPack": "scripts/after-pack-macos.mjs",
   "files": [
     "dist/**/*",
     "dist-electron/**/*",
@@ -36,6 +37,9 @@
     "entitlements": "build/entitlements.mac.plist",
     "entitlementsInherit": "build/entitlements.mac.inherit.plist",
     "notarize": true,
+    "extendInfo": {
+      "NSDocumentsFolderUsageDescription": "AlgoLatch stores the local projects you create in its dedicated Documents workspace."
+    },
     "target": [
       {
         "target": "dmg",
