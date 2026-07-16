@@ -1,19 +1,21 @@
 # Code signing policy
 
-AlgoLatch is an MIT-licensed open-source project maintained in the public
+AlgoLatch is a source-available project maintained in the public
 [Ice-teapop/algolatch](https://github.com/Ice-teapop/algolatch) repository.
+Current source uses the PolyForm Noncommercial License 1.0.0; see
+[Licensing AlgoLatch](./LICENSING.md).
 
-**Free code signing provided by SignPath.io, certificate by SignPath
-Foundation.** The SignPath Foundation application is currently pending. The
-public Windows Preview is explicitly unsigned. Until the application is
-accepted and the signed release gate succeeds, no AlgoLatch download is
-described as SignPath-signed.
+The SignPath Foundation application was unsuccessful. Current AlgoLatch
+downloads are not SignPath-signed, and the current noncommercial license does
+not satisfy the Foundation's open-source eligibility requirements. A future
+signed release requires an appropriate certificate and must pass the complete
+platform-specific release gate before publication.
 
 ## What may be signed
 
 Only release artifacts produced from this repository by the documented GitHub
-Actions release workflow may be submitted for signing. The intended release
-policy requires:
+Actions release workflow may be submitted to any future signing provider. The
+release policy requires:
 
 - a version tag that matches the package version and is reachable from `main`;
 - a clean build from the committed lockfile and pinned GitHub Actions;

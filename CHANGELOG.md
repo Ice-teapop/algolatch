@@ -9,6 +9,16 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 
 ## [Unreleased]
 
+### Changed
+
+- Changed current and future source from the MIT License to the PolyForm
+  Noncommercial License 1.0.0. Noncommercial use remains permitted under its
+  terms; commercial use requires a separate written license from HAN Chen.
+- Recorded that earlier tagged copies retain the license included with those
+  copies and that previously granted MIT permissions are not revoked.
+- Closed the unsuccessful SignPath Foundation path and removed pending or
+  planned SignPath signature claims from current download documentation.
+
 ## [0.0.2-preview.2] - 2026-07-16
 
 ### Added

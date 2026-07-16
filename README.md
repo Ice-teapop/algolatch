@@ -19,17 +19,18 @@
 [查看所有版本](https://github.com/Ice-teapop/algolatch/releases) ·
 [v0.0.2 说明](./docs/releases/v0.0.2.md) ·
 [当前架构](./docs/architecture/README.md) · [隐私](./PRIVACY.md) ·
-[安全](./SECURITY.md) · [Code signing policy](./CODE_SIGNING_POLICY.md)
+[安全](./SECURITY.md) · [许可说明](./LICENSING.md) ·
+[Code signing policy](./CODE_SIGNING_POLICY.md)
 
 > GitHub 自动显示的 **Source code** 压缩包不是安装器。`v0.0.2-preview.2`
 > 同时提供 macOS 与 Windows 安装包，但两者都是未签名先行版，不是正式稳定
 > 版。macOS 可能触发 Gatekeeper，Windows 可能显示未知发布者或 SmartScreen
 > 提示；请先核对同一 Release 中的 SHA-256 清单。
 
-Windows 正式版本计划使用 SignPath Foundation 完成来源可验证的代码签名：
-**Free code signing provided by SignPath.io, certificate by SignPath
-Foundation.** 申请目前仍在审核准备阶段；现有下载不宣称具有该签名。完整
-边界见 [Code signing policy](./CODE_SIGNING_POLICY.md)。
+SignPath Foundation 申请未通过，现有下载没有 SignPath、Apple Developer ID
+或 Windows Authenticode 受信任发布者签名。未来只有在取得适用证书并通过对应
+平台的签名及安装态门禁后，才会发布受信任签名版本。完整边界见
+[Code signing policy](./CODE_SIGNING_POLICY.md)。
 
 ## 为什么做这个工具
 
@@ -242,5 +243,12 @@ npm run build
 - 当前 macOS 与 Windows `v0.0.2-preview.2` 都未使用受信任发布者签名；稳定
   包尚未发布。
 
-本项目采用 [MIT License](./LICENSE)。报告漏洞请遵循
+当前源码采用
+[PolyForm Noncommercial License 1.0.0](./LICENSE)：允许符合条款的个人、
+学习、研究、教育及其他非商业用途；商业使用必须先取得 HAN Chen 的书面授权，
+联系 [han826759@gmail.com](mailto:han826759@gmail.com)。其余权利保留。
+
+该许可证属于 source-available，不是 OSI 开源许可证。历史标签和 Release
+继续适用各自发布时附带的许可证，已授予的 MIT 权利不会被追溯撤销。详见
+[许可说明](./LICENSING.md)。报告漏洞请遵循
 [Security Policy](./SECURITY.md)，不要在公开 Issue 中披露可利用细节。

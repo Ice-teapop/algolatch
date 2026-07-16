@@ -5,6 +5,7 @@ const expected = Object.freeze({
   version: "0.0.2",
   engine: ">=24.0.0 <25",
   npm: "npm@11.11.0",
+  license: "PolyForm-Noncommercial-1.0.0",
   repository: "https://github.com/Ice-teapop/algolatch.git",
   builderConfig: "build/electron-builder.release.json",
   windowsBuilderConfig: "build/electron-builder.windows.release.json",
@@ -118,7 +119,7 @@ check(manifest.version === expected.version, `package version 必须为 ${expect
 check(/^0\.\d+\.\d+$/u.test(manifest.version), "当前公开版本线只允许 0.x.y 初始版本");
 check(manifest.name === "c-block-algorithm-panel", "内部 package name 必须保持旧数据兼容");
 check(manifest.private === true, "npm 包必须保持 private，防止误发布到 npm");
-check(manifest.license === "MIT", "package license 必须为 MIT");
+check(manifest.license === expected.license, `package license 必须为 ${expected.license}`);
 check(manifest.packageManager === expected.npm, `packageManager 必须为 ${expected.npm}`);
 check(manifest.engines?.node === expected.engine, `engines.node 必须为 ${expected.engine}`);
 check(nvmrc.trim() === "24.14.0", ".nvmrc 必须固定当前 Node 24 LTS");
@@ -213,7 +214,7 @@ check(
 const lockedRoot = lockfile.packages?.[""];
 check(lockfile.version === expected.version, "package-lock 顶层 version 与 manifest 不一致");
 check(lockedRoot?.version === expected.version, "package-lock 根包 version 与 manifest 不一致");
-check(lockedRoot?.license === "MIT", "package-lock 根包缺少 MIT license");
+check(lockedRoot?.license === expected.license, "package-lock 根包 license 不一致");
 check(lockedRoot?.engines?.node === expected.engine, "package-lock 根包 Node engine 不一致");
 check(
   lockedRoot?.devDependencies?.[directPlatformPin] === undefined,
@@ -235,6 +236,7 @@ check(builder.directories?.output === "release", "electron-builder 输出目录�
 for (const packagedDocument of [
   "package-lock.json",
   "LICENSE",
+  "LICENSING.md",
   "NOTICE.md",
   "THIRD_PARTY_NOTICES.md",
   "PRIVACY.md",
@@ -308,6 +310,7 @@ check(
 for (const packagedDocument of [
   "package-lock.json",
   "LICENSE",
+  "LICENSING.md",
   "NOTICE.md",
   "THIRD_PARTY_NOTICES.md",
   "PRIVACY.md",
@@ -490,8 +493,9 @@ check(
 includes(gitignore, "!/build/electron-builder.release.json", ".gitignore");
 includes(gitignore, "!/build/entitlements.mac.plist", ".gitignore");
 includes(gitignore, "!/build/entitlements.mac.inherit.plist", ".gitignore");
-includes(license, "MIT License", "LICENSE");
-includes(license, "Copyright (c) 2026 HAN Chen", "LICENSE");
+includes(license, "PolyForm Noncommercial License 1.0.0", "LICENSE");
+includes(license, "Required Notice: Copyright (c) 2026 HAN Chen", "LICENSE");
+includes(license, "Commercial use requires a separate written license", "LICENSE");
 
 for (const document of [
   "SECURITY.md",

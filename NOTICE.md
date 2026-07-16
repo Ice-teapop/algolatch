@@ -2,7 +2,9 @@
 
 AlgoLatch
 
-Copyright (c) 2026 HAN Chen. Released under the MIT License; see `LICENSE`.
+Copyright (c) 2026 HAN Chen. All rights reserved except as expressly granted
+under the PolyForm Noncommercial License 1.0.0 in `LICENSE`. Commercial use
+requires a separate written license; contact `han826759@gmail.com`.
 
 The distributed application includes third-party open-source software. Major
 components include Electron, Vite, TypeScript, CodeMirror, Tree-sitter,
@@ -10,7 +12,7 @@ web-tree-sitter, Vitest, Playwright, NSIS, and their transitive dependencies.
 Windows packages also bundle a selected llvm-mingw toolchain containing LLVM,
 MinGW-w64, compiler runtime, headers, and libraries. Their copyright notices
 and license declarations remain subject to their respective licenses. The
-project's MIT License does not replace those licenses.
+AlgoLatch project license does not replace those licenses.
 
 The complete locked JavaScript dependency inventory and the license or NOTICE
 texts found in that release dependency tree are included in

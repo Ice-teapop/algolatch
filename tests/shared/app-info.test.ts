@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  APP_LICENSE_ID,
   APP_RELEASES_URL,
   APP_REPOSITORY_URL,
   parseAppInfoSnapshot,
@@ -7,7 +8,7 @@ import {
 
 const valid = Object.freeze({
   version: "0.0.1",
-  license: "MIT" as const,
+  license: APP_LICENSE_ID,
   repositoryUrl: APP_REPOSITORY_URL,
   releasesUrl: APP_RELEASES_URL,
   platform: "darwin",
@@ -26,7 +27,7 @@ describe("public app information boundary", () => {
 
   it.each([
     { ...valid, repositoryUrl: "https://example.com" },
-    { ...valid, license: "GPL-3.0" },
+    { ...valid, license: "MIT" },
     { ...valid, version: "0.0.1\nsecret" },
     { ...valid, path: "/Users/example/project" },
   ])("rejects altered, unsafe or expanded metadata %#", (candidate) => {

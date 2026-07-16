@@ -3,7 +3,7 @@
   "version": "0.0.2",
   "description": "AlgoLatch is a local, source-authoritative C algorithm learning and visual assembly workbench.",
   "private": true,
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "author": "HAN Chen",
   "repository": {
     "type": "git",

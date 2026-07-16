@@ -3,10 +3,11 @@ export const APP_APPLICATION_ID = "io.han.c-block-algorithm-panel" as const;
 export const APP_PRODUCT_NAME = "AlgoLatch" as const;
 export const APP_REPOSITORY_URL = "https://github.com/Ice-teapop/algolatch" as const;
 export const APP_RELEASES_URL = `${APP_REPOSITORY_URL}/releases` as const;
+export const APP_LICENSE_ID = "PolyForm-Noncommercial-1.0.0" as const;
 
 export interface AppInfoSnapshot {
   readonly version: string;
-  readonly license: "MIT";
+  readonly license: typeof APP_LICENSE_ID;
   readonly repositoryUrl: typeof APP_REPOSITORY_URL;
   readonly releasesUrl: typeof APP_RELEASES_URL;
   readonly platform: string;
@@ -33,7 +34,7 @@ export function parseAppInfoSnapshot(value: unknown): AppInfoSnapshot | null {
   }
   if (
     !validMetadataToken(value.version, 64) ||
-    value.license !== "MIT" ||
+    value.license !== APP_LICENSE_ID ||
     value.repositoryUrl !== APP_REPOSITORY_URL ||
     value.releasesUrl !== APP_RELEASES_URL ||
     !validMetadataToken(value.platform, 32) ||
@@ -45,7 +46,7 @@ export function parseAppInfoSnapshot(value: unknown): AppInfoSnapshot | null {
   }
   return Object.freeze({
     version: value.version,
-    license: "MIT",
+    license: APP_LICENSE_ID,
     repositoryUrl: APP_REPOSITORY_URL,
     releasesUrl: APP_RELEASES_URL,
     platform: value.platform,

@@ -27,7 +27,7 @@ archive hash and the installed-package compile canary rather than an expensive s
 ## Licensing
 
 llvm-mingw is a distribution assembled from several upstream projects. The staged files retain
-their upstream licenses; AlgoLatch's MIT license does not replace them.
+their upstream licenses; AlgoLatch's project license does not replace them.
 
 - LLVM, Clang, LLD, compiler-rt, libc++, libc++abi, and libunwind are distributed under the
   [Apache License 2.0 with LLVM Exceptions](https://llvm.org/LICENSE.txt).
@@ -42,6 +42,6 @@ that contains the embedded toolchain. No endorsement by the upstream projects is
 ## AlgoLatch Job Object broker
 
 `algolatch-job-host.exe` is built from AlgoLatch's own `native/windows-job-host.c` and is covered
-by AlgoLatch's MIT license. It is not part of llvm-mingw. The broker creates a Windows Job Object,
+by AlgoLatch's current project license. It is not part of llvm-mingw. The broker creates a Windows Job Object,
 applies process, aggregate memory, and CPU-time limits, and terminates the whole job when the
 broker handle closes.

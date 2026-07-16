@@ -102,7 +102,7 @@ describe("M6 workbench shell behavior", () => {
     const shell = mount();
     shell.setAppInfo({
       version: "0.0.1",
-      license: "MIT",
+      license: "PolyForm-Noncommercial-1.0.0",
       repositoryUrl: "https://github.com/Ice-teapop/algolatch",
       releasesUrl: "https://github.com/Ice-teapop/algolatch/releases",
       platform: "darwin",

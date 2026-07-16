@@ -24,6 +24,7 @@ import type {
 import {
   APP_APPLICATION_ID,
   APP_INFO_IPC_CHANNEL,
+  APP_LICENSE_ID,
   APP_PRODUCT_NAME,
   APP_RELEASES_URL,
   APP_REPOSITORY_URL,
@@ -500,7 +501,7 @@ function registerIpcHandlers(learningCatalogStore: LearningCatalogFileStore): vo
     if (args.length !== 0) throw new TypeError("应用信息请求不接受参数");
     return Object.freeze({
       version: app.getVersion(),
-      license: "MIT",
+      license: APP_LICENSE_ID,
       repositoryUrl: APP_REPOSITORY_URL,
       releasesUrl: APP_RELEASES_URL,
       platform: process.platform,

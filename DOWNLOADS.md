@@ -29,10 +29,10 @@ AlgoLatch on either platform does not remove managed projects in Documents.
 The stable Windows release will be linked here only after signing, signature
 verification and installed-application regression all succeed.
 
-**Free code signing provided by SignPath.io, certificate by SignPath
-Foundation.** The application is currently pending; the public Preview does not
-claim this signature. After acceptance, the signing process will follow the
-project's [Code signing policy](./CODE_SIGNING_POLICY.md).
+The SignPath Foundation application was unsuccessful, and the public Preview
+does not claim a trusted publisher signature. A future signed release requires
+an appropriate certificate and must follow the project's
+[Code signing policy](./CODE_SIGNING_POLICY.md).
 
 When available, the official release will contain:
 

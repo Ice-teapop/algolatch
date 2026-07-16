@@ -80,6 +80,22 @@ responses, and sidecars must not silently replace or rewrite `main.c`.
 - Preserve the public version-line reset note: `v0.0.1` follows the historical
   `v0.1.0-beta.1–12` development snapshots and starts a new public sequence.
 
+## Contribution licensing
+
+Current AlgoLatch source uses the PolyForm Noncommercial License 1.0.0. By
+submitting a contribution, you offer that contribution under the repository
+license in effect for the target branch. Do not submit code, assets, or text
+that you do not have permission to license on those terms.
+
+The repository license does not automatically grant the maintainer commercial
+rights to a third-party contribution. Before accepting a contribution intended
+for a separately licensed commercial distribution, the maintainer and
+contributor must complete an explicit written contributor agreement. A pull
+request alone is not such an agreement.
+
+See [Licensing AlgoLatch](./LICENSING.md) for current, commercial, historical,
+and third-party license boundaries.
+
 ## Required checks
 
 Run checks relevant to the change. A release-affecting change requires the
