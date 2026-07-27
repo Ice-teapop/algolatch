@@ -91,6 +91,10 @@
   grid-template-rows: 42px minmax(104px, 0.8fr) minmax(150px, 1.2fr);
 }
 
+.foa-matrix-scene {
+  grid-template-rows: 42px minmax(104px, 0.9fr) minmax(150px, 1.1fr);
+}
+
 .foa-pointer-alias-scene[data-scene-kind="pointer"] .foa-semantic-scene__diagram,
 .foa-matrix-scene[data-scene-kind="matrix"] .foa-semantic-scene__diagram {
   grid-template-columns: repeat(4, minmax(108px, 190px));

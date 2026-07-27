@@ -140,6 +140,12 @@ test("keeps lessons 1-60 on their authored scene contracts", async () => {
         geometry.horizontalOverflow,
         `lesson ${String(lesson.order)} scene overflows horizontally`,
       ).toBeLessThanOrEqual(1);
+      if (profile.matrixCase !== undefined) {
+        expect(
+          geometry.diagramVerticalOverflow,
+          `lesson ${String(lesson.order)} matrix diagram requires a vertical scrollbar`,
+        ).toBeLessThanOrEqual(1);
+      }
       expect(geometry.nodeOverlaps, `lesson ${String(lesson.order)} scene nodes overlap`).toEqual(
         [],
       );
@@ -283,6 +289,7 @@ async function measureSceneGeometry(
   ignoreHiddenRuntimeNodes = false,
 ): Promise<{
   readonly horizontalOverflow: number;
+  readonly diagramVerticalOverflow: number;
   readonly nodeOverlaps: readonly string[];
 }> {
   return scene.evaluate((element, ignoreHiddenNodes) => {
@@ -313,6 +320,7 @@ async function measureSceneGeometry(
         sceneRoot.scrollWidth - sceneRoot.clientWidth,
         diagram.scrollWidth - diagram.clientWidth,
       ),
+      diagramVerticalOverflow: Math.max(0, diagram.scrollHeight - diagram.clientHeight),
       nodeOverlaps,
     };
   }, ignoreHiddenRuntimeNodes);
