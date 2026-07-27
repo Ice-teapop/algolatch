@@ -455,7 +455,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
   const systemLocale = await page.evaluate(() => window.panelApi.getSystemLocale());
   const appInfo = await page.evaluate(() => window.panelApi.getAppInfo());
   expect(appInfo).toMatchObject({
-    version: "0.1.1-preview.1",
+    version: "0.1.1-preview.2",
     license: "PolyForm-Noncommercial-1.0.0",
     repositoryUrl: "https://github.com/Ice-teapop/algolatch",
     releasesUrl: "https://github.com/Ice-teapop/algolatch/releases",

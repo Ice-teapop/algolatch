@@ -474,6 +474,15 @@
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.build-workspace > .workspace-lesson-strip {
+  grid-row: 1;
+}
+
+.build-workspace > .build-layout {
+  min-height: 0;
+  grid-row: 2;
+}
+
 .workspace-lesson-strip {
   display: grid;
   min-height: 42px;

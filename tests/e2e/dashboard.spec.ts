@@ -174,15 +174,6 @@ test("flushes the final debounced edit before the desktop window closes", async 
 
 async function reloadThroughApplicationLifecycle(): Promise<void> {
   const previousTimeOrigin = await page.evaluate(() => performance.timeOrigin);
-  await page.evaluate(() => window.location.reload());
-  await expect
-    .poll(async () => {
-      try {
-        return await page.evaluate(() => performance.timeOrigin);
-      } catch {
-        return previousTimeOrigin;
-      }
-    })
-    .not.toBe(previousTimeOrigin);
-  await page.waitForLoadState("domcontentloaded");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect.poll(() => page.evaluate(() => performance.timeOrigin)).not.toBe(previousTimeOrigin);
 }

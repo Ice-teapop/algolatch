@@ -21,6 +21,7 @@ import {
   SEATBELT_CANARY_SENTINEL,
   SystemCapabilityProbe,
   SystemSeatbeltCanary,
+  TOOLCHAIN_PROBE_TIMEOUT_MS,
   classifyClangVersion,
   detectSupportedWindowsToolchain,
   parseRunnerMode,
@@ -70,6 +71,18 @@ describe("Apple clang capability", () => {
     expect(parseRunnerMode("seatbelt-best-effort", unavailable)).toBe("disabled");
     expect(parseRunnerMode("trusted-only", unavailable)).toBe("disabled");
     expect(unavailable).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps a bounded hosted-runner discovery timeout fail-closed", () => {
+    const timedOut = Object.freeze({
+      available: false,
+      detail: `工具链不可用/未验证：macOS SDK 探测失败（timeout>${String(
+        TOOLCHAIN_PROBE_TIMEOUT_MS,
+      )}ms）。`,
+    });
+
+    expect(TOOLCHAIN_PROBE_TIMEOUT_MS).toBe(10_000);
+    expect(parseRunnerMode("seatbelt-best-effort", () => timedOut)).toBe("disabled");
   });
 
   it("preserves valid requested modes with a verified toolchain", () => {

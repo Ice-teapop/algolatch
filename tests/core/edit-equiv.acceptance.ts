@@ -255,7 +255,10 @@ async function assertRunnerReady(
   sampleName: string,
 ): Promise<void> {
   const capabilities = await runner.capabilities();
-  expect(capabilities, `${sampleName} runner capabilities`).toMatchObject({
+  expect(
+    capabilities,
+    `${sampleName} runner capabilities: ${JSON.stringify(capabilities)}`,
+  ).toMatchObject({
     mode: "seatbelt-best-effort",
     runnerEnabled: true,
     requiresNativeTrustConfirmation: false,

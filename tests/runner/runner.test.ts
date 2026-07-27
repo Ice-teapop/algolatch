@@ -593,6 +593,10 @@ describe("Runner sample verification path", () => {
           join(specification.cwd, "program"),
         ]);
         expect(specification.env).not.toHaveProperty("MallocStackLogging");
+        expect(specification.env).toMatchObject({
+          DEVELOPER_DIR: DEFAULT_DEVELOPER_ROOT,
+        });
+        expect(host.specifications[0]?.env).not.toHaveProperty("DEVELOPER_DIR");
         expect(specification.args).not.toContain("leaks-runner.sh");
         queueMicrotask(() => {
           child.emitStderr(leaksReport);

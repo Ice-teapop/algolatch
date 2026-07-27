@@ -153,7 +153,12 @@ export function createFoaTransitionStageTraceController(
       traceState.status === "truncated" ||
       traceState.status === "unsupported"
     ) {
-      publish(failedState(traceState.status, traceState.eventCount));
+      publish(
+        failedState(
+          traceState.error?.code ?? traceState.unsupported?.code ?? traceState.status,
+          traceState.eventCount,
+        ),
+      );
     }
   }
 

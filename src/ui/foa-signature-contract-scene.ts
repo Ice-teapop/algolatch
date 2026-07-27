@@ -416,6 +416,10 @@ export function createFoaSignatureContractScene(
       state.confirmedCount >= 4 ? "verified" : activeIndex >= 2 ? "current" : "pending";
     heading.dataset.status = state.completed ? "valid" : "checking";
     heading.title = state.completed ? copy.valid : activeRouteLabel;
+    // Step copy can wrap differently at intermediate widths, changing the
+    // canvas height and re-centering every port. Recompute in the same state
+    // update so routes never spend a frame attached to the previous geometry.
+    layoutRoutes();
     requestLayout();
   }
 
@@ -663,6 +667,7 @@ export function createFoaSignatureContractScene(
 
   function layoutRoutes(): void {
     if (destroyed || !root.isConnected) return;
+    if (!routeGeometryAvailable()) return;
     const canvasRect = canvas.getBoundingClientRect();
     const width = Math.max(canvas.clientWidth, canvas.scrollWidth, canvasRect.width);
     const height = Math.max(canvas.clientHeight, canvas.scrollHeight, canvasRect.height);
@@ -676,6 +681,23 @@ export function createFoaSignatureContractScene(
       const end = center(target, canvasRect);
       routePaths[index]!.setAttribute("d", authoredCurve(route, start, end, canvasRect));
     });
+  }
+
+  function routeGeometryAvailable(): boolean {
+    if (typeof canvas.getBoundingClientRect !== "function") return false;
+    for (const endpoint of endpoints.values()) {
+      if (
+        typeof endpoint.root.getBoundingClientRect !== "function" ||
+        typeof endpoint.row.closest !== "function"
+      ) {
+        return false;
+      }
+      const stationRoot = endpoint.row.closest<HTMLElement>(".foa-signature-contract__station");
+      if (stationRoot === null || typeof stationRoot.getBoundingClientRect !== "function") {
+        return false;
+      }
+    }
+    return true;
   }
 
   function authoredCurve(

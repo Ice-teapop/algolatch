@@ -80,9 +80,23 @@ test("explicitly upgrades courses 63, 70, 75 and 80 with bounded real Trace evid
       await expect(verify).toHaveText("验证真实 Trace");
       await verify.click();
 
-      await expect(prototype).toHaveAttribute("data-trace-status", "verified", {
-        timeout: 30_000,
-      });
+      await expect
+        .poll(async () => (await prototype.getAttribute("data-trace-status")) ?? "missing", {
+          timeout: 30_000,
+        })
+        .toMatch(/^(?:verified|failed)$/u);
+      const terminalStatus = await prototype.getAttribute("data-trace-status");
+      if (terminalStatus !== "verified") {
+        const failureCode =
+          (await prototype.getAttribute("data-trace-failure")) ?? "missing-failure-code";
+        const traceMessage =
+          (
+            await prototype.locator(".foa-transition-prototype__trace-message").textContent()
+          )?.trim() ?? "missing-trace-message";
+        throw new Error(
+          `course ${String(order)} real Trace failed: ${failureCode}; ${traceMessage}`,
+        );
+      }
       await expect(prototype).toHaveAttribute("data-provenance", "real-trace");
       await expect(prototype).toHaveAttribute("data-model-provenance", "real-trace");
       await expect(prototype).not.toHaveAttribute("data-trace-failure", /.+/u);

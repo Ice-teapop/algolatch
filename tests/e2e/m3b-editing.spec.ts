@@ -211,7 +211,7 @@ test("turns deleted inline required bodies into semicolons and disables unsafe s
   expect(await editorText()).toContain("if (ready) ; else second();");
 });
 
-test("moves adjacent statements with buttons and supports a real drag while rejecting unsafe drops", async () => {
+test("moves adjacent statements with buttons and native drag events while rejecting unsafe drops", async () => {
   const buttonSource = [
     "int value(void) {",
     "  a();",
@@ -255,7 +255,11 @@ test("moves adjacent statements with buttons and supports a real drag while reje
   const c = draggableStatement("expression_statement", "c();");
   await expect(b).toHaveAttribute("draggable", "true");
   await showDock("工作区");
-  await b.dragTo(c);
+  // Playwright's mouse-driven drag gesture can occasionally finish without a
+  // native HTML5 drop on a loaded CI host. Dispatch the browser's exact
+  // DragEvent/DataTransfer contract so this assertion deterministically tests
+  // the production block-tree handlers rather than pointer timing.
+  await dispatchExactStatementDrag(b, c);
   await confirmVisibleDiff();
   const swapped = dragSource
     .replace("  // B lead\n  b(); // B tail", "__B__")

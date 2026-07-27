@@ -22,6 +22,7 @@ export interface ResizableLayoutSnapshot {
 export interface ResizableLayoutOptions {
   readonly axis: ResizableLayoutAxis;
   readonly panes: readonly ResizablePaneDefinition[];
+  readonly overflowFillPaneId?: string | undefined;
   readonly keyboardStep?: number | undefined;
   readonly localeHost?: HTMLElement | undefined;
   readonly onResize?:
@@ -66,6 +67,8 @@ interface ActiveResize {
 }
 
 const DEFAULT_KEYBOARD_STEP = 8;
+// Kept in sync with .resizable-layout__splitter in flow-detail-layout.css.
+const SPLITTER_SIZE_PX = 10;
 
 export function createResizableLayout(
   host: HTMLElement,
@@ -82,6 +85,10 @@ export function createResizableLayout(
     size: clampPaneSize(definition.initialSize, definition),
   }));
   const keyboardStep = options.keyboardStep ?? DEFAULT_KEYBOARD_STEP;
+  const overflowFillPaneIndex =
+    options.overflowFillPaneId === undefined
+      ? -1
+      : panes.findIndex((pane) => pane.definition.id === options.overflowFillPaneId);
   const splitters: MountedSplitter[] = [];
   let activeResize: ActiveResize | null = null;
   let destroyed = false;
@@ -94,7 +101,12 @@ export function createResizableLayout(
   host.replaceChildren();
 
   for (const [index, pane] of panes.entries()) {
-    preparePane(pane, options.axis, index === panes.length - 1);
+    preparePane(
+      pane,
+      options.axis,
+      index === panes.length - 1,
+      index === overflowFillPaneIndex ? panes.at(-1)?.definition.maxSize : undefined,
+    );
     host.append(pane.element);
     if (index < panes.length - 1) {
       const splitter = ownerDocument.createElement("div");
@@ -112,11 +124,69 @@ export function createResizableLayout(
       );
       splitter.title = splitterPointerTitle(currentLocale());
       splitter.setAttribute("aria-controls", pane.element.id || pane.definition.id);
-      updateSplitterAria(splitter, pane);
+      updateSplitterAria(splitter, pane.size, pane.definition.minSize, pane.definition.maxSize);
       host.append(splitter);
       splitters.push({ paneIndex: index, element: splitter });
     }
   }
+
+  const effectivePaneBounds = (
+    paneIndex: number,
+  ): Readonly<{ minimum: number; maximum: number }> => {
+    const pane = panes[paneIndex];
+    if (pane === undefined) return Object.freeze({ minimum: 0, maximum: 0 });
+    if (paneIndex !== overflowFillPaneIndex) {
+      return Object.freeze({
+        minimum: pane.definition.minSize,
+        maximum: pane.definition.maxSize,
+      });
+    }
+    const hostSize = options.axis === "horizontal" ? host.clientWidth : host.clientHeight;
+    const reservedSize =
+      panes.reduce(
+        (total, candidate, index) =>
+          index === overflowFillPaneIndex ? total : total + candidate.definition.maxSize,
+        0,
+      ) +
+      SPLITTER_SIZE_PX * splitters.length;
+    const minimum = Math.max(pane.definition.minSize, hostSize - reservedSize);
+    return Object.freeze({
+      minimum,
+      maximum: Math.max(pane.definition.maxSize, minimum),
+    });
+  };
+
+  const controlledPaneSize = (paneIndex: number): number => {
+    const pane = panes[paneIndex];
+    if (pane === undefined) return 0;
+    return paneIndex === overflowFillPaneIndex ? renderedPaneSize(pane, options.axis) : pane.size;
+  };
+
+  const updateMountedSplitterAria = (splitter: MountedSplitter): void => {
+    const pane = panes[splitter.paneIndex];
+    if (pane === undefined) return;
+    const bounds = effectivePaneBounds(splitter.paneIndex);
+    updateSplitterAria(
+      splitter.element,
+      controlledPaneSize(splitter.paneIndex),
+      bounds.minimum,
+      bounds.maximum,
+    );
+  };
+
+  const updateOverflowSplitterAria = (): void => {
+    const splitter = splitters.find((candidate) => candidate.paneIndex === overflowFillPaneIndex);
+    if (splitter !== undefined) updateMountedSplitterAria(splitter);
+  };
+
+  const ResizeObserverConstructor = ownerDocument.defaultView?.ResizeObserver;
+  const resizeObserver =
+    ResizeObserverConstructor === undefined
+      ? undefined
+      : new ResizeObserverConstructor(() => {
+          if (!destroyed) updateOverflowSplitterAria();
+        });
+  resizeObserver?.observe(host);
 
   const snapshot = (): ResizableLayoutSnapshot =>
     createResizableLayoutSnapshot(
@@ -130,7 +200,7 @@ export function createResizableLayout(
     const dimension = `${String(pane.size)}px`;
     pane.element.style.flexBasis = dimension;
     const splitter = splitters.find((candidate) => candidate.paneIndex === paneIndex);
-    if (splitter !== undefined) updateSplitterAria(splitter.element, pane);
+    if (splitter !== undefined) updateMountedSplitterAria(splitter);
   };
 
   const setPaneSize = (
@@ -140,8 +210,22 @@ export function createResizableLayout(
   ): boolean => {
     const pane = panes[paneIndex];
     if (pane === undefined) return false;
-    const nextSize = clampPaneSize(requestedSize, pane.definition);
-    if (nextSize === pane.size) return false;
+    const useEffectiveBounds = reason === "drag" || reason === "keyboard";
+    const bounds = useEffectiveBounds
+      ? effectivePaneBounds(paneIndex)
+      : Object.freeze({
+          minimum: pane.definition.minSize,
+          maximum: pane.definition.maxSize,
+        });
+    const nextSize = clampNumber(requestedSize, bounds.minimum, bounds.maximum);
+    if (
+      useEffectiveBounds &&
+      paneIndex === overflowFillPaneIndex &&
+      nearlyEqual(nextSize, renderedPaneSize(pane, options.axis))
+    ) {
+      return false;
+    }
+    if (nearlyEqual(nextSize, pane.size)) return false;
     pane.size = nextSize;
     applyPane(paneIndex);
     options.onResize?.(snapshot(), reason);
@@ -159,7 +243,7 @@ export function createResizableLayout(
       pointerId: event.pointerId,
       paneIndex: splitter.paneIndex,
       originCoordinate: pointerCoordinate(event, options.axis),
-      originSize: pane.size,
+      originSize: controlledPaneSize(splitter.paneIndex),
     };
     splitter.element.classList.add("is-resizing");
     host.classList.add("is-resizing");
@@ -199,13 +283,14 @@ export function createResizableLayout(
     if (splitter === undefined) return;
     const pane = panes[splitter.paneIndex];
     if (pane === undefined) return;
+    const bounds = effectivePaneBounds(splitter.paneIndex);
     const resolution = resolveSplitterKeyboardSize({
       axis: options.axis,
       key: event.key,
-      currentSize: pane.size,
+      currentSize: controlledPaneSize(splitter.paneIndex),
       initialSize: pane.definition.initialSize,
-      minSize: pane.definition.minSize,
-      maxSize: pane.definition.maxSize,
+      minSize: bounds.minimum,
+      maxSize: bounds.maximum,
       step: event.shiftKey ? keyboardStep * 4 : keyboardStep,
     });
     if (!resolution.handled) return;
@@ -283,6 +368,7 @@ export function createResizableLayout(
       ownerDocument.removeEventListener("pointercancel", finishPointerResize);
       ownerDocument.defaultView?.removeEventListener("blur", onWindowBlur);
       localeHost.removeEventListener("workbench-locale-change", onLocaleChange);
+      resizeObserver?.disconnect();
       for (const splitter of splitters) splitter.element.remove();
       for (const pane of panes) clearPanePreparation(pane.element, options.axis);
     },
@@ -351,18 +437,29 @@ export function createResizableLayoutSnapshot(
   });
 }
 
-function preparePane(pane: MountedPane, axis: ResizableLayoutAxis, last: boolean): void {
+function preparePane(
+  pane: MountedPane,
+  axis: ResizableLayoutAxis,
+  flexGrow: boolean,
+  overflowSiblingMaximum: number | undefined,
+): void {
   pane.element.classList.add("resizable-layout__pane");
   pane.element.dataset.resizablePaneId = pane.definition.id;
   pane.element.style.overflow = "auto";
-  pane.element.style.flexGrow = last ? "1" : "0";
+  pane.element.style.flexGrow = flexGrow ? "1" : "0";
   pane.element.style.flexShrink = "1";
   pane.element.style.flexBasis = `${String(pane.size)}px`;
+  const responsiveMinimum =
+    overflowSiblingMaximum === undefined
+      ? "0"
+      : `max(${String(pane.definition.minSize)}px, calc(100% - ${String(
+          overflowSiblingMaximum + SPLITTER_SIZE_PX,
+        )}px))`;
   if (axis === "horizontal") {
-    pane.element.style.minWidth = "0";
+    pane.element.style.minWidth = responsiveMinimum;
     pane.element.style.maxWidth = `${String(pane.definition.maxSize)}px`;
   } else {
-    pane.element.style.minHeight = "0";
+    pane.element.style.minHeight = responsiveMinimum;
     pane.element.style.maxHeight = `${String(pane.definition.maxSize)}px`;
   }
 }
@@ -378,10 +475,15 @@ function clearPanePreparation(element: HTMLElement, axis: ResizableLayoutAxis): 
   element.style.removeProperty(axis === "horizontal" ? "max-width" : "max-height");
 }
 
-function updateSplitterAria(splitter: HTMLElement, pane: MountedPane): void {
-  splitter.setAttribute("aria-valuemin", String(pane.definition.minSize));
-  splitter.setAttribute("aria-valuemax", String(pane.definition.maxSize));
-  splitter.setAttribute("aria-valuenow", String(pane.size));
+function updateSplitterAria(
+  splitter: HTMLElement,
+  current: number,
+  minimum: number,
+  maximum: number,
+): void {
+  splitter.setAttribute("aria-valuemin", String(minimum));
+  splitter.setAttribute("aria-valuemax", String(maximum));
+  splitter.setAttribute("aria-valuenow", String(current));
 }
 
 function splitterFromTarget(
@@ -397,6 +499,12 @@ function pointerCoordinate(event: PointerEvent, axis: ResizableLayoutAxis): numb
   return axis === "horizontal" ? event.clientX : event.clientY;
 }
 
+function renderedPaneSize(pane: MountedPane, axis: ResizableLayoutAxis): number {
+  const bounds = pane.element.getBoundingClientRect();
+  const renderedSize = axis === "horizontal" ? bounds.width : bounds.height;
+  return Number.isFinite(renderedSize) && renderedSize > 0 ? renderedSize : pane.size;
+}
+
 function clampPaneSize(size: number, definition: ResizablePaneDefinition): number {
   return clampNumber(size, definition.minSize, definition.maxSize);
 }
@@ -404,6 +512,10 @@ function clampPaneSize(size: number, definition: ResizablePaneDefinition): numbe
 function clampNumber(value: number, minimum: number, maximum: number): number {
   if (!Number.isFinite(value)) return minimum;
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function nearlyEqual(left: number, right: number): boolean {
+  return Math.abs(left - right) < 0.5;
 }
 
 function assertOptions(options: ResizableLayoutOptions): void {
@@ -427,6 +539,18 @@ function assertOptions(options: ResizableLayoutOptions): void {
       throw new RangeError(`pane ${pane.id} 的尺寸约束无效`);
     }
     ids.add(pane.id);
+  }
+  if (options.overflowFillPaneId !== undefined && !ids.has(options.overflowFillPaneId)) {
+    throw new RangeError("overflowFillPaneId 必须引用当前布局中的 pane");
+  }
+  if (
+    options.overflowFillPaneId !== undefined &&
+    options.panes.at(-1)?.id === options.overflowFillPaneId
+  ) {
+    throw new RangeError("overflowFillPaneId 不能引用最后一个弹性 pane");
+  }
+  if (options.overflowFillPaneId !== undefined && options.panes.length !== 2) {
+    throw new RangeError("overflowFillPaneId 当前仅支持双 pane 布局");
   }
   const step = options.keyboardStep ?? DEFAULT_KEYBOARD_STEP;
   if (!Number.isFinite(step) || step <= 0) throw new RangeError("keyboardStep 必须大于 0");

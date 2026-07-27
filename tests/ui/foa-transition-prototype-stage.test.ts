@@ -71,7 +71,9 @@ describe("FOA transition runtime prototype stage", () => {
     expect(traceApi.startTrace).toHaveBeenCalledTimes(1);
     expect(root.dataset.provenance).toBe("teaching-model");
     expect(root.dataset.traceStatus).toBe("failed");
+    expect(root.dataset.traceFailure).toBe("TRACE_UNSUPPORTED");
     expect(root.textContent).toContain("Evidence is incomplete or inconsistent");
+    expect(root.textContent).not.toContain("unsupported");
     stage.destroy();
   });
 
