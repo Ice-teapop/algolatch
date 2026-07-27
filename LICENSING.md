@@ -32,9 +32,9 @@ the license text included in that tagged source and distributed artifact.
 
 In particular, the public `v0.0.1`, `v0.0.2-preview.1`, and
 `v0.0.2-preview.2` versions were released under the MIT License and remain
-available under those terms. `v0.0.3-preview.1`, `v0.1.1-preview.1`, current
-`main`, and future versions use the license included with their own source and
-artifacts.
+available under those terms. `v0.0.3-preview.1`, `v0.1.1-preview.1`,
+`v0.1.1-preview.2`, current `main`, and future versions use the license included
+with their own source and artifacts.
 
 ## Third-party software
 

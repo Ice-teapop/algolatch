@@ -6,17 +6,17 @@ on:
     branches:
       - main
     paths:
-      - docs/releases/v0.1.1-preview.1.md
+      - docs/releases/v0.1.1-preview.2.md
 
 permissions:
   contents: read
 
 concurrency:
-  group: cross-platform-preview-v0.1.1-preview.1
+  group: cross-platform-preview-v0.1.1-preview.2
   cancel-in-progress: false
 
 env:
-  PREVIEW_TAG: v0.1.1-preview.1
+  PREVIEW_TAG: v0.1.1-preview.2
 
 jobs:
   build_macos:
@@ -63,6 +63,7 @@ jobs:
       - name: Run changed canvas, tutorial and AI window Electron regressions
         run: >-
           npx playwright test
+          tests/e2e/m6-m8-workbench.spec.ts
           tests/e2e/flow-canvas-readability.spec.ts
           tests/e2e/foa-tutorials-course.spec.ts
           tests/e2e/foa-runtime-visual-matrix.spec.ts

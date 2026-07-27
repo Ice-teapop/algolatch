@@ -9,6 +9,27 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 
 ## [Unreleased]
 
+## [0.1.1-preview.2] - 2026-07-28
+
+### Fixed
+
+- Removed the unexplained blank area below the workbench in tall windows by
+  letting the primary workspace absorb height left after the runtime pane
+  reaches its configured maximum.
+- Kept pointer and keyboard resizing aligned with the pane's rendered size,
+  including dynamic ARIA bounds and blocked reverse drags at the responsive
+  minimum.
+- Corrected the lesson-strip and workbench grid row ownership so hidden lesson
+  chrome no longer leaves an empty track.
+- Made the M6-M8 Electron regression load current Vite source and added a
+  `1600 × 1200` geometry check for the complete bottom edge.
+
+### Known issues
+
+- This remains an unsigned testing preview. Individual lessons may still
+  contain interaction, animation, responsive-layout, localization, or result
+  defects.
+
 ## [0.1.1-preview.1] - 2026-07-22
 
 ### Added

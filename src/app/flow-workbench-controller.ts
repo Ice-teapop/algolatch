@@ -1448,10 +1448,16 @@ function createWorkbenchLayouts(
       pane("left", elements.leftPane, 240, 150, 420),
       pane("work", elements.workArea, 980, 640, 2400),
     ]),
-    layout("work", elements.workArea, "vertical", [
-      pane("primary", elements.primaryWorkspace, 510, 320, 1400),
-      pane("bottom", elements.bottomPane, 250, 170, 620),
-    ]),
+    layout(
+      "work",
+      elements.workArea,
+      "vertical",
+      [
+        pane("primary", elements.primaryWorkspace, 510, 320, 1400),
+        pane("bottom", elements.bottomPane, 250, 170, 620),
+      ],
+      "primary",
+    ),
     layout("primary", elements.primaryWorkspace, "horizontal", [
       pane("center", elements.centerPane, 700, 420, 1800),
       pane("right", elements.rightPane, 340, 260, 760),
@@ -1476,10 +1482,12 @@ function createWorkbenchLayouts(
     host: HTMLElement,
     axis: "horizontal" | "vertical",
     panes: readonly ReturnType<typeof pane>[],
+    overflowFillPaneId?: string,
   ) {
     const controller = createResizableLayout(host, {
       axis,
       panes,
+      overflowFillPaneId,
       localeHost: elements.shell,
       onPersist(value) {
         onPersist(Object.freeze({ id, value }));

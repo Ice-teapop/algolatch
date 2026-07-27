@@ -1,6 +1,6 @@
 {
   "name": "c-block-algorithm-panel",
-  "version": "0.1.1-preview.1",
+  "version": "0.1.1-preview.2",
   "description": "AlgoLatch is a local, source-authoritative C algorithm learning and visual assembly workbench.",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",

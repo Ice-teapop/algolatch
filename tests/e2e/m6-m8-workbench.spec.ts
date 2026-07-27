@@ -27,6 +27,7 @@ let application: ElectronApplication | undefined;
 let page: Page;
 let workspaceRoot = "";
 let projectDirectory = "";
+const developmentServerPort = process.env.PANEL_E2E_PORT ?? "5173";
 
 test.describe.configure({ mode: "serial" });
 
@@ -44,6 +45,7 @@ test.beforeAll(async () => {
       ...inheritedEnvironment,
       PANEL_RUNNER_MODE: "trusted-only",
       PANEL_WORKSPACE_ROOT: workspaceRoot,
+      VITE_DEV_SERVER_URL: `http://127.0.0.1:${developmentServerPort}/`,
     },
   });
   page = await application.firstWindow();
@@ -276,6 +278,81 @@ test("keeps root scrolling locked while every meaningful region is independently
   expect(scrolling.codeOverflow).toBe("auto");
   expect(scrolling.codeScrollTop).toBe(0);
   expect(scrolling.canvasOverflow).toBe("hidden");
+});
+
+test("fills a tall workspace after restoring a compact primary pane", async () => {
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
+  const primarySplitter = page.locator(
+    "#work-area > .resizable-layout__splitter[data-splitter-for='primary']",
+  );
+  const originalViewport = await page.evaluate(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
+
+  await primarySplitter.focus();
+  await page.keyboard.press("Home");
+  await expect(primarySplitter).toHaveAttribute("aria-valuenow", "320");
+  await page.setViewportSize({ width: 1600, height: 1200 });
+
+  try {
+    await expect(page.locator("#workspace-lesson-strip")).toBeHidden();
+    const bounds = await page.evaluate(() => {
+      const rectangle = (selector: string) => {
+        const element = document.querySelector<HTMLElement>(selector);
+        if (element === null) throw new Error(`缺少布局节点：${selector}`);
+        const value = element.getBoundingClientRect();
+        return Object.freeze({ top: value.top, bottom: value.bottom, height: value.height });
+      };
+      return Object.freeze({
+        viewportBottom: window.innerHeight,
+        pages: rectangle("#workbench-pages"),
+        buildPanel: rectangle("#build-panel"),
+        buildHost: rectangle("#build-host"),
+        layout: rectangle("#build-layout"),
+        workArea: rectangle("#work-area"),
+        bottomPane: rectangle("#bottom-pane"),
+        runtimeGrid: rectangle(".runtime-grid"),
+      });
+    });
+
+    expect(bounds.pages.bottom).toBeCloseTo(bounds.viewportBottom, 0);
+    expect(bounds.buildPanel.bottom).toBeCloseTo(bounds.pages.bottom, 0);
+    expect(bounds.buildHost.bottom).toBeCloseTo(bounds.buildPanel.bottom, 0);
+    expect(bounds.layout.bottom).toBeCloseTo(bounds.pages.bottom, 0);
+    expect(bounds.workArea.bottom).toBeCloseTo(bounds.layout.bottom, 0);
+    expect(bounds.bottomPane.bottom).toBeCloseTo(bounds.workArea.bottom, 0);
+    expect(bounds.runtimeGrid.bottom).toBeCloseTo(bounds.bottomPane.bottom, 0);
+    expect(bounds.bottomPane.height).toBeCloseTo(620, 0);
+
+    const splitterBefore = await primarySplitter.boundingBox();
+    if (splitterBefore === null) throw new Error("工作区纵向分隔线不可见");
+    await page.mouse.move(
+      splitterBefore.x + splitterBefore.width / 2,
+      splitterBefore.y + splitterBefore.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      splitterBefore.x + splitterBefore.width / 2,
+      splitterBefore.y + splitterBefore.height / 2 - 40,
+      { steps: 4 },
+    );
+    await page.mouse.up();
+    const splitterAfterBlockedDrag = await primarySplitter.boundingBox();
+    if (splitterAfterBlockedDrag === null) {
+      throw new Error("工作区纵向分隔线钳制后不可见");
+    }
+    expect(splitterAfterBlockedDrag.y).toBeCloseTo(splitterBefore.y, 0);
+
+    await primarySplitter.focus();
+    await page.keyboard.press("ArrowDown");
+    const splitterAfter = await primarySplitter.boundingBox();
+    if (splitterAfter === null) throw new Error("工作区纵向分隔线调整后不可见");
+    expect(splitterAfter.y - splitterBefore.y).toBeCloseTo(8, 0);
+    await page.keyboard.press("Home");
+  } finally {
+    await page.setViewportSize(originalViewport);
+  }
 });
 
 test("lets Canvas Focus consume the full workbench height", async () => {
