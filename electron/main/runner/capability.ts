@@ -27,7 +27,13 @@ const TRUSTED_DEVELOPER_ROOT_CANDIDATES = Object.freeze([
   "/Library/Developer/CommandLineTools",
 ]);
 const TRUSTED_DEVELOPER_ROOTS = resolveCanonicalDeveloperRoots(TRUSTED_DEVELOPER_ROOT_CANDIDATES);
-const PROBE_TIMEOUT_MS = 1_500;
+/**
+ * Hosted macOS runners can take more than 1.5 seconds to resolve an Xcode SDK
+ * while under load. Keep this bounded, but give the single fail-closed probe
+ * enough time to finish instead of caching a transient timeout as unavailable.
+ */
+export const TOOLCHAIN_PROBE_TIMEOUT_MS = 10_000;
+const WINDOWS_TOOLCHAIN_PROBE_TIMEOUT_MS = 1_500;
 const CANARY_COMPILE_TIMEOUT_MS = 10_000;
 const CANARY_RUN_TIMEOUT_MS = 10_000;
 const CANARY_FILE_MODE = 0o600;
@@ -477,13 +483,13 @@ export function detectSupportedAppleClang(): ToolchainProbeResult {
     encoding: "utf8",
     env: minimalProbeEnvironment(),
     shell: false,
-    timeout: PROBE_TIMEOUT_MS,
+    timeout: TOOLCHAIN_PROBE_TIMEOUT_MS,
     windowsHide: true,
   });
   if (result.error !== undefined || result.status !== 0) {
     return Object.freeze({
       available: false,
-      detail: "工具链不可用/未验证：无法执行 /usr/bin/clang --version。",
+      detail: `工具链不可用/未验证：系统 clang 版本探测失败（${probeCommandFailureReason(result)}）。`,
     });
   }
   const gate = classifyClangVersion(`${result.stdout ?? ""}${result.stderr ?? ""}`);
@@ -511,17 +517,16 @@ export function detectSupportedAppleClang(): ToolchainProbeResult {
       encoding: "utf8",
       env: minimalProbeEnvironment(),
       shell: false,
-      timeout: PROBE_TIMEOUT_MS,
+      timeout: TOOLCHAIN_PROBE_TIMEOUT_MS,
       windowsHide: true,
     });
     const resolvedGate = classifyClangVersion(
       `${resolvedVersion.stdout ?? ""}${resolvedVersion.stderr ?? ""}`,
     );
-    if (
-      resolvedVersion.error !== undefined ||
-      resolvedVersion.status !== 0 ||
-      !resolvedGate.available
-    ) {
+    if (resolvedVersion.error !== undefined || resolvedVersion.status !== 0) {
+      throw new Error(`clang 版本复核失败（${probeCommandFailureReason(resolvedVersion)}）。`);
+    }
+    if (!resolvedGate.available) {
       throw new Error("xcrun 返回的 clang 不在受支持版本范围。 ");
     }
     const initialMajor = appleClangMajor(gate.detail);
@@ -617,7 +622,7 @@ export function detectSupportedWindowsToolchain(
       encoding: "utf8",
       env: minimalWindowsProbeEnvironment(join(canonicalRoot, "toolchain", "bin")),
       shell: false,
-      timeout: PROBE_TIMEOUT_MS,
+      timeout: WINDOWS_TOOLCHAIN_PROBE_TIMEOUT_MS,
       windowsHide: true,
     });
     const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
@@ -841,11 +846,11 @@ function resolveTrustedCommandPath(
     encoding: "utf8",
     env: minimalProbeEnvironment(),
     shell: false,
-    timeout: PROBE_TIMEOUT_MS,
+    timeout: TOOLCHAIN_PROBE_TIMEOUT_MS,
     windowsHide: true,
   });
   if (result.error !== undefined || result.status !== 0) {
-    throw new Error(`无法通过 ${command} 解析${label}。`);
+    throw new Error(`${label}探测失败（${probeCommandFailureReason(result)}）。`);
   }
   const output = String(result.stdout ?? "").trim();
   if (output.length === 0 || output.includes("\0") || output.includes("\n")) {
@@ -861,6 +866,21 @@ function resolveTrustedCommandPath(
     throw new Error(`${label}不在受信 Developer root。`);
   }
   return resolvedPath;
+}
+
+function probeCommandFailureReason(
+  result: Pick<ReturnType<typeof spawnSync>, "error" | "signal" | "status">,
+): string {
+  if (result.error !== undefined) {
+    const code = (result.error as NodeJS.ErrnoException).code;
+    return code === "ETIMEDOUT"
+      ? `timeout>${String(TOOLCHAIN_PROBE_TIMEOUT_MS)}ms`
+      : code === undefined
+        ? "spawn-error"
+        : `spawn:${code}`;
+  }
+  if (result.signal !== null) return `signal:${result.signal}`;
+  return `exit:${String(result.status)}`;
 }
 
 function trustedDeveloperRoot(path: string): string | undefined {
