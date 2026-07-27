@@ -569,8 +569,33 @@ export function createFoaSemanticScene(
   function layoutEdges(): void {
     if (destroyed || !root.isConnected) return;
     const diagramRect = diagram.getBoundingClientRect();
-    const contentWidth = Math.max(diagram.clientWidth, diagram.scrollWidth, diagramRect.width);
-    const contentHeight = Math.max(diagram.clientHeight, diagram.scrollHeight, diagramRect.height);
+    const matrixSvgStyle =
+      profile.matrixCase !== undefined
+        ? (svg as SVGSVGElement & { readonly style?: CSSStyleDeclaration }).style
+        : undefined;
+    if (matrixSvgStyle !== undefined) {
+      // The classic macOS scrollbar reduces the diagram's client box. Measuring
+      // the previous pixel-sized SVG against the border box feeds that gutter
+      // back into both axes and creates an artificial 11 px overflow.
+      matrixSvgStyle.width = "0px";
+      matrixSvgStyle.height = "0px";
+    }
+    const contentWidth =
+      profile.matrixCase === undefined
+        ? Math.max(diagram.clientWidth, diagram.scrollWidth, diagramRect.width)
+        : Math.max(
+            diagram.clientWidth,
+            diagram.scrollWidth,
+            diagram.clientWidth === 0 ? diagramRect.width : 0,
+          );
+    const contentHeight =
+      profile.matrixCase === undefined
+        ? Math.max(diagram.clientHeight, diagram.scrollHeight, diagramRect.height)
+        : Math.max(
+            diagram.clientHeight,
+            diagram.scrollHeight,
+            diagram.clientHeight === 0 ? diagramRect.height : 0,
+          );
     svg.setAttribute("viewBox", `0 0 ${String(contentWidth)} ${String(contentHeight)}`);
     svg.setAttribute("width", String(contentWidth));
     svg.setAttribute("height", String(contentHeight));

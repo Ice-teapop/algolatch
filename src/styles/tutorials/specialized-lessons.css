@@ -92,7 +92,7 @@
 }
 
 .foa-matrix-scene {
-  grid-template-rows: 42px minmax(104px, 0.9fr) minmax(150px, 1.1fr);
+  grid-template-rows: 42px minmax(104px, 1.1fr) minmax(150px, 0.9fr);
 }
 
 .foa-pointer-alias-scene[data-scene-kind="pointer"] .foa-semantic-scene__diagram,
