@@ -568,6 +568,13 @@ export function createFoaSemanticScene(
 
   function layoutEdges(): void {
     if (destroyed || !root.isConnected) return;
+    // The matrix scene's absolute SVG must not contribute its previous dimensions
+    // to the next scroll measurement. Classic scrollbars otherwise create an
+    // 11 px width/height feedback loop even when every node fits the diagram.
+    if (profile.matrixCase !== undefined) {
+      svg.style.width = "0px";
+      svg.style.height = "0px";
+    }
     const diagramRect = diagram.getBoundingClientRect();
     const contentWidth = Math.max(diagram.clientWidth, diagram.scrollWidth, diagramRect.width);
     const contentHeight = Math.max(diagram.clientHeight, diagram.scrollHeight, diagramRect.height);
