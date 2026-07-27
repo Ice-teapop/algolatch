@@ -1255,6 +1255,19 @@ export class Runner {
     seatbeltProfile: string,
     seatbeltParameters: Readonly<Record<string, string>> = Object.freeze({}),
   ): SpawnSpecification {
+    const baseEnvironment = minimalEnvironment(
+      workDirectory,
+      this.#platform,
+      this.#toolchainRootPath,
+    );
+    // Hosted macOS runners select Xcode through /var/select/developer_dir.
+    // leaks consults xcode-select during startup, but the runner has already
+    // resolved and validated a canonical Developer root. Supplying that exact
+    // value avoids granting the runtime profile access to /var/select.
+    const environment =
+      targetCommand === LEAKS_PATH
+        ? Object.freeze({ ...baseEnvironment, DEVELOPER_DIR: this.#developerRootPath })
+        : baseEnvironment;
     if (this.#platform === "win32") {
       if (strategy !== "trusted" || this.#jobHostPath === undefined) {
         throw new RunnerFailure(
@@ -1279,7 +1292,7 @@ export class Runner {
           ...targetArguments,
         ]),
         cwd: workDirectory,
-        env: minimalEnvironment(workDirectory, this.#platform, this.#toolchainRootPath),
+        env: environment,
         detached: true,
         shell: false,
         resourceMetricsPath,
@@ -1314,7 +1327,7 @@ export class Runner {
       command,
       args: Object.freeze(args),
       cwd: workDirectory,
-      env: minimalEnvironment(workDirectory, this.#platform, this.#toolchainRootPath),
+      env: environment,
       detached: true,
       shell: false,
     });
