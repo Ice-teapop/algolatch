@@ -100,6 +100,10 @@
   padding-block: 14px;
 }
 
+.foa-matrix-scene[data-scene-kind="matrix"] .foa-semantic-scene__diagram {
+  grid-template-columns: repeat(4, minmax(0, 190px));
+}
+
 .foa-pointer-alias-scene[data-scene-kind="pointer"] .foa-semantic-scene__node[data-index],
 .foa-matrix-scene[data-scene-kind="matrix"] .foa-semantic-scene__node[data-index] {
   grid-row: 1;

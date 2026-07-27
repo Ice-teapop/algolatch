@@ -416,6 +416,10 @@ export function createFoaSignatureContractScene(
       state.confirmedCount >= 4 ? "verified" : activeIndex >= 2 ? "current" : "pending";
     heading.dataset.status = state.completed ? "valid" : "checking";
     heading.title = state.completed ? copy.valid : activeRouteLabel;
+    // Step copy can wrap differently at intermediate widths, changing the
+    // canvas height and re-centering every port. Recompute in the same state
+    // update so routes never spend a frame attached to the previous geometry.
+    layoutRoutes();
     requestLayout();
   }
 
