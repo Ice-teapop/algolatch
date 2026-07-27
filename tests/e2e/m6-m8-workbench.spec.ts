@@ -258,6 +258,7 @@ test("keeps root scrolling locked while every meaningful region is independently
     if (palette === null || code === null || canvas === null) {
       throw new Error("独立滚动区域未挂载");
     }
+    const codeScrollTopBefore = code.scrollTop;
     palette.scrollTop = 120;
     return {
       rootLocked:
@@ -267,7 +268,8 @@ test("keeps root scrolling locked while every meaningful region is independently
       paletteScrollable: palette.scrollHeight > palette.clientHeight,
       paletteScrollTop: palette.scrollTop,
       codeOverflow: getComputedStyle(code).overflowY,
-      codeScrollTop: code.scrollTop,
+      codeScrollTopBefore,
+      codeScrollTopAfter: code.scrollTop,
       canvasOverflow: getComputedStyle(canvas).overflow,
     };
   });
@@ -276,7 +278,7 @@ test("keeps root scrolling locked while every meaningful region is independently
   expect(scrolling.paletteScrollable).toBe(true);
   expect(scrolling.paletteScrollTop).toBeGreaterThan(0);
   expect(scrolling.codeOverflow).toBe("auto");
-  expect(scrolling.codeScrollTop).toBe(0);
+  expect(scrolling.codeScrollTopAfter).toBe(scrolling.codeScrollTopBefore);
   expect(scrolling.canvasOverflow).toBe("hidden");
 });
 

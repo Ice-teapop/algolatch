@@ -164,10 +164,10 @@
   font-size: 10px;
 }
 
-.tutorials-module__stage {
+.tutorials-module > .tutorials-module__stage {
   overflow: hidden;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
 }
 
 .tutorials-module__stage-host {
