@@ -454,6 +454,12 @@ includes(installedDmgGate, "mountDmgArguments(dmgPath, mountPoint)", "verify-ins
 includes(installedDmgGate, "await detachMountedDmg(mountPoint)", "verify-installed-dmg");
 includes(installedDmgGate, "executablePath,", "verify-installed-dmg");
 includes(installedDmgGate, 'locator("#startup-loader")', "verify-installed-dmg");
+includes(installedDmgGate, 'locator("#main-source-tab")', "verify-installed-dmg");
+includes(
+  installedDmgGate,
+  "locator('#code-pane [role=\"textbox\"][aria-label]')",
+  "verify-installed-dmg",
+);
 includes(installedDmgGate, 'querySelector("#dashboard-panel")', "verify-installed-dmg");
 includes(installedDmgGate, 'querySelector("#parser-status")', "verify-installed-dmg");
 includes(installedDmgGate, 'PANEL_INSTALLED_DMG_GATE: "1"', "verify-installed-dmg");

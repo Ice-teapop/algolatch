@@ -209,7 +209,8 @@ try {
   await create.locator('button[type="submit"]').click();
   const source =
     "int main(void) {\n  int value = 1;\n  value++;\n  return value == 2 ? 0 : 1;\n}\n";
-  const editor = page.locator(".cm-content");
+  await page.locator("#main-source-tab").click();
+  const editor = page.locator('#code-pane [role="textbox"][aria-label]');
   await editor.click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText(source);
