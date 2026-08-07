@@ -599,6 +599,13 @@ test("collapses the overview inside a short canvas instead of covering the toolb
 });
 
 test("keeps the overview pinned to the canvas bottom-right through pan and zoom", async () => {
+  // The preceding indentation check submits two source revisions in quick succession. On a busy
+  // CI runner the canvas can briefly sit between those projections even after the text is restored.
+  await showSourceEditor(page);
+  await expect(page.locator("#parser-status")).toHaveAttribute("data-analysis-state", "complete");
+  await showFlowCanvas(page);
+  await expect.poll(() => page.locator(".flow-node__port").count()).toBeGreaterThan(0);
+
   const positions = await page.evaluate(async () => {
     const host = document.querySelector<HTMLElement>(".flow-canvas-host");
     const canvas = document.querySelector<HTMLElement>(".flow-canvas");

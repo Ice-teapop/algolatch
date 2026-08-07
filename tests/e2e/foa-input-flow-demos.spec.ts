@@ -23,6 +23,41 @@ const LINEAR_LESSON_ID = "tutorial.foa.c01.l002";
 const BRANCH_LESSON_ID = "tutorial.foa.c03.l016";
 const LOOP_LESSON_ID = "tutorial.foa.c04.l022";
 
+async function startAndPauseActiveTransport(demo: Locator): Promise<number | null> {
+  return demo.evaluate(async (root) => {
+    const playPause = root.querySelector<HTMLButtonElement>("[data-flow-control='play-pause']");
+    const movingValue = root.querySelector<HTMLElement>("[data-flow-value-id='runtime-value']");
+    const frame = root.querySelector<HTMLElement>("[data-flow-frame]");
+    if (playPause === null || movingValue === null || frame === null) return null;
+
+    playPause.click();
+    return new Promise<number | null>((resolve) => {
+      const deadline = performance.now() + 4_000;
+      const pauseWhenRunning = (): void => {
+        const running = movingValue
+          .getAnimations()
+          .find((animation) => animation.playState === "running");
+        if (running !== undefined) {
+          // Keep discovery and the real UI action in one renderer task. Otherwise a slow CI
+          // round-trip can let this 480 ms transition commit before Playwright clicks Pause.
+          playPause.click();
+          const paused = movingValue
+            .getAnimations()
+            .find((animation) => animation.playState === "paused");
+          resolve(paused === undefined ? null : Number(frame.dataset.frameIndex));
+          return;
+        }
+        if (performance.now() >= deadline) {
+          resolve(null);
+          return;
+        }
+        setTimeout(pauseWhenRunning, 8);
+      };
+      pauseWhenRunning();
+    });
+  });
+}
+
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
@@ -200,12 +235,9 @@ test("pauses and resumes the in-flight value transport without committing early"
 
   await expect(demo).toHaveAttribute("data-run-state", "ready");
 
-  await playPause.click();
-  await expect(playPause).toHaveAttribute("aria-pressed", "true");
-  await expect(demo).toHaveAttribute("data-run-state", "running");
-  await expect(frame).toHaveAttribute("data-motion-state", "moving", { timeout: 4_000 });
-
-  await playPause.click();
+  const firstPause = await startAndPauseActiveTransport(demo);
+  expect(firstPause).not.toBeNull();
+  expect(firstPause).toBe(0);
   await expect(playPause).toHaveAttribute("aria-pressed", "false");
   await expect(playPause).toBeEnabled();
   await expect(demo).toHaveAttribute("data-run-state", "paused");
@@ -234,9 +266,9 @@ test("pauses and resumes the in-flight value transport without committing early"
 
   // Seeking from a paused in-flight transition cancels its WAAPI object and commits only the
   // explicitly requested frame.
-  await playPause.click();
-  await expect(frame).toHaveAttribute("data-motion-state", "moving", { timeout: 4_000 });
-  await playPause.click();
+  const secondPause = await startAndPauseActiveTransport(demo);
+  expect(secondPause).not.toBeNull();
+  expect(secondPause).toBe(1);
   await timeline.evaluate((input) => {
     (input as HTMLInputElement).value = "2";
     input.dispatchEvent(new Event("input", { bubbles: true }));
