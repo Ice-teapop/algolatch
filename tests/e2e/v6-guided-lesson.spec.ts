@@ -72,6 +72,8 @@ test("keeps the Dashboard free of the removed first-run tutorial prompt", async 
 });
 
 test("starts the guided first lesson from the explicit Library help entry", async () => {
+  // Keep this contract deterministic across macOS and Windows runner window decorations.
+  await page.setViewportSize({ width: 1024, height: 768 });
   await page.locator('[data-menu-root-trigger="library"]').click();
   await expect(page.locator("#software-library-panel")).toBeVisible();
   await page.getByRole("button", { name: "帮助", exact: true }).click();
@@ -92,13 +94,20 @@ test("starts the guided first lesson from the explicit Library help entry", asyn
   await expect(page.locator(".onboarding-tour")).toHaveCount(0);
 
   await page.getByRole("button", { name: "运行", exact: true }).click();
+  // On a narrow C Cell layout the runtime pane and lesson rail are separate drawers. Running
+  // correctly closes the project-tools drawer, so reveal it again before reading mission state.
+  await showProjectTools(page);
   await expect(page.getByRole("button", { name: "下一任务" })).toBeEnabled();
   await expect(page.locator(".guided-lesson-rail__status")).toContainText("当前任务已通过");
 
   await page.getByRole("button", { name: "下一任务" }).click();
   await expect(page.locator(".guided-lesson-rail__title")).toHaveText("观察真实路径");
   await expect(page.locator(".guided-lesson-rail__prediction")).toContainText("非运行时变量");
+  // Close the narrow lesson drawer before interacting with the runtime action, then reopen the
+  // rail to assert the evidence-driven transition.
+  await showRuntimePanel(page);
   await page.getByRole("button", { name: "观察路径", exact: true }).click();
+  await showProjectTools(page);
   await expect(page.getByRole("button", { name: "下一任务" })).toBeEnabled();
 
   const sandboxIds = await readdir(join(workspaceRoot, "Sandboxes"));

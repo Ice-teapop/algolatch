@@ -14,6 +14,7 @@ import {
   pressSplitterKey,
   showBlockPalette,
   showFlowCanvas,
+  showProjectTools,
   showRuntimePanel,
   showSourceEditor,
 } from "./support/c-cell-layout.js";
@@ -191,7 +192,11 @@ test("opens the analysis workspace directly from the text Dock", async () => {
 });
 
 test("keeps root scrolling locked while every meaningful region is independently resizable", async () => {
+  // The left project-tools column intentionally becomes an overlay drawer below 1100px, where
+  // its structural splitter is hidden. This test exercises the desktop multi-pane resizer contract.
+  await page.setViewportSize({ width: 1180, height: 780 });
   await page.getByRole("tab", { name: "工作区", exact: true }).click();
+  await showProjectTools(page);
   await showRuntimePanel(page);
   await page.locator("#run-tab").click();
   const splitters = page.locator(".resizable-layout__splitter");
