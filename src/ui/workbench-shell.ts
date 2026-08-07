@@ -33,6 +33,13 @@ export interface WorkbenchElements {
   readonly importStatus: HTMLOutputElement;
   readonly blockPalette: HTMLElement;
   readonly blockTree: HTMLElement;
+  readonly projectFilesHost: HTMLElement;
+  readonly runtimeVariablesHost: HTMLElement;
+  readonly workspaceCasesHost: HTMLElement;
+  readonly workspaceHistoryHost: HTMLElement;
+  readonly dataFlowStatusHost: HTMLElement;
+  readonly commandSurface: HTMLElement;
+  readonly cCommandHost: HTMLElement;
   readonly flowCanvas: HTMLElement;
   readonly tracePrimaryButton: HTMLButtonElement;
   readonly traceObserveButton: HTMLButtonElement;
@@ -40,6 +47,7 @@ export interface WorkbenchElements {
   readonly manualRunInputHost: HTMLElement;
   readonly codePane: HTMLElement;
   readonly buildLayout: HTMLElement;
+  readonly narrowPanelScrim: HTMLButtonElement;
   readonly workArea: HTMLElement;
   readonly primaryWorkspace: HTMLElement;
   readonly leftPane: HTMLElement;
@@ -63,6 +71,9 @@ export interface WorkbenchElements {
   readonly getPageHost: (pageId: string) => HTMLElement;
   readonly showInspector: (viewId: string) => void;
   readonly getInspectorHost: (viewId: string) => HTMLElement;
+  readonly showCommandView: (viewId: WorkbenchCommandViewId) => void;
+  readonly showSemanticView: (viewId: WorkbenchSemanticViewId) => void;
+  readonly showLeftTool: (viewId: WorkbenchLeftToolId) => void;
   readonly focusPanel: (panelId: string) => void;
   readonly getPanelVisibility: () => Readonly<Record<string, boolean>>;
   readonly setPanelVisibility: (value: Readonly<Record<string, boolean>>) => void;
@@ -73,6 +84,12 @@ export interface WorkbenchElements {
   readonly setLocale: (locale: InterfaceLocale) => void;
   readonly destroy: () => void;
 }
+
+export type WorkbenchCommandViewId = "command" | "source";
+
+export type WorkbenchSemanticViewId = "flow" | "blocks" | "diagnostics" | "ai" | "edit";
+
+export type WorkbenchLeftToolId = "files" | "variables" | "presets" | "cases" | "history";
 
 export interface WorkspaceLessonFocusRequest {
   readonly lessonId: string;
@@ -90,6 +107,7 @@ export interface ApplyLayoutPresetOptions {
 }
 
 export const WORKBENCH_REVEAL_FLOW_DETAIL_EVENT = "workbench-reveal-flow-detail";
+export const WORKBENCH_COMMAND_VIEW_CHANGE_EVENT = "workbench-command-view-change";
 
 interface NavigationModel {
   readonly pages: readonly RegisteredWorkbenchPage[];
@@ -108,9 +126,9 @@ const FULL_PAGE_IDS = Object.freeze([
 const PANEL_FOCUS_TARGETS: Readonly<Record<string, string>> = Object.freeze({
   project: "dashboard-host",
   presets: "block-palette",
-  canvas: "flow-canvas",
+  canvas: "semantic-flow-panel",
   code: "code-pane",
-  inspector: "inspector-stack",
+  inspector: "code-panel",
   runtime: "run-host",
   metrics: "runtime-metrics-host",
   mentor: "mentor-hints-host",
@@ -140,9 +158,9 @@ const MENU_PANEL_IDS: Readonly<Record<string, string>> = Object.freeze({
 
 const PANEL_ELEMENT_IDS: Readonly<Record<string, string>> = Object.freeze({
   presets: "presets-pane",
-  canvas: "center-canvas-pane",
-  code: "code-panel",
-  properties: "inspector-stack",
+  canvas: "semantic-flow-panel",
+  code: "center-pane",
+  properties: "right-pane",
 });
 
 const RUNTIME_PANEL_VIEW: Readonly<Record<string, string>> = Object.freeze({
@@ -222,6 +240,17 @@ export function mountWorkbench(
   const workspaceLessonInstruction = required(app, "#workspace-lesson-instruction", HTMLElement);
   const workspaceLessonExit = required(app, "#workspace-lesson-exit", HTMLButtonElement);
   const workspaceLessonPresetsMask = required(app, "#workspace-lesson-presets-mask", HTMLElement);
+  const projectToolsToggle = required(app, "#project-tools-toggle", HTMLButtonElement);
+  const semanticMonitorToggle = required(app, "#semantic-monitor-toggle", HTMLButtonElement);
+  const runtimePanelToggle = required(app, "#runtime-panel-toggle", HTMLButtonElement);
+  const narrowPanelScrim = required(app, "#narrow-panel-scrim", HTMLButtonElement);
+  const projectToolsClose = required(app, "#project-tools-close", HTMLButtonElement);
+  const semanticMonitorClose = required(app, "#semantic-monitor-close", HTMLButtonElement);
+  const appBar = required(app, ".app-bar", HTMLElement);
+  const leftPane = required(app, "#left-pane", HTMLElement);
+  const rightPane = required(app, "#right-pane", HTMLElement);
+  const centerPane = required(app, "#center-pane", HTMLElement);
+  const bottomPane = required(app, "#bottom-pane", HTMLElement);
   const pasteSource = required(app, "#paste-source", HTMLTextAreaElement);
   const pasteSourceIndentation = installCodeTextareaIndentation(pasteSource);
 
@@ -261,11 +290,48 @@ export function mountWorkbench(
     ["metrics", required(app, "#metrics-panel", HTMLElement)],
     ["mentor", required(app, "#mentor-panel", HTMLElement)],
   ]);
+  const commandTabs = new Map<WorkbenchCommandViewId, HTMLButtonElement>([
+    ["command", required(app, "#c-command-tab", HTMLButtonElement)],
+    ["source", required(app, "#main-source-tab", HTMLButtonElement)],
+  ]);
+  const commandPanels = new Map<WorkbenchCommandViewId, HTMLElement>([
+    ["command", required(app, "#c-command-panel", HTMLElement)],
+    ["source", required(app, "#main-source-panel", HTMLElement)],
+  ]);
+  const semanticTabs = new Map<WorkbenchSemanticViewId, HTMLButtonElement>([
+    ["flow", required(app, "#semantic-flow-tab", HTMLButtonElement)],
+    ["blocks", required(app, "#explanation-tab", HTMLButtonElement)],
+    ["diagnostics", required(app, "#semantic-diagnostics-tab", HTMLButtonElement)],
+    ["ai", required(app, "#semantic-ai-tab", HTMLButtonElement)],
+    ["edit", required(app, "#edit-tab", HTMLButtonElement)],
+  ]);
+  const semanticPanels = new Map<WorkbenchSemanticViewId, HTMLElement>([
+    ["flow", required(app, "#semantic-flow-panel", HTMLElement)],
+    ["blocks", required(app, "#explanation-panel", HTMLElement)],
+    ["diagnostics", required(app, "#semantic-diagnostics-panel", HTMLElement)],
+    ["ai", required(app, "#semantic-ai-panel", HTMLElement)],
+    ["edit", required(app, "#edit-panel", HTMLElement)],
+  ]);
+  const leftToolTabs = new Map<WorkbenchLeftToolId, HTMLButtonElement>([
+    ["files", required(app, "#left-files-tab", HTMLButtonElement)],
+    ["variables", required(app, "#left-variables-tab", HTMLButtonElement)],
+    ["presets", required(app, "#left-presets-tab", HTMLButtonElement)],
+    ["cases", required(app, "#left-cases-tab", HTMLButtonElement)],
+    ["history", required(app, "#left-history-tab", HTMLButtonElement)],
+  ]);
+  const leftToolPanels = new Map<WorkbenchLeftToolId, HTMLElement>([
+    ["files", required(app, "#left-files-panel", HTMLElement)],
+    ["variables", required(app, "#left-variables-panel", HTMLElement)],
+    ["presets", required(app, "#left-presets-panel", HTMLElement)],
+    ["cases", required(app, "#left-cases-panel", HTMLElement)],
+    ["history", required(app, "#left-history-panel", HTMLElement)],
+  ]);
   const panelVisibility = new Map(
     registrySnapshot.panels.map((panel) => [panel.id, panel.defaultVisible] as const),
   );
 
   let currentPageId = "dashboard";
+  let currentSemanticView: WorkbenchSemanticViewId = "flow";
   let currentLocale: InterfaceLocale = "zh-CN";
   let appInfo: AppInfoSnapshot | null = null;
   let workspaceLessonFocus: WorkspaceLessonFocusRequest | null = null;
@@ -301,21 +367,35 @@ export function mountWorkbench(
       ["#open-paste", "粘贴", "Paste"],
       ["#presets-pane .panel__header h2", "预设块", "Preset Blocks"],
       ["#outline-pane .panel__header h2", "源码结构", "Source Outline"],
-      ["#center-canvas-pane .canvas-toolbar h2", "自由画布", "Flow Canvas"],
-      ["#trace-primary-action", "运行", "Run"],
-      ["#trace-observe-action", "观察", "Observe"],
+      ["#c-command-tab", "C Cell", "C Cell"],
+      ["#main-source-tab", "main.c", "main.c"],
+      ["#left-files-tab", "文件", "Files"],
+      ["#left-variables-tab", "变量", "Variables"],
+      ["#left-presets-tab", "积木", "Blocks"],
+      ["#left-cases-tab", "案例", "Cases"],
+      ["#left-history-tab", "历史", "History"],
+      ["#semantic-flow-tab", "Flow", "Flow"],
+      ["#explanation-tab", "Blocks", "Blocks"],
+      ["#semantic-diagnostics-tab", "诊断", "Diagnostics"],
+      ["#semantic-ai-tab", "AI", "AI"],
+      ["#edit-tab", "编辑", "Edit"],
+      ["#project-tools-toggle", "项目工具", "Project Tools"],
+      ["#semantic-monitor-toggle", "语义监督", "Semantic Monitor"],
+      ["#project-tools-close", "关闭", "Close"],
+      ["#semantic-monitor-close", "关闭", "Close"],
+      ["#semantic-flow-panel .canvas-toolbar h2", "控制流投影", "Control Flow"],
+      ["#trace-primary-action", "运行 main.c", "Run main.c"],
+      ["#trace-observe-action", "追踪 main.c", "Trace main.c"],
       ["#analysis-primary-action", "分析", "Analyze"],
+      ["#runtime-panel-toggle", "运行面板", "Run Panel"],
       [
-        "#center-canvas-pane .canvas-toolbar__hint",
-        "拖入积木 · 拖空白平移 · 滚轮缩放",
-        "Drag in blocks · drag blank canvas to pan · wheel to zoom",
+        "#semantic-flow-panel .canvas-toolbar__hint",
+        "拖积木到高亮连线 · 拖节点只调布局 · 拖空白平移 · 滚轮缩放",
+        "Drop blocks on highlighted wires · drag nodes for layout only · drag blank canvas to pan · wheel to zoom",
       ],
-      ["#code-panel .panel__header h2", "C 代码", "C Source"],
       ["#run-tab", "运行", "Run"],
       ["#metrics-tab", "指标", "Metrics"],
       ["#mentor-tab", "本地检查", "Local Checks"],
-      ["#explanation-tab", "解释", "Explain"],
-      ["#edit-tab", "编辑", "Edit"],
       [".canvas-toolbar__actions [data-flow-command='undo']", "撤销", "Undo"],
       [".canvas-toolbar__actions [data-flow-command='align-left']", "左对齐", "Align Left"],
       [
@@ -361,8 +441,12 @@ export function mountWorkbench(
       [".document-identity", "aria-label", "当前文档", "Current Document"],
       [".app-actions", "aria-label", "源码操作", "Source Actions"],
       ["#workbench-pages", "aria-label", "C 算法工作台", "C Algorithm Workbench"],
-      ["#left-pane", "aria-label", "预设与源码结构", "Blocks and Source Outline"],
-      ["#center-pane", "aria-label", "自由节点画布", "Free Node Canvas"],
+      ["#left-pane", "aria-label", "项目与工具", "Project and Tools"],
+      ["#center-pane", "aria-label", "C Cell 工作区", "C Cell Workspace"],
+      ["#command-surface-tabs", "aria-label", "中央工作区", "Primary Workspace"],
+      ["#left-workspace-tabs", "aria-label", "项目工具", "Project Tools"],
+      ["#semantic-monitor-tabs", "aria-label", "语义监督", "Semantic Monitor"],
+      ["#narrow-panel-scrim", "aria-label", "关闭侧栏", "Close side panel"],
       [".canvas-toolbar__actions", "aria-label", "画布排列与历史", "Canvas Layout and History"],
       [
         ".canvas-toolbar__runtime-actions",
@@ -388,9 +472,11 @@ export function mountWorkbench(
         "纵向等距分布所选节点",
         "Distribute Selected Nodes Vertically",
       ],
-      ["#right-pane", "aria-label", "代码与属性", "Code and Properties"],
+      ["#right-pane", "aria-label", "语义监督", "Semantic Monitor"],
       ["#code-pane", "aria-label", "C 代码编辑器", "C Source Editor"],
-      ["#inspector-stack .panel-tabs", "aria-label", "节点详情", "Node Details"],
+      ["#c-command-host", "aria-label", "C Cell 输入与结果", "C Cell Input and Results"],
+      ["#project-tools-toggle", "aria-label", "切换项目工具", "Toggle Project Tools"],
+      ["#semantic-monitor-toggle", "aria-label", "切换语义监督", "Toggle Semantic Monitor"],
       ["#bottom-pane", "aria-label", "运行流程与证据", "Runtime and Evidence"],
       ["#bottom-pane .runtime-panel-tabs", "aria-label", "运行面板", "Runtime Panels"],
       ["#scenario-workbench-host", "aria-label", "案例与分支执行", "Cases and Branch Execution"],
@@ -406,6 +492,11 @@ export function mountWorkbench(
     ];
     for (const [selector, attribute, zh, en] of localizedAttributes) {
       app.querySelector<HTMLElement>(selector)?.setAttribute(attribute, english ? en : zh);
+    }
+    for (const note of app.querySelectorAll<HTMLElement>(".semantic-monitor__source-note")) {
+      note.textContent = english
+        ? "Source: project main.c · not the current C Cell draft"
+        : "来源：项目 main.c · 不随当前 C Cell 草稿更新";
     }
     const defaultFileName = app.querySelector<HTMLElement>("#file-name");
     if (
@@ -589,15 +680,10 @@ export function mountWorkbench(
     showFullPage("build");
     if (viewId === "run") {
       showRuntimeView("run");
-    } else {
-      for (const id of ["explanation", "edit"] as const) {
-        const active = id === viewId;
-        const tab = inspectorTabs.get(id);
-        const panel = inspectorPanels.get(id);
-        tab?.setAttribute("aria-selected", String(active));
-        if (tab !== undefined) tab.tabIndex = active ? 0 : -1;
-        if (panel !== undefined) panel.hidden = !active;
-      }
+    } else if (viewId === "explanation") {
+      showSemanticView("blocks");
+    } else if (viewId === "edit") {
+      showSemanticView("edit");
     }
     const tab = inspectorTabs.get(viewId);
     tab?.setAttribute("aria-selected", "true");
@@ -606,19 +692,41 @@ export function mountWorkbench(
   const showRuntimeView = (viewId: string): void => {
     if (!runtimeTabs.has(viewId)) throw new RangeError(`未知运行面板：${viewId}`);
     if (workspaceLessonFocus !== null && viewId === "mentor") return;
+    if (viewId === "mentor") {
+      showSemanticView("ai");
+      return;
+    }
+    if (shell.dataset.commandView === "command") {
+      if (viewId === "metrics") {
+        showFullPage("analysis");
+        return;
+      }
+      showCommandView("command");
+      const panelId = Object.entries(RUNTIME_PANEL_VIEW).find(([, id]) => id === viewId)?.[0];
+      if (panelId !== undefined) panelVisibility.set(panelId, true);
+      required(app, "#bottom-pane", HTMLElement).dataset.activeRuntimeView = viewId;
+      renderRuntimePanels(viewId, true);
+      globalThis.requestAnimationFrame(() =>
+        required(app, "#c-command-host", HTMLElement)
+          .querySelector<HTMLElement>("textarea, button")
+          ?.focus({ preventScroll: true }),
+      );
+      return;
+    }
     showFullPage("build");
     const panelId = Object.entries(RUNTIME_PANEL_VIEW).find(([, id]) => id === viewId)?.[0];
     if (panelId !== undefined) panelVisibility.set(panelId, true);
     required(app, "#bottom-pane", HTMLElement).dataset.activeRuntimeView = viewId;
-    renderRuntimePanels(viewId);
+    renderRuntimePanels(viewId, true);
   };
 
-  const renderRuntimePanels = (preferredViewId?: string): void => {
+  const renderRuntimePanels = (preferredViewId?: string, revealLegacy = false): void => {
     const visibleViews = Object.entries(RUNTIME_PANEL_VIEW)
       .filter(([panelId]) => panelVisibility.get(panelId) === true)
       .map(([, viewId]) => viewId);
     const bottom = required(app, "#bottom-pane", HTMLElement);
-    bottom.hidden = visibleViews.length === 0;
+    bottom.hidden = !revealLegacy || visibleViews.length === 0;
+    runtimePanelToggle.setAttribute("aria-expanded", String(!bottom.hidden));
     const requested = preferredViewId ?? bottom.dataset.activeRuntimeView ?? "run";
     const activeView = visibleViews.includes(requested) ? requested : (visibleViews[0] ?? "run");
     bottom.dataset.activeRuntimeView = activeView;
@@ -677,7 +785,11 @@ export function mountWorkbench(
     else if (visible.has("flow")) renderRuntimePanels("run");
     else if (visible.has("metrics")) renderRuntimePanels("metrics");
     else if (visible.has("ai-hints")) renderRuntimePanels("mentor");
-    if (options.activateWorkspace !== false) showFullPage("build");
+    if (options.activateWorkspace !== false) {
+      showFullPage(
+        layoutId === "analyze" && shell.dataset.commandView === "command" ? "analysis" : "build",
+      );
+    }
     shell.dataset.layoutPreset = layoutId;
   };
 
@@ -712,6 +824,57 @@ export function mountWorkbench(
     return getPageHost(viewId);
   };
 
+  const showCommandView = (viewId: WorkbenchCommandViewId): void => {
+    assertActive(destroyed);
+    if (!commandTabs.has(viewId)) throw new RangeError(`未知中央工作区视图：${viewId}`);
+    showFullPage("build");
+    shell.dataset.commandView = viewId;
+    for (const [id, tab] of commandTabs) {
+      const active = id === viewId;
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+      const panel = commandPanels.get(id);
+      if (panel !== undefined) panel.hidden = !active;
+    }
+    const EventConstructor = shell.ownerDocument.defaultView?.CustomEvent;
+    if (EventConstructor !== undefined) {
+      shell.dispatchEvent(
+        new EventConstructor(WORKBENCH_COMMAND_VIEW_CHANGE_EVENT, {
+          detail: Object.freeze({ viewId }),
+        }),
+      );
+    }
+  };
+
+  const showSemanticView = (viewId: WorkbenchSemanticViewId): void => {
+    assertActive(destroyed);
+    if (!semanticTabs.has(viewId)) throw new RangeError(`未知语义监督视图：${viewId}`);
+    showFullPage("build");
+    currentSemanticView = viewId;
+    shell.dataset.semanticView = viewId;
+    for (const [id, tab] of semanticTabs) {
+      const active = id === viewId;
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+      const panel = semanticPanels.get(id);
+      if (panel !== undefined) panel.hidden = !active;
+    }
+  };
+
+  const showLeftTool = (viewId: WorkbenchLeftToolId): void => {
+    assertActive(destroyed);
+    if (!leftToolTabs.has(viewId)) throw new RangeError(`未知项目工具视图：${viewId}`);
+    showFullPage("build");
+    shell.dataset.leftTool = viewId;
+    for (const [id, tab] of leftToolTabs) {
+      const active = id === viewId;
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+      const panel = leftToolPanels.get(id);
+      if (panel !== undefined) panel.hidden = !active;
+    }
+  };
+
   const focusPanel = (panelId: string): void => {
     assertActive(destroyed);
     if (
@@ -721,16 +884,25 @@ export function mountWorkbench(
       return;
     const targetId = PANEL_FOCUS_TARGETS[panelId];
     if (targetId === undefined) throw new RangeError(`未知工作台面板：${panelId}`);
+    let resolvedTargetId = targetId;
     const visibilityId = FOCUS_PANEL_VISIBILITY[panelId];
     if (visibilityId !== undefined && panelVisibility.get(visibilityId) !== true) {
       setPanelVisible(visibilityId, true);
     }
     if (panelId === "project") showFullPage("dashboard");
     else showFullPage("build");
-    if (panelId === "runtime") showRuntimeView("run");
-    else if (panelId === "metrics") showRuntimeView("metrics");
-    else if (panelId === "mentor") showRuntimeView("mentor");
-    const target = required(app, `#${targetId}`, HTMLElement);
+    if (panelId === "presets") showLeftTool("presets");
+    else if (panelId === "canvas") showSemanticView("flow");
+    else if (panelId === "code") showCommandView("source");
+    else if (panelId === "inspector") showSemanticView(currentSemanticView);
+    else if (panelId === "runtime") {
+      showRuntimeView("run");
+      if (shell.dataset.commandView === "command") resolvedTargetId = "c-command-host";
+    } else if (panelId === "metrics") {
+      showRuntimeView("metrics");
+      if (shell.dataset.commandView === "command") resolvedTargetId = "analysis-host";
+    } else if (panelId === "mentor") showRuntimeView("mentor");
+    const target = required(app, `#${resolvedTargetId}`, HTMLElement);
     target.classList.add("is-panel-focused");
     target.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     target.focus({ preventScroll: true });
@@ -845,13 +1017,155 @@ export function mountWorkbench(
     tab.addEventListener("click", listener);
     runtimeTabListeners.set(tab, listener);
   }
+  const commandTabListeners = new Map<HTMLButtonElement, () => void>();
+  for (const [viewId, tab] of commandTabs) {
+    if (tab.disabled) continue;
+    const listener = (): void => showCommandView(viewId);
+    tab.addEventListener("click", listener);
+    commandTabListeners.set(tab, listener);
+  }
+  const semanticTabListeners = new Map<HTMLButtonElement, () => void>();
+  for (const [viewId, tab] of semanticTabs) {
+    if (viewId === "blocks" || viewId === "edit") continue;
+    const listener = (): void => showSemanticView(viewId);
+    tab.addEventListener("click", listener);
+    semanticTabListeners.set(tab, listener);
+  }
+  const leftToolTabListeners = new Map<HTMLButtonElement, () => void>();
+  for (const [viewId, tab] of leftToolTabs) {
+    const listener = (): void => showLeftTool(viewId);
+    tab.addEventListener("click", listener);
+    leftToolTabListeners.set(tab, listener);
+  }
+  const destroyCommandTabKeyboard = installTabKeyboardNavigation(commandTabs, showCommandView);
+  const destroySemanticTabKeyboard = installTabKeyboardNavigation(semanticTabs, showSemanticView);
+  const destroyLeftToolTabKeyboard = installTabKeyboardNavigation(leftToolTabs, showLeftTool);
   const onDrawerClose = (): void => closeDrawer();
   const analysisPrimaryButton = required(app, "#analysis-primary-action", HTMLButtonElement);
   const onAnalysisPrimary = (): void => showPage("analysis");
+  const onRuntimePanelToggle = (): void => {
+    const bottom = required(app, "#bottom-pane", HTMLElement);
+    renderRuntimePanels(bottom.dataset.activeRuntimeView, bottom.hidden !== false);
+  };
+  let narrowPanelReturnFocus: HTMLButtonElement | null = null;
+  const syncNarrowPanelAccessibility = (): void => {
+    const projectOpen = shell.dataset.narrowProjectTools === "open";
+    const semanticOpen = shell.dataset.narrowSemanticMonitor === "open";
+    const anyOpen = projectOpen || semanticOpen;
+    appBar.inert = anyOpen;
+    centerPane.inert = anyOpen;
+    bottomPane.inert = anyOpen;
+    leftPane.inert = semanticOpen;
+    rightPane.inert = projectOpen;
+    if (projectOpen) {
+      leftPane.setAttribute("aria-modal", "true");
+    } else {
+      leftPane.removeAttribute("aria-modal");
+    }
+    if (semanticOpen) {
+      rightPane.setAttribute("aria-modal", "true");
+    } else {
+      rightPane.removeAttribute("aria-modal");
+    }
+    if (projectOpen) leftPane.setAttribute("role", "dialog");
+    else leftPane.removeAttribute("role");
+    if (semanticOpen) rightPane.setAttribute("role", "dialog");
+    else rightPane.removeAttribute("role");
+  };
+  const closeNarrowPanels = (returnFocus = false): void => {
+    shell.dataset.narrowProjectTools = "closed";
+    shell.dataset.narrowSemanticMonitor = "closed";
+    projectToolsToggle.setAttribute("aria-expanded", "false");
+    semanticMonitorToggle.setAttribute("aria-expanded", "false");
+    syncNarrowPanelAccessibility();
+    if (returnFocus) narrowPanelReturnFocus?.focus({ preventScroll: true });
+    narrowPanelReturnFocus = null;
+  };
+  const onProjectToolsToggle = (): void => {
+    const open = shell.dataset.narrowProjectTools !== "open";
+    shell.dataset.narrowProjectTools = open ? "open" : "closed";
+    shell.dataset.narrowSemanticMonitor = "closed";
+    projectToolsToggle.setAttribute("aria-expanded", String(open));
+    semanticMonitorToggle.setAttribute("aria-expanded", "false");
+    syncNarrowPanelAccessibility();
+    narrowPanelReturnFocus = open ? projectToolsToggle : null;
+    if (open) {
+      globalThis.requestAnimationFrame(() =>
+        leftToolTabs
+          .get((shell.dataset.leftTool ?? "files") as WorkbenchLeftToolId)
+          ?.focus({ preventScroll: true }),
+      );
+    }
+  };
+  const onSemanticMonitorToggle = (): void => {
+    const open = shell.dataset.narrowSemanticMonitor !== "open";
+    shell.dataset.narrowSemanticMonitor = open ? "open" : "closed";
+    shell.dataset.narrowProjectTools = "closed";
+    semanticMonitorToggle.setAttribute("aria-expanded", String(open));
+    projectToolsToggle.setAttribute("aria-expanded", "false");
+    syncNarrowPanelAccessibility();
+    narrowPanelReturnFocus = open ? semanticMonitorToggle : null;
+    if (open) {
+      globalThis.requestAnimationFrame(() =>
+        semanticTabs.get(currentSemanticView)?.focus({ preventScroll: true }),
+      );
+    }
+  };
+  const onShellKeydown = (event: KeyboardEvent): void => {
+    const openPanel =
+      shell.dataset.narrowProjectTools === "open"
+        ? leftPane
+        : shell.dataset.narrowSemanticMonitor === "open"
+          ? rightPane
+          : null;
+    if (event.key === "Tab" && openPanel !== null) {
+      const focusable = [
+        ...openPanel.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((element) => !element.hidden && element.offsetParent !== null);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (first === undefined || last === undefined) {
+        event.preventDefault();
+        openPanel.focus({ preventScroll: true });
+        return;
+      }
+      const active = app.ownerDocument.activeElement;
+      if (!openPanel.contains(active) || (event.shiftKey && active === first)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus({ preventScroll: true });
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+      return;
+    }
+    if (
+      event.key !== "Escape" ||
+      (shell.dataset.narrowProjectTools !== "open" &&
+        shell.dataset.narrowSemanticMonitor !== "open")
+    ) {
+      return;
+    }
+    event.preventDefault();
+    closeNarrowPanels(true);
+  };
+  const onNarrowPanelScrim = (): void => closeNarrowPanels(true);
   drawerClose.addEventListener("click", onDrawerClose);
   analysisPrimaryButton.addEventListener("click", onAnalysisPrimary);
+  runtimePanelToggle.addEventListener("click", onRuntimePanelToggle);
+  projectToolsToggle.addEventListener("click", onProjectToolsToggle);
+  semanticMonitorToggle.addEventListener("click", onSemanticMonitorToggle);
+  projectToolsClose.addEventListener("click", onNarrowPanelScrim);
+  semanticMonitorClose.addEventListener("click", onNarrowPanelScrim);
+  narrowPanelScrim.addEventListener("click", onNarrowPanelScrim);
+  app.ownerDocument.addEventListener("keydown", onShellKeydown);
   workspaceLessonExit.addEventListener("click", exitWorkspaceLesson);
 
+  showCommandView("command");
+  showSemanticView("flow");
+  showLeftTool("files");
   applyRegisteredLayout("build");
   showFullPage("dashboard");
 
@@ -875,6 +1189,13 @@ export function mountWorkbench(
     importStatus: required(app, "#import-status", HTMLOutputElement),
     blockPalette: required(app, "#block-palette", HTMLElement),
     blockTree: required(app, "#block-tree", HTMLElement),
+    projectFilesHost: required(app, "#project-files-host", HTMLElement),
+    runtimeVariablesHost: required(app, "#runtime-variables-host", HTMLElement),
+    workspaceCasesHost: required(app, "#workspace-cases-host", HTMLElement),
+    workspaceHistoryHost: required(app, "#workspace-history-host", HTMLElement),
+    dataFlowStatusHost: required(app, "#data-flow-status-host", HTMLElement),
+    commandSurface: required(app, "#command-surface", HTMLElement),
+    cCommandHost: required(app, "#c-command-host", HTMLElement),
     flowCanvas: required(app, "#flow-canvas", HTMLElement),
     tracePrimaryButton: required(app, "#trace-primary-action", HTMLButtonElement),
     traceObserveButton: required(app, "#trace-observe-action", HTMLButtonElement),
@@ -882,11 +1203,12 @@ export function mountWorkbench(
     manualRunInputHost: required(app, "#manual-run-input-host", HTMLElement),
     codePane: required(app, "#code-pane", HTMLElement),
     buildLayout: required(app, "#build-layout", HTMLElement),
+    narrowPanelScrim,
     workArea: required(app, "#work-area", HTMLElement),
     primaryWorkspace: required(app, "#primary-workspace", HTMLElement),
-    leftPane: required(app, "#left-pane", HTMLElement),
+    leftPane,
     centerPane: required(app, "#center-pane", HTMLElement),
-    rightPane: required(app, "#right-pane", HTMLElement),
+    rightPane,
     bottomPane: required(app, "#bottom-pane", HTMLElement),
     scenarioHost: required(app, "#scenario-workbench-host", HTMLElement),
     traceHost: required(app, "#trace-workbench-host", HTMLElement),
@@ -907,6 +1229,9 @@ export function mountWorkbench(
     getPageHost,
     showInspector,
     getInspectorHost,
+    showCommandView,
+    showSemanticView,
+    showLeftTool,
     focusPanel,
     getPanelVisibility: () => Object.freeze(Object.fromEntries(panelVisibility)),
     setPanelVisibility: restorePanelVisibility,
@@ -934,6 +1259,13 @@ export function mountWorkbench(
       destroyed = true;
       workspaceLessonExit.removeEventListener("click", exitWorkspaceLesson);
       analysisPrimaryButton.removeEventListener("click", onAnalysisPrimary);
+      runtimePanelToggle.removeEventListener("click", onRuntimePanelToggle);
+      projectToolsToggle.removeEventListener("click", onProjectToolsToggle);
+      semanticMonitorToggle.removeEventListener("click", onSemanticMonitorToggle);
+      projectToolsClose.removeEventListener("click", onNarrowPanelScrim);
+      semanticMonitorClose.removeEventListener("click", onNarrowPanelScrim);
+      narrowPanelScrim.removeEventListener("click", onNarrowPanelScrim);
+      app.ownerDocument.removeEventListener("keydown", onShellKeydown);
       if (workspaceLessonFocus !== null) clearWorkspaceLessonFocusUi();
       workspaceLessonFocus = null;
       drawerClose.removeEventListener("click", onDrawerClose);
@@ -944,6 +1276,18 @@ export function mountWorkbench(
       for (const [tab, listener] of runtimeTabListeners) {
         tab.removeEventListener("click", listener);
       }
+      for (const [tab, listener] of commandTabListeners) {
+        tab.removeEventListener("click", listener);
+      }
+      for (const [tab, listener] of semanticTabListeners) {
+        tab.removeEventListener("click", listener);
+      }
+      for (const [tab, listener] of leftToolTabListeners) {
+        tab.removeEventListener("click", listener);
+      }
+      destroyCommandTabKeyboard();
+      destroySemanticTabKeyboard();
+      destroyLeftToolTabKeyboard();
       pasteSourceIndentation.destroy();
       menu.destroy();
       pagePanels.clear();
@@ -953,14 +1297,52 @@ export function mountWorkbench(
       inspectorPanels.clear();
       runtimeTabs.clear();
       runtimePanels.clear();
+      commandTabs.clear();
+      commandPanels.clear();
+      semanticTabs.clear();
+      semanticPanels.clear();
+      leftToolTabs.clear();
+      leftToolPanels.clear();
       pageStack.replaceChildren();
     },
   });
 }
 
+function installTabKeyboardNavigation<T extends string>(
+  tabs: ReadonlyMap<T, HTMLButtonElement>,
+  activate: (id: T) => void,
+): () => void {
+  const listeners = new Map<HTMLButtonElement, (event: KeyboardEvent) => void>();
+  for (const [, tab] of tabs) {
+    const listener = (event: KeyboardEvent): void => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      const enabled = [...tabs].filter(([, candidate]) => !candidate.disabled);
+      const currentIndex = enabled.findIndex(([, candidate]) => candidate === tab);
+      if (currentIndex < 0) return;
+      let nextIndex: number;
+      if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % enabled.length;
+      else if (event.key === "ArrowLeft")
+        nextIndex = (currentIndex - 1 + enabled.length) % enabled.length;
+      else if (event.key === "Home") nextIndex = 0;
+      else if (event.key === "End") nextIndex = enabled.length - 1;
+      else return;
+      const next = enabled[nextIndex];
+      if (next === undefined) return;
+      event.preventDefault();
+      next[1].focus();
+      activate(next[0]);
+    };
+    tab.addEventListener("keydown", listener);
+    listeners.set(tab, listener);
+  }
+  return () => {
+    for (const [tab, listener] of listeners) tab.removeEventListener("keydown", listener);
+  };
+}
+
 function workbenchMarkup(): string {
   return `
-    <div id="workbench-shell" class="workbench-shell" data-layout-preset="build">
+    <div id="workbench-shell" class="workbench-shell" data-layout-preset="build" data-command-view="command" data-semantic-view="flow" data-left-tool="files" data-narrow-project-tools="closed" data-narrow-semantic-monitor="closed">
       <div id="startup-loader" class="startup-loader" role="status" aria-live="polite" aria-busy="true" data-state="loading">
         <div class="startup-loader__background" aria-hidden="true"></div>
         <div class="startup-loader__surface">
@@ -1006,65 +1388,125 @@ function workbenchMarkup(): string {
               <button id="workspace-lesson-exit" type="button">退出课程</button>
             </aside>
             <div id="build-layout" class="build-layout" data-tour-target="layout-resize">
-              <aside id="left-pane" class="workbench-region workbench-region--left" tabindex="-1" aria-label="预设与源码结构">
-                <section id="presets-pane" class="panel panel--palette" data-tour-target="preset-blocks">
-                  <header class="panel__header"><h2>预设块</h2></header>
-                  <div id="block-palette" class="block-palette workbench-scroll-region"></div>
-                  <div id="workspace-lesson-presets-mask" class="workspace-lesson-focus-mask" hidden>本课程暂不使用</div>
+              <button id="narrow-panel-scrim" class="narrow-panel-scrim" type="button" tabindex="-1" aria-hidden="true" aria-label="关闭侧栏"></button>
+              <aside id="left-pane" class="workbench-region workbench-region--left" tabindex="-1" aria-label="项目与工具">
+                <section id="presets-pane" class="panel project-tools" data-tour-target="preset-blocks">
+                  <nav id="left-workspace-tabs" class="panel-tabs project-tools__tabs" role="tablist" aria-label="项目工具">
+                    <button id="left-files-tab" type="button" role="tab" aria-controls="left-files-panel" aria-selected="true">文件</button>
+                    <button id="left-variables-tab" type="button" role="tab" aria-controls="left-variables-panel" aria-selected="false">变量</button>
+                    <button id="left-presets-tab" type="button" role="tab" aria-controls="left-presets-panel" aria-selected="false">积木</button>
+                    <button id="left-cases-tab" type="button" role="tab" aria-controls="left-cases-panel" aria-selected="false">案例</button>
+                    <button id="left-history-tab" type="button" role="tab" aria-controls="left-history-panel" aria-selected="false">历史</button>
+                  </nav>
+                  <button id="project-tools-close" class="narrow-panel-close" type="button">关闭</button>
+                  <section id="left-files-panel" class="project-tools__panel workbench-scroll-region" role="tabpanel" aria-labelledby="left-files-tab">
+                    <div id="project-files-host" class="project-files-host"></div>
+                  </section>
+                  <section id="left-variables-panel" class="project-tools__panel workbench-scroll-region" role="tabpanel" aria-labelledby="left-variables-tab" hidden>
+                    <div id="runtime-variables-host" class="runtime-variables-host"></div>
+                  </section>
+                  <section id="left-presets-panel" class="project-tools__panel" role="tabpanel" aria-labelledby="left-presets-tab" hidden>
+                    <div id="block-palette" class="block-palette workbench-scroll-region"></div>
+                    <div id="workspace-lesson-presets-mask" class="workspace-lesson-focus-mask" hidden>本课程暂不使用</div>
+                  </section>
+                  <section id="left-cases-panel" class="project-tools__panel workbench-scroll-region" role="tabpanel" aria-labelledby="left-cases-tab" hidden>
+                    <div id="workspace-cases-host" class="workspace-cases-host"></div>
+                  </section>
+                  <section id="left-history-panel" class="project-tools__panel workbench-scroll-region" role="tabpanel" aria-labelledby="left-history-tab" hidden>
+                    <div id="workspace-history-host" class="workspace-history-host"></div>
+                  </section>
                 </section>
-                <section id="outline-pane" class="panel panel--outline">
-                  <header class="panel__header"><h2>源码结构</h2></header>
-                  <div id="block-tree" class="block-tree workbench-scroll-region"></div>
-                </section>
+                <section id="outline-pane" class="panel panel--outline legacy-layout-host" aria-hidden="true" hidden></section>
               </aside>
 
               <div id="work-area" class="work-area">
                 <div id="primary-workspace" class="primary-workspace">
-                  <section id="center-pane" class="workbench-region workbench-region--center" tabindex="-1" aria-label="自由节点画布">
-                    <section id="center-canvas-pane" class="center-canvas-pane">
-                      <header class="canvas-toolbar">
-                        <h2>自由画布</h2>
-                        <nav class="canvas-toolbar__runtime-actions" aria-label="运行、观察与分析">
-                          <button id="trace-primary-action" class="canvas-toolbar__runtime-action canvas-toolbar__runtime-action--primary" type="button" data-primary-action="run" data-tour-target="trace-start">运行</button>
-                          <button id="trace-observe-action" class="canvas-toolbar__runtime-action" type="button" data-observe-state="unavailable" disabled>观察</button>
+                  <section id="center-pane" class="workbench-region workbench-region--center" tabindex="-1" aria-label="C Cell 工作区">
+                    <section id="center-canvas-pane" class="command-workspace">
+                      <header class="command-workspace__bar">
+                        <div class="command-workspace__panel-toggles">
+                          <button id="project-tools-toggle" type="button" aria-controls="left-pane" aria-expanded="false">项目工具</button>
+                          <button id="semantic-monitor-toggle" type="button" aria-controls="right-pane" aria-expanded="false">语义监督</button>
+                        </div>
+                        <nav id="command-surface-tabs" class="panel-tabs command-workspace__tabs" role="tablist" aria-label="中央工作区">
+                          <button id="c-command-tab" type="button" role="tab" aria-controls="c-command-panel" aria-selected="true">C Cell</button>
+                          <button id="main-source-tab" type="button" role="tab" aria-controls="main-source-panel" aria-selected="false">main.c</button>
+                        </nav>
+                        <nav class="canvas-toolbar__runtime-actions command-workspace__actions" aria-label="运行、观察与分析">
+                          <button id="trace-primary-action" class="canvas-toolbar__runtime-action canvas-toolbar__runtime-action--primary" type="button" data-primary-action="run" data-tour-target="trace-start">运行 main.c</button>
+                          <button id="trace-observe-action" class="canvas-toolbar__runtime-action" type="button" data-observe-state="unavailable" disabled>追踪 main.c</button>
                           <button id="analysis-primary-action" class="canvas-toolbar__runtime-action" type="button">分析</button>
+                          <button id="runtime-panel-toggle" class="canvas-toolbar__runtime-action" type="button" aria-controls="bottom-pane" aria-expanded="false">运行面板</button>
                         </nav>
                         <div id="manual-run-input-host" class="manual-run-input-host"></div>
-                        <span class="canvas-toolbar__hint">拖入积木 · 拖空白平移 · 滚轮缩放</span>
-                        <div class="canvas-toolbar__actions" aria-label="画布排列与历史">
-                          <button type="button" data-flow-command="undo" title="撤销（⌘/Ctrl+Z）">撤销</button>
-                          <button type="button" data-flow-command="align-left" title="左对齐所选节点">左对齐</button>
-                          <button type="button" data-flow-command="distribute-y" title="纵向等距分布所选节点">纵向分布</button>
-                        </div>
                       </header>
-                      <div id="flow-canvas" class="flow-canvas-host" data-tour-target="assembly-canvas" tabindex="0"></div>
+                      <div id="command-surface" class="command-surface">
+                        <section id="c-command-panel" class="command-surface__panel" role="tabpanel" aria-labelledby="c-command-tab">
+                          <div id="c-command-host" class="c-command-host workbench-scroll-region" aria-label="C Cell 输入与结果"></div>
+                        </section>
+                        <section id="main-source-panel" class="command-surface__panel" role="tabpanel" aria-labelledby="main-source-tab" hidden>
+                          <div id="code-pane" class="code-pane workbench-scroll-region" aria-label="C 代码编辑器"></div>
+                        </section>
+                      </div>
                     </section>
                   </section>
 
-                  <aside id="right-pane" class="workbench-region workbench-region--right" tabindex="-1" aria-label="代码与属性">
-                    <section id="code-panel" class="panel panel--code" data-tour-target="code-pane">
-                      <header class="panel__header"><h2>C 代码</h2></header>
-                      <div id="code-pane" class="code-pane workbench-scroll-region" aria-label="C 代码编辑器"></div>
-                    </section>
-                    <section id="inspector-stack" class="panel panel--inspector" tabindex="-1">
-                      <nav class="panel-tabs" role="tablist" aria-label="节点详情">
-                        <button id="explanation-tab" type="button" role="tab" aria-controls="explanation-panel" aria-selected="true">解释</button>
+                  <aside id="right-pane" class="workbench-region workbench-region--right" tabindex="-1" aria-label="语义监督">
+                    <section id="code-panel" class="panel semantic-monitor" data-tour-target="code-pane">
+                      <nav id="semantic-monitor-tabs" class="panel-tabs semantic-monitor__tabs" role="tablist" aria-label="语义监督">
+                        <button id="semantic-flow-tab" type="button" role="tab" aria-controls="semantic-flow-panel" aria-selected="true">Flow</button>
+                        <button id="explanation-tab" type="button" role="tab" aria-controls="explanation-panel" aria-selected="false">Blocks</button>
+                        <button id="semantic-diagnostics-tab" type="button" role="tab" aria-controls="semantic-diagnostics-panel" aria-selected="false">诊断</button>
+                        <button id="semantic-ai-tab" type="button" role="tab" aria-controls="semantic-ai-panel" aria-selected="false">AI</button>
                         <button id="edit-tab" type="button" role="tab" aria-controls="edit-panel" aria-selected="false">编辑</button>
                       </nav>
-                      <section id="explanation-panel" class="inspector-view workbench-scroll-region" role="tabpanel" aria-labelledby="explanation-tab"><div id="explanation-host"></div></section>
-                      <section id="edit-panel" class="inspector-view workbench-scroll-region" role="tabpanel" aria-labelledby="edit-tab" hidden><div id="edit-host"></div></section>
+                      <button id="semantic-monitor-close" class="narrow-panel-close" type="button">关闭</button>
+                      <section id="semantic-flow-panel" class="semantic-monitor__panel" role="tabpanel" aria-labelledby="semantic-flow-tab">
+                        <header class="canvas-toolbar">
+                          <h2>控制流投影</h2>
+                          <span class="canvas-toolbar__source-badge">main.c</span>
+                          <span class="canvas-toolbar__hint">拖积木到高亮连线 · 拖节点只调布局 · 拖空白平移 · 滚轮缩放</span>
+                          <div class="canvas-toolbar__actions" aria-label="画布排列与历史">
+                            <button type="button" data-flow-command="undo" title="撤销（⌘/Ctrl+Z）">撤销</button>
+                            <button type="button" data-flow-command="align-left" title="左对齐所选节点">左对齐</button>
+                            <button type="button" data-flow-command="distribute-y" title="纵向等距分布所选节点">纵向分布</button>
+                          </div>
+                        </header>
+                        <div id="data-flow-status-host" class="data-flow-status-host" aria-live="polite"></div>
+                        <div id="flow-canvas" class="flow-canvas-host" data-tour-target="assembly-canvas" tabindex="0"></div>
+                      </section>
+                      <section id="explanation-panel" class="semantic-monitor__panel semantic-monitor__panel--blocks workbench-scroll-region" role="tabpanel" aria-labelledby="explanation-tab" hidden>
+                        <p class="semantic-monitor__source-note">来源：项目 main.c · 不随当前 C Cell 草稿更新</p>
+                        <div id="block-tree" class="block-tree"></div>
+                        <div id="explanation-host"></div>
+                      </section>
+                      <section id="semantic-diagnostics-panel" class="semantic-monitor__panel workbench-scroll-region" role="tabpanel" aria-labelledby="semantic-diagnostics-tab" hidden>
+                        <p class="semantic-monitor__source-note">来源：项目 main.c · 不随当前 C Cell 草稿更新</p>
+                        <div id="runtime-diagnostics-host" aria-label="诊断"></div>
+                      </section>
+                      <section id="semantic-ai-panel" class="semantic-monitor__panel workbench-scroll-region" role="tabpanel" aria-labelledby="semantic-ai-tab" hidden>
+                        <p class="semantic-monitor__source-note">来源：项目 main.c · 不随当前 C Cell 草稿更新</p>
+                        <div class="semantic-monitor__ai-entry">
+                          <button id="ai-assistant-button" class="runtime-ai-action semantic-monitor__ai-action" type="button" aria-label="打开 AI 助手" aria-haspopup="dialog" aria-expanded="false">打开 AI 助手</button>
+                        </div>
+                        <div id="mentor-hints-host" aria-label="本地证据检查" data-tour-target="mentor-hints"></div>
+                      </section>
+                      <section id="edit-panel" class="semantic-monitor__panel workbench-scroll-region" role="tabpanel" aria-labelledby="edit-tab" hidden>
+                        <p class="semantic-monitor__source-note">来源：项目 main.c · 不随当前 C Cell 草稿更新</p>
+                        <div id="edit-host"></div>
+                      </section>
                     </section>
+                    <section id="inspector-stack" class="panel legacy-layout-host" tabindex="-1" aria-hidden="true" hidden></section>
                   </aside>
                 </div>
 
-                <section id="bottom-pane" class="workbench-region workbench-region--bottom" tabindex="-1" aria-label="运行流程与证据">
+                <section id="bottom-pane" class="workbench-region workbench-region--bottom legacy-runtime-pane" tabindex="-1" aria-label="运行流程与证据" hidden>
                   <header class="runtime-panel-bar">
                     <nav class="panel-tabs runtime-panel-tabs" role="tablist" aria-label="运行面板">
                       <button id="run-tab" type="button" role="tab" aria-controls="run-panel" aria-selected="true">运行</button>
                       <button id="metrics-tab" type="button" role="tab" aria-controls="metrics-panel" aria-selected="false">指标</button>
                       <button id="mentor-tab" type="button" role="tab" aria-controls="mentor-panel" aria-selected="false">本地检查</button>
                     </nav>
-                    <button id="ai-assistant-button" class="runtime-ai-action" type="button" aria-label="打开 AI 助手" aria-haspopup="dialog" aria-expanded="false">打开 AI 助手</button>
                   </header>
                   <div class="runtime-grid workbench-scroll-region">
                     <section id="run-panel" role="tabpanel" aria-labelledby="run-tab" data-tour-target="runtime-flow">
@@ -1076,8 +1518,8 @@ function workbenchMarkup(): string {
                       </details>
                     </section>
                     <section id="metrics-panel" role="tabpanel" aria-labelledby="metrics-tab" data-tour-target="runtime-metrics" hidden><div id="runtime-metrics-host" aria-label="运行指标"></div></section>
-                    <section id="diagnostics-panel" role="tabpanel" aria-label="诊断兼容面板" hidden><div id="runtime-diagnostics-host" aria-label="诊断"></div></section>
-                    <section id="mentor-panel" role="tabpanel" aria-labelledby="mentor-tab" hidden><div id="mentor-hints-host" aria-label="本地证据检查" data-tour-target="mentor-hints"></div></section>
+                    <section id="diagnostics-panel" role="tabpanel" aria-label="诊断兼容面板" hidden></section>
+                    <section id="mentor-panel" role="tabpanel" aria-labelledby="mentor-tab" hidden></section>
                   </div>
                 </section>
               </div>

@@ -283,7 +283,7 @@ export function createEvidenceWorkspaceController(
     setAnalysis(snapshot: ProgramAnalysisSnapshot | null): void {
       assertAlive(destroyed);
       analysis = snapshot;
-      if (snapshot !== null) currentSourceFingerprint = snapshot.sourceFingerprint;
+      currentSourceFingerprint = snapshot?.sourceFingerprint ?? null;
       if (snapshot === null || realPath?.sourceFingerprint !== snapshot.sourceFingerprint) {
         realPath = null;
       }

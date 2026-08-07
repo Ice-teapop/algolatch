@@ -1,4 +1,8 @@
 import type { InterfaceLocale } from "../shared/interface-locale.js";
+import {
+  createStructureInsertEditor,
+  isValidStructureInsertText,
+} from "./structure-insert-editor.js";
 
 export interface StructureEditRange {
   readonly from: number;
@@ -117,7 +121,7 @@ export interface StructureEditAvailability {
 export type StructureEditWorkflowResult = "committed" | "cancelled" | "stale";
 
 interface RenderedControls {
-  readonly insertInput: HTMLInputElement | null;
+  readonly insertInput: HTMLTextAreaElement | null;
   readonly insertBefore: HTMLButtonElement | null;
   readonly insertAfter: HTMLButtonElement | null;
   readonly deleteButton: HTMLButtonElement | null;
@@ -134,9 +138,6 @@ interface StructureEditCopy {
     Record<"idle" | "ready" | "working" | "committed" | "cancelled", string>
   >;
   readonly statementLegend: string;
-  readonly insertLabel: string;
-  readonly insertPlaceholder: string;
-  readonly insertAria: string;
   readonly insertBefore: string;
   readonly insertBeforeAria: string;
   readonly insertAfter: string;
@@ -148,7 +149,6 @@ interface StructureEditCopy {
   readonly delete: string;
   readonly deleteAria: string;
   readonly moreActions: string;
-  readonly insertHint: string;
   readonly localVariableLegend: string;
   readonly renameLabel: (name: string) => string;
   readonly renameAria: (name: string) => string;
@@ -184,9 +184,6 @@ const STRUCTURE_EDIT_COPY: Readonly<Record<InterfaceLocale, StructureEditCopy>> 
       cancelled: "已取消；源码未发生变化。",
     }),
     statementLegend: "语句结构",
-    insertLabel: "插入一条语句",
-    insertPlaceholder: "例如：total += value;",
-    insertAria: "要插入的单行 C 语句",
     insertBefore: "上方插入",
     insertBeforeAria: "在当前语句上方插入一行",
     insertAfter: "下方插入",
@@ -198,7 +195,6 @@ const STRUCTURE_EDIT_COPY: Readonly<Record<InterfaceLocale, StructureEditCopy>> 
     delete: "删除",
     deleteAria: "删除当前语句",
     moreActions: "更多操作",
-    insertHint: "仅接受一条无外层缩进的物理源码行。",
     localVariableLegend: "局部变量",
     renameLabel: (name: string) => `重命名 ${name}`,
     renameAria: (name: string) => `局部变量 ${name} 的新名称`,
@@ -234,9 +230,6 @@ const STRUCTURE_EDIT_COPY: Readonly<Record<InterfaceLocale, StructureEditCopy>> 
       cancelled: "Cancelled; source unchanged.",
     }),
     statementLegend: "Statement structure",
-    insertLabel: "Insert one statement",
-    insertPlaceholder: "Example: total += value;",
-    insertAria: "Single-line C statement to insert",
     insertBefore: "Insert above",
     insertBeforeAria: "Insert a line above the current statement",
     insertAfter: "Insert below",
@@ -248,7 +241,6 @@ const STRUCTURE_EDIT_COPY: Readonly<Record<InterfaceLocale, StructureEditCopy>> 
     delete: "Delete",
     deleteAria: "Delete the current statement",
     moreActions: "More actions",
-    insertHint: "Enter one physical source line with no outer indentation.",
     localVariableLegend: "Local variable",
     renameLabel: (name: string) => `Rename ${name}`,
     renameAria: (name: string) => `New name for local variable ${name}`,
@@ -343,7 +335,7 @@ export function getStructureEditAvailability(
   const statementListReady = statement !== undefined && statement.blocker === null;
   const canReorder = statementListReady && statement.parentMode === "statement-list";
   return Object.freeze({
-    insert: canReorder && isValidInsertLine(insertText),
+    insert: canReorder && isValidStructureInsertText(insertText),
     delete:
       statement !== undefined &&
       (statement.blocker === null ||
@@ -542,7 +534,7 @@ export function createStructureEditPanel<P extends StructureEditConfirmationPlan
       const value = controls.insertInput.value;
       controls.insertInput.setAttribute(
         "aria-invalid",
-        String(value.length > 0 && !isValidInsertLine(value)),
+        String(value.length > 0 && !isValidStructureInsertText(value)),
       );
     }
     if (controls.renameInput !== null) {
@@ -719,20 +711,14 @@ function renderStatementGroup(
   target.textContent = statement.text;
   target.title = statement.text;
 
-  const insertLabel = ownerDocument.createElement("label");
-  insertLabel.className = "structure-edit-panel__field";
-  const insertLabelText = ownerDocument.createElement("span");
-  insertLabelText.className = "structure-edit-panel__field-label";
-  insertLabelText.textContent = copy.insertLabel;
-  const insertInput = ownerDocument.createElement("input");
-  insertInput.className = "structure-edit-panel__input";
-  insertInput.type = "text";
-  insertInput.value = draft ?? "";
-  insertInput.placeholder = copy.insertPlaceholder;
-  insertInput.autocomplete = "off";
-  insertInput.spellcheck = false;
-  insertInput.setAttribute("aria-label", copy.insertAria);
-  insertLabel.append(insertLabelText, insertInput);
+  const insertEditor = createStructureInsertEditor(
+    ownerDocument,
+    locale,
+    draft ?? "",
+    onDraftChange,
+    statementUnavailableReason(statement, locale),
+  );
+  const insertInput = insertEditor.input;
 
   const insertActions = actionRow(ownerDocument);
   const insertBefore = actionButton(ownerDocument, copy.insertBefore, copy.insertBeforeAria);
@@ -760,14 +746,15 @@ function renderStatementGroup(
   moreSummary.textContent = copy.moreActions;
   moreActions.append(moreSummary, deleteButton);
 
-  const hint = ownerDocument.createElement("p");
-  hint.className = "structure-edit-panel__hint";
-  hint.textContent = statementUnavailableReason(statement, locale) ?? copy.insertHint;
-  group.append(legend, target, insertLabel, insertActions, moveActions, moreActions, hint);
-
-  insertInput.addEventListener("input", () => {
-    onDraftChange();
-  });
+  group.append(
+    legend,
+    target,
+    insertEditor.field,
+    insertActions,
+    moveActions,
+    moreActions,
+    insertEditor.hint,
+  );
   insertBefore.addEventListener("click", () =>
     execute({ kind: "insert-before", statementText: insertInput.value }),
   );
@@ -880,18 +867,6 @@ function statementUnavailableReason(
     return reasons["inline-required-body"];
   }
   return reasons[statement.blocker];
-}
-
-function isValidInsertLine(value: string): boolean {
-  const hasValidPhysicalLineShape =
-    value.length > 0 && value.trim().length > 0 && value.trim() === value && !/[\r\n]/u.test(value);
-  if (!hasValidPhysicalLineShape) return false;
-  const firstPreprocessingToken = value.replace(/^(?:[ \t\f\v]|\/\*[^\r\n]*?\*\/)+/u, "");
-  return (
-    !["#", "%:", "??="].some((token) => firstPreprocessingToken.startsWith(token)) &&
-    !/(?:\\|\?\?\/)[ \t\f\v]*$/u.test(value) &&
-    !/^\/\//u.test(value)
-  );
 }
 
 function isValidRenameIdentifier(value: string): boolean {

@@ -6,6 +6,16 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { showBlockPalette, showBlockTree } from "./support/c-cell-layout.js";
+
+// Every launch gets its own workspace root and Electron profile. Without them these specs
+// write into the user's real Documents workspace and share one browser profile, which both
+// pollutes real data and lets state leak between spec files under `workers: 1`.
+const e2eWorkspaceRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-workspace-"));
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 let application: ElectronApplication | undefined;
 let page: Page;
@@ -17,9 +27,13 @@ test.beforeAll(async () => {
     ),
   );
   application = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
-    env: { ...inheritedEnvironment, PANEL_RUNNER_MODE: "trusted-only" },
+    env: {
+      ...inheritedEnvironment,
+      PANEL_WORKSPACE_ROOT: e2eWorkspaceRoot,
+      PANEL_RUNNER_MODE: "trusted-only",
+    },
   });
   page = await application.firstWindow();
   await page.evaluate(() => {
@@ -67,6 +81,9 @@ test("prioritizes the assembly canvas and switches extension pages from the top 
 
 test("drags a multiline preset into a real slot and synchronizes exact C", async () => {
   await dock("工作区").click();
+  await showBlockTree(page);
+  await showBlockPalette(page);
+  await showBlockTree(page);
   const target = statement("return_statement", "return 0;");
   const slot = await slotFor(target, "before");
   const preset = page.locator(
@@ -79,6 +96,7 @@ test("drags a multiline preset into a real slot and synchronizes exact C", async
   await confirmVisibleDiff();
   await expect(dock("工作区")).toHaveAttribute("aria-selected", "true");
   await expect.poll(editorText).toContain("  while (condition) {\n    action();\n  }\n  return 0;");
+  await showBlockTree(page);
   await expect(statement("while_statement", "while (condition)")).toBeVisible();
 });
 
@@ -100,6 +118,7 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
   ).toBeNull();
 
   await dock("工作区").click();
+  await showBlockPalette(page);
   await page.getByRole("searchbox", { name: "筛选积木" }).fill("我的累加");
   const customPreset = page.locator(".block-palette__drag-surface").filter({ hasText: "我的累加" });
   const target = statement("return_statement", "return 0;");
@@ -113,6 +132,7 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
   await customEntry.getByRole("button", { name: "弃用" }).click();
   await expect(customEntry).toHaveAttribute("data-lifecycle", "deprecated");
   await dock("工作区").click();
+  await showBlockPalette(page);
   await page.getByRole("searchbox", { name: "筛选积木" }).fill("我的累加");
   await expect(
     page.locator(".block-palette__drag-surface").filter({ hasText: "我的累加" }),
@@ -187,6 +207,6 @@ async function confirmVisibleDiff(): Promise<void> {
 
 async function editorText(): Promise<string> {
   return page
-    .locator(".cm-line")
+    .locator("#code-pane .cm-line")
     .evaluateAll((lines) => lines.map((line) => line.textContent ?? "").join("\n"));
 }

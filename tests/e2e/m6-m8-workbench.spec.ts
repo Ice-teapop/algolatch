@@ -6,12 +6,37 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  showBlockPalette,
+  showFlowCanvas,
+  showRuntimePanel,
+  showSourceEditor,
+} from "./support/c-cell-layout.js";
+
+// A dedicated Electron profile: a shared one lets localStorage and window state leak
+// between spec files, which run strictly in sequence under `workers: 1`.
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 const SOURCE = `${[
   "int main(void) {",
+  "  int x = 1;",
+  "  if (x) {",
+  "    x++;",
+  "  }",
+  "  else {",
+  "    x--;",
+  "  }",
+  "  return 0;",
+  "}",
+].join("\n")}\n`;
+
+const SOURCE_WITH_EDGE_INSERT = `${[
+  "int main(void) {",
+  "  int value = 0;",
   "  int x = 1;",
   "  if (x) {",
   "    x++;",
@@ -39,7 +64,7 @@ test.beforeAll(async () => {
     ),
   );
   application = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...inheritedEnvironment,
@@ -72,7 +97,8 @@ test.beforeAll(async () => {
   if (projectId === undefined) throw new Error("M6 E2E 项目目录不存在");
   projectDirectory = join(workspaceRoot, "Projects", projectId);
 
-  const content = page.locator(".cm-content");
+  await showSourceEditor(page);
+  const content = page.locator("#code-pane .cm-content");
   await content.click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText(SOURCE);
@@ -165,6 +191,7 @@ test("opens the analysis workspace directly from the text Dock", async () => {
 
 test("keeps root scrolling locked while every meaningful region is independently resizable", async () => {
   await page.getByRole("tab", { name: "工作区", exact: true }).click();
+  await showRuntimePanel(page);
   await page.locator("#run-tab").click();
   const splitters = page.locator(".resizable-layout__splitter");
   await expect(splitters).toHaveCount(7);
@@ -251,6 +278,11 @@ test("keeps root scrolling locked while every meaningful region is independently
   const outputAfter = await outputPanel.boundingBox();
   expect(outputAfter?.width ?? outputBefore.width).toBeLessThan(outputBefore.width);
 
+  // The three independently scrolling regions now sit behind one tab each, in three different
+  // columns, so all three have to be on screen before their scroll behaviour can be compared.
+  await showBlockPalette(page);
+  await showSourceEditor(page);
+  await showFlowCanvas(page);
   const scrolling = await page.evaluate(() => {
     const palette = document.querySelector<HTMLElement>("#block-palette .block-palette__list");
     const code = document.querySelector<HTMLElement>("#code-pane .cm-scroller");
@@ -389,10 +421,18 @@ test("lets Canvas Focus consume the full workbench height", async () => {
   expect(Math.abs(bounds.codeHeight - bounds.rightHeight)).toBeLessThanOrEqual(1);
 
   await openMenuBranch("布局", "搭建");
-  await expect(page.locator("#bottom-pane")).toBeVisible();
+  await expect(page.locator("#left-pane")).toBeVisible();
+  await expect(page.locator("#right-pane")).toBeVisible();
+  // C Cell owns inline output, so restoring Build must not resurrect the legacy runtime pane.
+  await expect(page.locator("#bottom-pane")).toBeHidden();
 });
 
 test("drags a projected node freely and restores its sidecar position after reload", async () => {
+  // Free dragging and edge clamping need canvas room: in the docked layout the canvas is one
+  // 333px column, where the detail window starts clamped against the right edge. Canvas Focus
+  // is the app's own way to give it the workbench, so the test uses it rather than a wider window.
+  await page.getByRole("tab", { name: "工作区", exact: true }).click();
+  await showFlowCanvas(page);
   await expect(page.locator("#parser-status")).toHaveAttribute("data-analysis-state", "complete");
   await expect(page.locator(".flow-node[data-node-kind='branch']")).toHaveCount(1);
   const node = page.locator(".flow-node[data-node-kind='declaration']").first();
@@ -419,13 +459,15 @@ test("drags a projected node freely and restores its sidecar position after relo
   );
   await page.mouse.down();
   await page.mouse.move(
-    detailHeaderBounds.x + Math.min(80, detailHeaderBounds.width / 3) + 56,
+    detailHeaderBounds.x + Math.min(80, detailHeaderBounds.width / 3) - 56,
     detailHeaderBounds.y + detailHeaderBounds.height / 2 + 36,
     { steps: 4 },
   );
   await page.mouse.up();
   const detailAfter = await detail.boundingBox();
-  expect(detailAfter?.x ?? detailBefore.x).toBeGreaterThan(detailBefore.x);
+  // The canvas is a single column now, so the window opens against the right edge and free
+  // movement is only observable towards the left. Clamping is asserted right below.
+  expect(detailAfter?.x ?? detailBefore.x).toBeLessThan(detailBefore.x);
   expect(detailAfter?.y ?? detailBefore.y).toBeGreaterThan(detailBefore.y);
   const canvasBounds = await page.locator(".flow-canvas").boundingBox();
   const movedHeaderBounds = await detailHeader.boundingBox();
@@ -523,9 +565,7 @@ test("drags a projected node freely and restores its sidecar position after relo
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#startup-loader")).toBeHidden();
-  const row = page.getByRole("link", { name: /打开\s*项目\s*“M6 自由画布”/u });
-  await row.focus();
-  await page.keyboard.press("Enter");
+  await expect(page.locator("#file-name")).toHaveText("M6 自由画布.c");
   await expect(page.locator("#parser-status")).toHaveAttribute("data-analysis-state", "complete");
   const restored = page.locator(".flow-node[data-node-kind='declaration']");
   await expect(restored).toHaveCount(1);
@@ -536,7 +576,9 @@ test("drags a projected node freely and restores its sidecar position after relo
   await page.getByRole("button", { name: "关闭", exact: true }).click();
 });
 
-test("shows virtual presets and edits detached source drafts without touching main.c", async () => {
+test("places virtual presets but rejects source presets dropped on blank canvas", async () => {
+  await showBlockPalette(page);
+  await showFlowCanvas(page);
   const search = page.getByRole("searchbox", { name: "筛选积木" });
   const canvas = page.locator("#flow-canvas");
 
@@ -551,24 +593,122 @@ test("shows virtual presets and edits detached source drafts without touching ma
   const pauseSource = page.getByRole("textbox", { name: "暂停 草稿源码" });
   await expect(pauseSource).toBeDisabled();
   await expect(pauseSource).toHaveValue(/不生成或改写 C 语句/u);
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
 
   await search.fill("声明整数");
   const declaration = page.locator(
     ".block-palette__drag-surface[data-template-id='builtin.c.declare-integer']",
   );
-  await declaration.dragTo(canvas, { targetPosition: { x: 430, y: 230 } });
+  // The canvas is a 333px column now, so the old x:430 target landed outside the element and
+  // the drop hit <html>. This point is inside the canvas and clear of both the projected nodes
+  // and the bottom-right overview, which is what "blank canvas" means here.
+  await declaration.dragTo(canvas, { targetPosition: { x: 40, y: 480 } });
   const declarationDraft = page.getByRole("button", { name: "声明整数，未接入草稿" });
-  await expect(declarationDraft).toBeVisible();
-  await declarationDraft.dblclick();
-  const draftSource = page.getByRole("textbox", { name: "声明整数 草稿源码" });
-  await expect(draftSource).toHaveValue("int value = 0;");
-  await draftSource.fill("int draft_value = 7;");
-  await page.getByRole("button", { name: "保存草稿快照" }).click();
-  await expect(draftSource).toHaveValue("int draft_value = 7;");
+  await expect(declarationDraft).toHaveCount(0);
+  await expect(page.locator("#import-status")).toContainText(
+    /请把积木放到已高亮的连线上|没有可精确映射的插入连线|积木没有落到安全插入位置/u,
+  );
   expect(await editorText()).toBe(SOURCE);
 });
 
+test("routes a source preset dropped on an exact edge through rich diff before changing main.c", async () => {
+  await showBlockPalette(page);
+  await showFlowCanvas(page);
+  const search = page.getByRole("searchbox", { name: "筛选积木" });
+  await search.fill("声明整数");
+  const declaration = page.locator(
+    ".block-palette__drag-surface[data-template-id='builtin.c.declare-integer']",
+  );
+  await expect(declaration).toBeVisible();
+
+  const entryEdge = page.locator(
+    ".flow-canvas__wire[data-edge-kind='entry'][data-insertable='true']",
+  );
+  await expect(entryEdge).toHaveCount(1);
+  const edgeId = await entryEdge.getAttribute("data-flow-edge-id");
+  if (edgeId === null) throw new Error("可插入入口连线缺少稳定 ID");
+  const insertPoint = page.locator(
+    `.flow-canvas__edge-insert[data-flow-edge-insert-id='${edgeId}']`,
+  );
+  await expect(insertPoint).toBeVisible();
+
+  // A source preset lands on the insertion slot that marks the boundary, not on the "+"
+  // control beside it: the "+" opens the preset menu, and its centre sits just above the
+  // slot strip. dragTo needs canvas-relative coordinates because the slot only becomes
+  // visible once the drag has started.
+  const canvasHost = page.locator("#flow-canvas");
+  // The previous test's rejected drop leaves the view panned ~116px left, which puts every
+  // insertion slot at a negative canvas-relative x — outside the element, where a drop lands
+  // on nothing. Home is the canvas's own fit-all-nodes gesture, so it restores a view whose
+  // coordinates can be aimed at.
+  await canvasHost.focus();
+  await page.keyboard.press("Home");
+  const canvasBox = await canvasHost.boundingBox();
+  const insertBox = await insertPoint.boundingBox();
+  if (canvasBox === null || insertBox === null) throw new Error("画布或插入点边界不可用");
+  const insertCentre = {
+    x: insertBox.x + insertBox.width / 2,
+    y: insertBox.y + insertBox.height / 2,
+  };
+  const slotBox = await page.locator(".flow-canvas__slot").evaluateAll((elements, centre) => {
+    const boxes = elements.map((element) => element.getBoundingClientRect());
+    let best = boxes[0];
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const box of boxes) {
+      const distance = Math.hypot(
+        box.x + box.width / 2 - centre.x,
+        box.y + box.height / 2 - centre.y,
+      );
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = box;
+      }
+    }
+    if (best === undefined) throw new Error("画布没有插入槽");
+    return { x: best.x, y: best.y, width: best.width, height: best.height };
+  }, insertCentre);
+  await declaration.dragTo(canvasHost, {
+    targetPosition: {
+      x: Math.round(slotBox.x + slotBox.width / 2 - canvasBox.x),
+      y: Math.round(slotBox.y + slotBox.height / 2 - canvasBox.y),
+    },
+  });
+  const dialog = page.getByRole("dialog", { name: "确认修改" });
+  await expect(dialog).toBeVisible();
+  const diff = dialog.locator(".edit-panel__diff").first();
+  await expect(diff).toBeVisible();
+  await expect(diff.locator(".edit-panel__diff-text").first()).toHaveText("");
+  await expect(diff.locator(".edit-panel__diff-text").last()).toContainText("int value = 0;");
+  await dialog.getByRole("button", { name: "取消" }).click();
+  await expect(dialog).toBeHidden();
+  await expectEditorAndDiskSource(SOURCE);
+
+  // Confirmation is owned by Edit; return to Flow before exercising the direct "+" menu.
+  await showFlowCanvas(page);
+  const refreshedInsertBox = await insertPoint.boundingBox();
+  if (refreshedInsertBox === null) throw new Error("插入点边界不可用");
+  // The hit path is intentionally transparent, so move the real pointer over its centre instead
+  // of using locator.hover(), whose actionability check treats transparent SVG strokes as hidden.
+  await page.mouse.move(
+    refreshedInsertBox.x + refreshedInsertBox.width / 2,
+    refreshedInsertBox.y + refreshedInsertBox.height / 2,
+  );
+  await expect(insertPoint).toHaveCSS("pointer-events", "auto");
+  await insertPoint.click();
+  await page.getByRole("button", { name: "插入声明整数" }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".edit-panel__diff-text").last()).toContainText("int value = 0;");
+  await dialog.getByRole("button", { name: "确认修改" }).click();
+  await expect(dialog).toBeHidden();
+
+  await expectEditorAndDiskSource(SOURCE_WITH_EDGE_INSERT);
+  await expect(page.locator("#parser-status")).toHaveAttribute("data-analysis-state", "complete");
+  await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "saved");
+});
+
 test("keeps teaching simulation isolated, then renders a backend-confirmed real Trace path", async () => {
+  await showSourceEditor(page);
+  await showRuntimePanel(page);
   await page.getByRole("tab", { name: "运行", exact: true }).click();
   const tracePanel = page.locator(".trace-panel");
   const traceEvents = page.locator(".trace-panel__event");
@@ -587,6 +727,7 @@ test("keeps teaching simulation isolated, then renders a backend-confirmed real 
   await page.getByText("更多运行方式", { exact: true }).click();
   await page.getByRole("button", { name: "教学模拟" }).click();
   await expect(page.locator(".scenario-panel__status")).toHaveText("教学模拟请求已完成");
+  await expect(page.locator("#semantic-flow-tab")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".flow-node[data-execution-mode='simulation']").first()).toBeVisible();
   await expect(traceEvents).toHaveCount(0);
   expect(await fileExists(join(projectDirectory, "run-history.json"))).toBe(false);
@@ -645,8 +786,13 @@ async function openMenuBranch(rootName: string, branchName: string): Promise<voi
 
 async function editorText(): Promise<string> {
   return page
-    .locator(".cm-line")
+    .locator("#code-pane .cm-line")
     .evaluateAll((lines) => lines.map((line) => line.textContent ?? "").join("\n"));
+}
+
+async function expectEditorAndDiskSource(source: string): Promise<void> {
+  await expect.poll(editorText).toBe(source);
+  await expect.poll(() => readFile(join(projectDirectory, "main.c"), "utf8")).toBe(source);
 }
 
 async function fileExists(path: string): Promise<boolean> {

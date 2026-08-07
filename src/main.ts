@@ -1,8 +1,10 @@
 import * as core from "./core/index.js";
 import * as editTargetSelection from "./app/edit-target-selection.js";
-import { createFlowWorkbenchController } from "./app/flow-workbench-controller.js";
-import type { FlowWorkbenchController } from "./app/flow-workbench-controller.js";
+import { createCCommandWorkspaceController } from "./app/c-command-workspace-controller.js";
 import { createFlowSourceEditor } from "./app/flow-source-editor.js";
+import { createMainBlockTree } from "./app/main-block-tree.js";
+import { createMainCanvasStructureActions } from "./app/main-canvas-structure-actions.js";
+import { createMainFlowWorkbench } from "./app/main-flow-workbench.js";
 import type { LearningSurface } from "./app/learning-surface.js";
 import type { LoadedLearningCatalogStorage } from "./app/learning-catalog-disk-storage.js";
 import { emptyProgramAnalysisSnapshot, type ReadySession } from "./app/program-analysis-session.js";
@@ -11,39 +13,24 @@ import { createProjectionPresenter, type ProjectionPresenter } from "./app/proje
 import { sourceMetadata } from "./app/source-display.js";
 import { createSourceImportController } from "./app/source-import-controller.js";
 import { clearStaleSourcePresentation } from "./app/stale-source-presentation.js";
-import {
-  createStructureEditController,
-  type StructureEditController,
-} from "./app/structure-edit-controller.js";
+import { createStructureEditController } from "./app/structure-edit-controller.js";
 import { createSourceSyncController } from "./app/source-sync-controller.js";
 import { structureEditSelectionForBlock } from "./app/structure-edit-selection.js";
-import {
-  createSourceSelectionController,
-  type SourceSelectionController,
-} from "./app/source-selection-controller.js";
+import { createSourceSelectionController } from "./app/source-selection-controller.js";
 import { createStructuredEditCoordinator } from "./app/structured-edit-coordinator.js";
 import { requireService } from "./app/required-service.js";
-import {
-  createRuntimeWorkspaceController,
-  type RuntimeWorkspaceController,
-} from "./app/runtime-workspace-controller.js";
+import { createRuntimeWorkspaceController } from "./app/runtime-workspace-controller.js";
 import type { GuidedLessonWorkspaceController } from "./app/guided-lesson-workspace-controller.js";
-import {
-  forwardFlowLearningObservation,
-  forwardRuntimeLearningObservation,
-} from "./app/guided-lesson-observation-adapter.js";
+import { forwardRuntimeLearningObservation } from "./app/guided-lesson-observation-adapter.js";
 import { createWorkbenchRuntime, initializeRendererLocale } from "./app/workbench-runtime.js";
 import { createMainStatus } from "./app/main-status-copy.js";
 import { createWorkspaceLessonIntegration } from "./app/workspace-lesson-integration.js";
-import type { AiWorkspaceIntegration } from "./app/ai-workspace-integration.js";
 import { createMainAiWorkspace } from "./app/main-ai-workspace.js";
 import { installApplicationPersistence } from "./app/application-persistence.js";
-import { draftCodePreviewsFor } from "./app/draft-code-preview.js";
 import { initializeWorkbenchApplication } from "./renderer/application-bootstrap.js";
 import { createFlowProjection } from "./flow/index.js";
 import { assertValidSourceText } from "./shared/source-import.js";
 import type { ImportedSource } from "./shared/api.js";
-import { createBlockTree } from "./ui/block-tree.js";
 import { createCodePane, type CodeSourceChangeReason } from "./ui/code-pane.js";
 import { createEditPanel, type EditPanel } from "./ui/edit-panel.js";
 import { renderExplanationView } from "./ui/explanation-view.js";
@@ -60,21 +47,22 @@ let session: ReadySession | null = null;
 let destroyed = false;
 let editPanel: EditPanel<core.StructuredEditPlan> | null = null;
 let structureEditPanel: StructureEditPanel | null = null;
-let structureEdits: StructureEditController | null = null;
+let structureEdits: ReturnType<typeof createStructureEditController> | null = null;
 let projectionPresenter: ProjectionPresenter | null = null;
 let learningSurface: LearningSurface | null = null;
 let learningCatalogStorage: LoadedLearningCatalogStorage | null = null;
-let flowWorkbench: FlowWorkbenchController | null = null;
-let runtimeWorkspace: RuntimeWorkspaceController | null = null;
-let sourceSelection: SourceSelectionController | null = null;
+let flowWorkbench: ReturnType<typeof createMainFlowWorkbench> | null = null;
+let cCommand: ReturnType<typeof createCCommandWorkspaceController> | null = null;
+let runtimeWorkspace: ReturnType<typeof createRuntimeWorkspaceController> | null = null;
+let sourceSelection: ReturnType<typeof createSourceSelectionController> | null = null;
+let canvasStructureActions: ReturnType<typeof createMainCanvasStructureActions> | null = null;
 let guidedLesson: GuidedLessonWorkspaceController | null = null;
-let aiWorkspace: AiWorkspaceIntegration | null = null;
+let aiWorkspace: ReturnType<typeof createMainAiWorkspace> | null = null;
 const mainStatus = createMainStatus(elements, (status) => editPanel?.setStatus(status));
 const requireEditPanel = () => requireService(editPanel, "编辑检查器不可用");
 const requireStructureEditPanel = () => requireService(structureEditPanel, "结构编辑面板不可用");
 const requireStructureEdits = () => requireService(structureEdits, "结构编辑控制器不可用");
-const requireProjectionPresenter = () =>
-  requireService(projectionPresenter, "投影状态 presenter 不可用");
+const requireProjectionPresenter = () => requireService(projectionPresenter, "投影不可用");
 const requireFlowWorkbench = () => requireService(flowWorkbench, "自由流程工作台不可用");
 const requireRuntimeWorkspace = () => requireService(runtimeWorkspace, "运行工作台不可用");
 const requireSourceSelection = () => requireService(sourceSelection, "源码选择控制器不可用");
@@ -87,32 +75,14 @@ const codePane = createCodePane(elements.codePane, {
   onSourceOffset: (offset) => sourceSelection?.selectFromOffset(offset),
   onSourceChange: onCodeSourceChange,
 });
-const blockTree = createBlockTree(
-  elements.blockTree,
-  (entry) => {
-    const target =
-      session === null
-        ? null
-        : editTargetSelection.editTargetForBlock(session.analysis.editTargets, entry);
-    const structureSelection =
-      session === null ? null : structureEditSelectionForBlock(session.analysis, entry);
-    requireSourceSelection().selectBlock({
-      entry,
-      reveal: true,
-      symbol: null,
-      editTarget: target,
-      inspector: target === null && structureSelection === null ? "explanation" : "edit",
-      structureSelection,
-    });
-  },
-  (sourceEntry, targetEntry) => {
-    elements.showInspector("edit");
-    void requireStructureEdits().move(sourceEntry, targetEntry);
-  },
-  (intent) => {
-    void learningSurface?.insert(intent);
-  },
-);
+const blockTree = createMainBlockTree({
+  host: elements.blockTree,
+  getSession: () => session,
+  getSourceSelection: requireSourceSelection,
+  getStructureEdits: requireStructureEdits,
+  getLearningSurface: () => learningSurface,
+  showEditInspector: () => elements.showInspector("edit"),
+});
 const flowSourceEditor = createFlowSourceEditor({
   getSession: () => session,
   getProjection: () => flowWorkbench?.projection ?? null,
@@ -124,38 +94,21 @@ const flowSourceEditor = createFlowSourceEditor({
   nextRevision: nextSessionRevision,
   adopt: (imported, analysis, preferredTarget) =>
     adoptAnalysis(imported, analysis, false, preferredTarget),
+  confirmReversibleEdits: true,
   confirm: (message) => globalThis.confirm(message),
   onCommitted: (message) => mainStatus.setBanner(message, "ready", "Source updated."),
 });
-flowWorkbench = createFlowWorkbenchController({
+flowWorkbench = createMainFlowWorkbench({
   elements,
   api: window.panelApi,
-  onNodeSelect(node) {
-    if (
-      node.range.from === node.range.to &&
-      node.ownerBlockRange.from === node.ownerBlockRange.to
-    ) {
-      return;
-    }
-    requireSourceSelection().selectFromOffset(node.range.from);
-    codePane.reveal(node.range);
-  },
-  onReplaceNodeSource: (node, source) => flowSourceEditor.replaceNodeSource(node, source),
-  onDeleteNodes: (nodes) => flowSourceEditor.deleteNodes(nodes),
-  onConnectionPreflight: (intent) => flowSourceEditor.assessConnection(intent),
-  onConnectionIntent: (intent) => flowSourceEditor.connectNodes(intent),
-  resolvePreset: (presetId) => learningSurface?.resolvePreset(presetId) ?? null,
-  onDraftConnectionIntent: (intent) => flowSourceEditor.connectDraft(intent),
-  onDraftPresentationChange: (nodes) => codePane.setDraftPreviews(draftCodePreviewsFor(nodes)),
-  onLearningObservation: (observation) => forwardFlowLearningObservation(guidedLesson, observation),
-  onSourceUndo: () => codePane.undo(),
-  onSourceRedo: () => codePane.redo(),
-  onVirtualPlaybackNode(node) {
-    if (node.presetId === "builtin.flow.pause") runtimeWorkspace?.trace.pausePlayback();
-  },
-  onStatus(message, state) {
-    mainStatus.setBanner(message, state, "The flow operation could not be completed.");
-  },
+  codePane,
+  sourceEditor: flowSourceEditor,
+  status: mainStatus,
+  getSourceSelection: requireSourceSelection,
+  getLearningSurface: () => learningSurface,
+  getGuidedLesson: () => guidedLesson,
+  getRuntime: () => runtimeWorkspace,
+  getCanvasActions: () => canvasStructureActions,
 });
 const programAnalysisCoordinator = createProgramAnalysisCoordinator({
   getSession: () => session,
@@ -257,6 +210,7 @@ runtimeWorkspace = createRuntimeWorkspaceController({
   getAnalysis: () => session?.programAnalysis ?? null,
   getProjection: () => flowWorkbench?.projection ?? null,
   onSetActivePath: (path, evidence) => requireFlowWorkbench().setActivePath(path, evidence),
+  onRevealFlow: () => elements.showSemanticView("flow"),
   onFocusNode: (nodeId) => requireFlowWorkbench().focusNode(nodeId),
   onRevealRange: (range) => codePane.reveal(range),
   onLearningObservation: (observation) =>
@@ -268,8 +222,13 @@ const workspaceLesson = createWorkspaceLessonIntegration({
   codePane,
   flow: requireFlowWorkbench(),
   runtime: requireRuntimeWorkspace(),
-  loadSource,
-  onActiveEntryChange: (entry) => void aiWorkspace?.setWorkspace(entry),
+  loadSource: (document) => loadSource(document, false),
+  getCurrentDocument: () =>
+    session === null ? null : Object.freeze({ ...session.imported, source: codePane.getSource() }),
+  onActiveEntryChange: (entry) => {
+    void aiWorkspace?.setWorkspace(entry);
+    cCommand?.setWorkspaceEntry(entry?.id ?? null);
+  },
   isDestroyed: () => destroyed,
   onError: (message) =>
     mainStatus.setError(message, "The guided workspace operation could not be completed."),
@@ -321,6 +280,15 @@ structureEdits = createStructureEditController({
   },
   onError: (error) => mainStatus.setEditError(error, "The structural edit could not be completed."),
 });
+canvasStructureActions = createMainCanvasStructureActions({
+  showEditInspector: () => elements.showInspector("edit"),
+  getSession: () => session,
+  getProjection: () => flowWorkbench?.projection ?? null,
+  structureEdits: requireStructureEdits(),
+  sourceSelection: requireSourceSelection(),
+  getLearningSurface: () => learningSurface,
+  onError: (error) => mainStatus.setEditError(error, "The canvas edit could not be completed."),
+});
 aiWorkspace = createMainAiWorkspace({
   elements,
   api: window.panelApi,
@@ -356,12 +324,38 @@ void initializeWorkbenchApplication({
     parser = loadedParser;
     learningSurface = surface;
     learningCatalogStorage = storage;
+    cCommand = createCCommandWorkspaceController({
+      host: elements.cCommandHost,
+      api: window.panelApi,
+      parser: loadedParser,
+      nextRevision: nextSessionRevision,
+      previewProjection: (projection, analysis) =>
+        requireFlowWorkbench().previewProjection(projection, analysis),
+      clearProjectionPreview: () => requireFlowWorkbench().clearProjectionPreview(),
+      getMainSource: () => codePane.getSource(),
+      getRuntimeInput: () => {
+        const input = requireRuntimeWorkspace().getRuntimeInput();
+        return Object.freeze({
+          stdin: input.stdin,
+          args: Object.freeze([...input.arguments]),
+          fixtures: Object.freeze([]),
+        });
+      },
+      confirmWrite: (plan) => {
+        elements.showInspector("edit");
+        return requireEditPanel().confirmExternal(plan);
+      },
+      applyPatches: (patches) => codePane.applyPatches(patches),
+      onProjectionError: (error) =>
+        mainStatus.setEditError(error, "The C Cell preview could not be generated."),
+    });
+    cCommand.setWorkspaceEntry(workspaceController.activeEntry?.id ?? null);
   },
   onLearningError(error) {
     mainStatus.setEditError(error, "The learning block operation could not be completed.");
   },
 });
-function loadSource(imported: ImportedSource): void {
+function loadSource(imported: ImportedSource, navigate = true): void {
   if (parser === null) throw new Error("C 解析器尚未加载");
   const analysis = parser.analyze(imported.source, nextSessionRevision());
   const projectionMode = analysis.document.parse.hasError ? "recovery" : "synced";
@@ -369,7 +363,10 @@ function loadSource(imported: ImportedSource): void {
   blockTree.setInteractionEnabled(true);
   adoptAnalysis(imported, analysis, true, null);
   projectionStatus.setState(projectionMode);
-  elements.showPage("build");
+  if (navigate) {
+    elements.showPage("build");
+    if (elements.shell.dataset.commandView === "command") elements.showSemanticView("flow");
+  }
 }
 function adoptAnalysis(
   imported: ImportedSource,
@@ -435,12 +432,13 @@ function adoptAnalysis(
       structureSelection,
     });
   }
+  if (resetEditor && elements.shell.dataset.commandView === "command") {
+    elements.showSemanticView("flow");
+  }
 }
 function nextSessionRevision(): number {
   const current = session?.analysis.editTargets.revision ?? -1;
-  if (current >= Number.MAX_SAFE_INTEGER) {
-    throw new Error("源码版本号已达到安全整数上限");
-  }
+  if (current >= Number.MAX_SAFE_INTEGER) throw new Error("源码版本号已达到安全整数上限");
   return current + 1;
 }
 function onCodeSourceChange(source: string, reason: CodeSourceChangeReason): void {
@@ -469,6 +467,7 @@ function destroyApplication(): void {
   if (destroyed) return;
   destroyed = true;
   sourceSync.destroy();
+  canvasStructureActions?.destroy();
   structureEdits?.destroy();
   projectionPresenter?.destroy();
   sourceImport.destroy();
@@ -476,6 +475,7 @@ function destroyApplication(): void {
   learningCatalogStorage?.destroy();
   guidedLesson?.destroy();
   aiWorkspace?.destroy();
+  void cCommand?.destroy().catch(() => undefined);
   mainStatus.destroy();
   void runtimeWorkspace?.destroy().catch(() => undefined);
   flowWorkbench?.destroy();

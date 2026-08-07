@@ -9,6 +9,64 @@ upgrade predecessors. Future public releases continue from `0.0.1`.
 
 ## [Unreleased]
 
+## [0.1.1-preview.3] - 2026-08-07
+
+### Added
+
+- Added the central C Cell workflow for complete C programs, statements, and
+  control blocks. Each cell recompiles independently, accepts selected-case or
+  inline `stdin`, streams bounded `stdout` and `stderr`, supports cancellation,
+  and reports final runtime evidence beside the submitted source.
+- Added a temporary, labeled run wrapper for statement and control-block cells,
+  plus source-offset mapping that reports compiler diagnostics against the
+  user's cell instead of generated wrapper lines.
+- Added a write-to-`main.c` path that previews the complete candidate and exact
+  diff before it enters the existing source-authoritative validation gates.
+- Added a code-first, three-column workbench with compact project tools on the
+  left and Flow, Blocks, Diagnostics, AI, and Edit semantic supervision on the
+  right.
+- Added bounded verified-run start/read/cancel sessions and source-bound C Cell
+  Trace entry without introducing a general-purpose System Shell.
+
+### Changed
+
+- Made C Cell the default central workbench entry and moved the full freeform
+  canvas to a secondary workspace. The compact C Cell Flow projection remains
+  read-only.
+- Kept the last valid semantic projection while a user is typing incomplete C,
+  then replaced it only after a clean parse and lossless source round trip.
+- Reduced visual socket size and progressively reveals structural editing
+  controls while preserving larger invisible pointer and keyboard targets.
+- Kept ordinary non-algorithm C visually active in Flow while continuing to
+  distinguish real reachability and Trace evidence from static projection.
+- Made C Cell run history session-only and isolated it by managed workspace and
+  source fingerprint. Cells do not inherit variables or process state from
+  previous submissions.
+
+### Fixed
+
+- Prevented an incoming workspace's source or view state from being persisted
+  into the entry being left during rapid file switches.
+- Restored the last valid workspace through a versioned opaque entry ID and
+  fails safely at the Dashboard when the entry is missing or unreadable.
+- Corrected first-open Flow fitting, scroll-aware canvas coordinates, focus
+  behavior, minimap anchoring, and responsive semantic-monitor layout at 100%,
+  125%, and 150% scaling.
+- Connected C Cell to selected cases and explicit inline input, exposed actual
+  output and error streams, and stopped unavailable or cancelled runs from
+  appearing successful.
+- Removed competing run controls between C Cell and `main.c`, while retaining
+  project Run and Trace evidence in the dedicated runtime surface.
+
+### Known issues
+
+- This is an unsigned testing prerelease for macOS Universal and Windows 10/11
+  x64. It is not Apple-notarized or Authenticode-signed.
+- Individual lessons may still contain animation, interaction, responsive
+  layout, text overlap, localization, or result defects.
+- C Cell is not a persistent C REPL, does not retain variables between cells,
+  and does not provide a System Shell in this release.
+
 ## [0.1.1-preview.2] - 2026-07-28
 
 ### Fixed

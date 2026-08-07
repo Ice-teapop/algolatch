@@ -10,7 +10,7 @@
 .run-panel__result-status {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
   line-height: 1.45;
 }
 
@@ -33,7 +33,7 @@
 .run-panel__tools-summary {
   padding: 7px 0;
   color: var(--ink-secondary);
-  font-size: 10px;
+  font-size: var(--text-control);
   font-weight: 620;
   cursor: pointer;
 }
@@ -105,7 +105,7 @@
   gap: 6px;
   padding: 5px 0;
   border-top: 1px solid var(--line);
-  font-size: 10px;
+  font-size: var(--text-control);
   line-height: 1.35;
 }
 
@@ -142,7 +142,7 @@
   color: var(--code-ink);
   background: var(--input-surface);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: var(--text-control);
   line-height: 1.45;
   white-space: pre-wrap;
 }
@@ -193,7 +193,7 @@
   border-radius: 0;
   color: var(--danger);
   background: transparent;
-  font-size: 10px;
+  font-size: var(--text-control);
   cursor: pointer;
 }
 
@@ -289,7 +289,7 @@
 
 .drop-overlay__card span:last-child {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
 }
 
 .paste-dialog {
@@ -325,7 +325,7 @@
   display: block;
   margin: 10px 0 5px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
   font-weight: 600;
 }
 
@@ -370,5 +370,5 @@
   min-height: 14px;
   margin: 4px 0 0;
   color: var(--danger);
-  font-size: 10px;
+  font-size: var(--text-control);
 }

@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 
 const expected = Object.freeze({
-  version: "0.1.1-preview.2",
+  version: "0.1.1-preview.3",
   engine: ">=24.0.0 <25",
   npm: "npm@11.11.0",
   license: "PolyForm-Noncommercial-1.0.0",

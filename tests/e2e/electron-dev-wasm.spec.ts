@@ -7,6 +7,15 @@ import {
   type Request,
   type Response,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Every launch gets its own workspace root and Electron profile. Without them these specs
+// write into the user's real Documents workspace and share one browser profile, which both
+// pollutes real data and lets state leak between spec files under `workers: 1`.
+const e2eWorkspaceRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-workspace-"));
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 const DEVELOPMENT_SERVER_PORT = process.env.PANEL_E2E_PORT ?? "5173";
 const DEVELOPMENT_SERVER_URL = `http://127.0.0.1:${DEVELOPMENT_SERVER_PORT}/`;
@@ -21,10 +30,11 @@ test.beforeAll(async () => {
     ),
   );
   electronApplication = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...inheritedEnvironment,
+      PANEL_WORKSPACE_ROOT: e2eWorkspaceRoot,
       PANEL_RUNNER_MODE: "trusted-only",
       VITE_DEV_SERVER_URL: DEVELOPMENT_SERVER_URL,
     },

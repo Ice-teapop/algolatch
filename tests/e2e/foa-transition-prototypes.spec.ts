@@ -6,10 +6,15 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FOA_LESSONS } from "../../src/tutorials/foa-curriculum.js";
+
+// A dedicated Electron profile: a shared one lets localStorage and window state leak
+// between spec files, which run strictly in sequence under `workers: 1`.
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 let application: ElectronApplication | undefined;
 let page: Page;
@@ -37,7 +42,7 @@ test.beforeAll(async () => {
     ),
   );
   application = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...inheritedEnvironment,
@@ -51,7 +56,6 @@ test.beforeAll(async () => {
   await page.evaluate(() => {
     globalThis.localStorage.clear();
     globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
-    globalThis.localStorage.setItem("c-block-algorithm-panel:first-run-v6", "direct");
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.setViewportSize({ width: 1440, height: 960 });

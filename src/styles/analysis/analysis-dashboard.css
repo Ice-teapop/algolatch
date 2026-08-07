@@ -28,7 +28,7 @@
 .analysis-dashboard__summary > div {
   min-width: 0;
   padding: 13px 16px 12px;
-  border-left: 1px solid var(--line);
+  border-left: 0;
 }
 
 .analysis-dashboard__summary > div:first-child {
@@ -39,7 +39,7 @@
 .analysis-dashboard__summary dt {
   margin-bottom: 4px;
   color: var(--muted-subtle);
-  font-size: 8px;
+  font-size: var(--text-caption);
   font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -50,7 +50,7 @@
   overflow: hidden;
   color: var(--ink);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: var(--text-heading);
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -81,14 +81,14 @@
 .analysis-dashboard__section > header h2 {
   margin: 0;
   color: var(--ink);
-  font-size: 11px;
+  font-size: var(--text-heading);
   font-weight: 670;
   letter-spacing: 0.01em;
 }
 
 .analysis-dashboard__section > header > span {
   color: var(--muted-subtle);
-  font-size: 8px;
+  font-size: var(--text-caption);
 }
 
 .analysis-dashboard__section-body {
@@ -117,7 +117,7 @@
   border: 0;
   color: var(--muted);
   background: transparent;
-  font-size: 9px;
+  font-size: var(--text-control);
   cursor: pointer;
 }
 
@@ -199,7 +199,7 @@
 .analysis-dashboard__axis-title {
   fill: var(--muted-subtle);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--text-caption);
 }
 
 .analysis-dashboard__axis-label,
@@ -214,7 +214,7 @@
 .analysis-dashboard__evidence {
   margin: 8px 0 0;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-control);
   line-height: 1.55;
 }
 
@@ -240,13 +240,13 @@
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 0;
 }
 
 .analysis-dashboard__criterion-marker {
   color: var(--muted);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--text-caption);
 }
 
 .analysis-dashboard__criteria > li[data-state="passed"] .analysis-dashboard__criterion-marker {
@@ -264,14 +264,14 @@
 
 .analysis-dashboard__criteria strong {
   color: var(--ink);
-  font-size: 9px;
+  font-size: var(--text-control);
   font-weight: 620;
 }
 
 .analysis-dashboard__criteria div > span {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: var(--text-caption);
   line-height: 1.45;
 }
 
@@ -282,7 +282,7 @@
   gap: 14px;
   padding-bottom: 10px;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-control);
 }
 
 .analysis-dashboard__coverage progress {
@@ -313,10 +313,10 @@
   padding: 3px 0 7px;
   overflow: hidden;
   border: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 0;
   color: var(--ink-secondary);
   background: transparent;
-  font-size: 8px;
+  font-size: var(--text-control);
   text-align: left;
   cursor: pointer;
 }
@@ -352,7 +352,7 @@
   gap: 9px;
   color: var(--muted);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--text-caption);
 }
 
 .analysis-dashboard__memory-bar {
@@ -372,7 +372,7 @@
 .analysis-dashboard__empty {
   margin: 0;
   color: var(--muted-subtle);
-  font-size: 9px;
+  font-size: var(--text-control);
   line-height: 1.55;
 }
 
@@ -381,14 +381,14 @@
   min-height: 17px;
   margin-bottom: 8px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-control);
 }
 
 .analysis-dashboard__ai-purpose {
   max-width: 68ch;
   margin: 0 0 7px;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-control);
   line-height: 1.55;
 }
 
@@ -397,14 +397,14 @@
 }
 
 .analysis-dashboard__ai-action {
-  min-height: 27px;
+  min-height: var(--interaction-target-compact);
   padding: 0;
   border: 0;
   border-bottom: 1px solid var(--ink-secondary);
   border-radius: 0;
   color: var(--ink);
   background: transparent;
-  font-size: 9px;
+  font-size: var(--text-control);
   cursor: pointer;
 }
 
@@ -425,7 +425,7 @@
 .analysis-dashboard__ai-result h3 {
   margin: 0 0 4px;
   color: var(--muted-subtle);
-  font-size: 8px;
+  font-size: var(--text-caption);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -433,7 +433,7 @@
 .analysis-dashboard__ai-result p {
   margin: 0;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-control);
   line-height: 1.55;
 }
 

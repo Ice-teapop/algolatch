@@ -26,7 +26,11 @@ responses, and sidecars must not silently replace or rewrite `main.c`.
 
 ## Architecture rules
 
-- `main.c` remains the only executable source of truth.
+- `main.c` remains the only persistent project source of truth. C Cell wrapper
+  source is temporary execution input, not a competing project model.
+- C Cell submissions compile independently. Temporary wrapper source, streamed
+  output, and session history must not become project state without an explicit
+  exact-diff write to `main.c`.
 - Flow coordinates are view state. A semantic connection must generate legal
   C, reparse it, preserve the source contract, and prove the requested CFG
   postcondition before commit.
@@ -77,6 +81,8 @@ responses, and sidecars must not silently replace or rewrite `main.c`.
   heuristic guidance.
 - Do not describe an unsigned or unnotarized build as Apple-verified, or an
   unsigned Windows Preview as an Authenticode-signed stable installer.
+- State clearly that C Cell is not a persistent C REPL and that the current
+  release does not provide a System Shell.
 - Preserve the public version-line reset note: `v0.0.1` follows the historical
   `v0.1.0-beta.1–12` development snapshots and starts a new public sequence.
 
@@ -161,9 +167,10 @@ The Windows installed-state command installs and uninstalls AlgoLatch. Run it
 only on an isolated test machine or CI worker. The gate verifies that managed
 projects in Documents survive uninstall.
 
-The active GitHub release workflow publishes only the verified Windows EXE and
-its checksum. It does not require Apple credentials, wait for a macOS job, or
-upload a macOS DMG.
+The `v0.1.1-preview.3` prerelease workflow builds and installs both the unsigned
+macOS Universal DMG and unsigned Windows x64 EXE. It publishes them together
+only after both platform jobs pass and creates one matching checksum manifest.
+This preview path is separate from the signed stable channels below.
 
 The signed macOS configuration remains available for a future version. After a
 Developer ID and notarization credentials are available, build and verify it
@@ -193,11 +200,10 @@ The protected GitHub environment `windows-release` requires:
 - `WIN_CSC_LINK`
 - `WIN_CSC_KEY_PASSWORD`
 
-The current release workflow waits only for the signed Windows job, downloads
-only its verified EXE, creates the matching `SHA256SUMS.txt`, and then creates
-one immutable Windows Release. A future signed macOS version must pass its own
-Developer ID, notarization, Gatekeeper, and installed-DMG gates before its DMG
-can be published; it cannot weaken or substitute for the Windows checks.
+The signed Windows workflow may publish independently after its protected job
+passes. A future signed macOS version must pass its own Developer ID,
+notarization, Gatekeeper, and installed-DMG gates before its DMG can be
+published; it cannot weaken or substitute for the Windows checks.
 
 Before tagging:
 
@@ -205,12 +211,12 @@ Before tagging:
    the same version.
 2. Confirm that `CHANGELOG.md` and `docs/releases/<version>.md` describe the
    exact release commit.
-3. Generate and verify `SHA256SUMS.txt` for the final Windows EXE.
-4. Confirm that the installed Windows application compiles and runs a native C
-   canary.
+3. Generate and verify `SHA256SUMS.txt` for every final platform asset.
+4. Confirm that each installed application compiles and runs a native C canary.
 5. Create an exact `v<package.json version>` tag from the reviewed commit.
 6. Confirm the exact release commit is reachable from `main`.
-7. Publish the tag as a new normal GitHub Release, not a prerelease.
+7. Publish a stable tag as a normal GitHub Release. Publish a version explicitly
+   labeled `preview` only as a prerelease.
 8. Never replace an existing tag, Release, DMG, EXE, or checksum file.
 
 The `v0.0.1` public DMG is unsigned and unnotarized. The release page and notes
@@ -242,3 +248,8 @@ It writes
 `release-windows-beta/AlgoLatch-Setup-<version>-unsigned-x64.exe`. This Preview
 exists only for development and installed-state validation; it must never be
 attached to a stable Release.
+
+An explicitly versioned preview workflow may attach both Beta artifacts to a
+GitHub prerelease after the complete cross-platform release gates pass. It must
+retain `unsigned` in both filenames, disclose Gatekeeper and SmartScreen
+warnings, publish checksums, and refuse to replace an existing tag or asset.

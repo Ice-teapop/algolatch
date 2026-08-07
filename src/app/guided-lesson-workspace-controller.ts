@@ -457,6 +457,7 @@ export function createGuidedLessonWorkspaceController(
     assertActive(destroyed);
     if (controller?.getProgress().status === "active" && activeEntry !== null) {
       options.elements.showPage("build");
+      options.elements.showCommandView("source");
       mountRail();
       return;
     }
@@ -488,6 +489,7 @@ export function createGuidedLessonWorkspaceController(
       firstRun?.destroy();
       firstRun = null;
       options.elements.showPage("build");
+      options.elements.showCommandView("source");
     } finally {
       resolveCreatedTutorial = null;
       creatingTutorial = false;

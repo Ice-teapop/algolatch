@@ -586,7 +586,7 @@ export function createAnalysisDashboard(
   root.dataset.locale = locale;
 
   const heading = document.createElement("h1");
-  heading.className = "analysis-dashboard__heading";
+  heading.className = "visually-hidden";
   heading.textContent = copy.heading;
 
   const summary = document.createElement("dl");

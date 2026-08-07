@@ -1,4 +1,8 @@
-import type { CfgEdgeKind, CfgPartialReasonCode } from "../analysis/model.js";
+import type {
+  CfgEdgeKind,
+  CfgPartialReasonCode,
+  DefUseDisabledReasonCode,
+} from "../analysis/model.js";
 import type { RawReason, TextRange } from "../core/model.js";
 
 export const FLOW_PROJECTION_SCHEMA_VERSION = 1 as const;
@@ -108,6 +112,10 @@ export interface FlowFunctionProjection {
   readonly exitNodeId: string;
   readonly partial: boolean;
   readonly lockReasons: readonly FlowLockReason[];
+  /** True only when the analysis produced complete reaching-definition evidence. */
+  readonly dataFlowAvailable: boolean;
+  /** Explicit reasons why read-only data-flow wires are unavailable for this function. */
+  readonly dataFlowDisabledReasons: readonly DefUseDisabledReasonCode[];
 }
 
 export interface FlowProjection {

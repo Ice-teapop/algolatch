@@ -1,0 +1,183 @@
+/* Section: Progressive disclosure for the compact semantic Flow monitor. */
+
+/* The monitor can be resized independently from the window. Its own width, not a global media
+   query, decides when labels must contract or become horizontally scrollable. */
+.semantic-monitor {
+  container-name: semantic-monitor;
+  container-type: inline-size;
+}
+
+.semantic-monitor__tabs {
+  min-width: 0;
+}
+
+#semantic-flow-panel .canvas-toolbar {
+  position: relative;
+  gap: 6px;
+}
+
+#semantic-flow-panel .canvas-toolbar h2,
+#semantic-flow-panel .canvas-toolbar__source-badge {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#semantic-flow-panel .canvas-toolbar__source-badge {
+  max-width: 45%;
+}
+
+/* Keep the full instruction available to assistive technology without spending a toolbar row. */
+#semantic-flow-panel .canvas-toolbar__hint {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Arrangement commands are secondary: reveal them when the toolbar is explored or the
+   current selection makes those commands relevant. Keyboard focus remains in the tab order. */
+#semantic-flow-panel .canvas-toolbar__actions {
+  position: absolute;
+  z-index: 3;
+  top: 4px;
+  right: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  background: var(--surface);
+  transition:
+    opacity var(--motion-feedback) var(--ease-out-quart),
+    transform var(--motion-feedback) var(--ease-out-quart);
+}
+
+#semantic-flow-panel .canvas-toolbar:hover .canvas-toolbar__actions,
+#semantic-flow-panel .canvas-toolbar:focus-within .canvas-toolbar__actions,
+#semantic-flow-panel:has(.flow-canvas[data-interaction-context="node"]) .canvas-toolbar__actions,
+#semantic-flow-panel:has(.flow-canvas[data-interaction-context="draft"]) .canvas-toolbar__actions,
+#semantic-flow-panel:has(.flow-canvas[data-interaction-context="multi"]) .canvas-toolbar__actions,
+#semantic-flow-panel:has(.flow-canvas[data-interaction-context="edge"]) .canvas-toolbar__actions,
+#semantic-flow-panel:has(.flow-canvas[data-interaction-context="wiring"]) .canvas-toolbar__actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+/* Sockets retain their established hit target; only the visual affordance is deferred until
+   the learner explores a node or starts a cable gesture. */
+.semantic-monitor .flow-node__port {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-feedback) var(--ease-out-quart);
+}
+
+.semantic-monitor .flow-node:hover > .flow-node__port,
+.semantic-monitor .flow-node.is-selected > .flow-node__port,
+.semantic-monitor .flow-node:focus-within > .flow-node__port,
+.semantic-monitor .flow-canvas__draft-node:hover > .flow-node__port,
+.semantic-monitor .flow-canvas__draft-node.is-selected > .flow-node__port,
+.semantic-monitor .flow-canvas__draft-node:focus-within > .flow-node__port,
+.semantic-monitor .flow-node__port[data-selected-cable-end="true"],
+.semantic-monitor .flow-canvas[data-interaction-context="wiring"] .flow-node__port {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Edge insertion remains available through the existing cable selection and preset-drag flow,
+   but the plus signs no longer compete with the projected program at rest. */
+.semantic-monitor .flow-canvas__edge-insert {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.82);
+  transition:
+    opacity var(--motion-feedback) var(--ease-out-quart),
+    transform var(--motion-feedback) var(--ease-out-quart);
+}
+
+.semantic-monitor .flow-canvas:has(.flow-canvas__wire-hit:hover) .flow-canvas__edge-insert,
+.semantic-monitor .flow-canvas[data-interaction-context="edge"] .flow-canvas__edge-insert,
+.semantic-monitor .flow-canvas.is-preset-drag .flow-canvas__edge-insert,
+.semantic-monitor .flow-canvas__edge-insert:hover,
+.semantic-monitor .flow-canvas__edge-insert:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* The overview is a secondary navigation aid. It appears while the canvas is being explored,
+   while remaining keyboard reachable through focus-within. */
+.semantic-monitor .flow-minimap {
+  opacity: 0;
+  transition: opacity var(--motion-feedback) var(--ease-out-quart);
+}
+
+.semantic-monitor .flow-canvas-host:hover .flow-minimap,
+.semantic-monitor .flow-canvas-host:focus-within .flow-minimap {
+  opacity: 1;
+}
+
+/* A C Cell projection is intentionally read-only. Never advertise editing affordances there,
+   even if a node happens to be hovered or selected. */
+#semantic-flow-panel:has(.canvas-toolbar[data-presentation="preview"]) .flow-node__port,
+#semantic-flow-panel:has(.canvas-toolbar[data-presentation="preview"]) .flow-canvas__edge-insert {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@container semantic-monitor (max-width: 320px) {
+  .semantic-monitor__tabs {
+    gap: 2px;
+    padding-inline: 6px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .semantic-monitor__tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .semantic-monitor__tabs > button {
+    flex: 0 0 auto;
+    min-width: auto;
+    padding-inline: 6px;
+    font-size: var(--text-caption);
+  }
+
+  #semantic-flow-panel .canvas-toolbar {
+    padding-inline: 6px;
+  }
+
+  #semantic-flow-panel .canvas-toolbar__source-badge {
+    max-width: 40%;
+  }
+}
+
+/* The narrow semantic drawer covers the complete work area, including an open runtime panel.
+   Keeping primary-workspace static makes work-area the containing block instead of trapping the
+   drawer in the shortened centre row. */
+@media (max-width: 899px) {
+  .work-area {
+    position: relative;
+  }
+
+  #primary-workspace {
+    position: static;
+  }
+}
+
+@media (forced-colors: active) {
+  .semantic-monitor .flow-node__port,
+  .semantic-monitor .flow-canvas__edge-insert,
+  .semantic-monitor .flow-minimap,
+  #semantic-flow-panel .canvas-toolbar__actions {
+    transition: none;
+  }
+}

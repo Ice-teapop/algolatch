@@ -78,6 +78,8 @@ const BLOCK_PALETTE_COPY: Readonly<Record<BlockPaletteLocale, BlockPaletteCopy>>
 export interface BlockPaletteCompatibilityFilter {
   readonly direction: "input" | "output";
   readonly channel: "control" | "data";
+  /** Optional exact placement gate supplied by the source-authoritative assembly planner. */
+  readonly presetIds?: readonly string[] | undefined;
 }
 export type BlockPaletteCategory =
   | "all"
@@ -134,6 +136,12 @@ export function filterLearningTemplates(
           (port) =>
             port.direction === compatibility.direction && port.channel === compatibility.channel,
         )
+      ) {
+        return false;
+      }
+      if (
+        compatibility?.presetIds !== undefined &&
+        !compatibility.presetIds.includes(template.id)
       ) {
         return false;
       }

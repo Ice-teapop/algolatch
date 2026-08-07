@@ -33,7 +33,9 @@ describe("M6 workbench shell behavior", () => {
     expect(app.innerHTML).toContain(">教程</button>");
     expect(app.innerHTML).toContain(">工作区</button>");
     expect(app.innerHTML).toContain(">打开 AI 助手</button>");
-    expect(app.innerHTML).toContain('id="ai-assistant-button" class="runtime-ai-action"');
+    expect(app.innerHTML).toContain(
+      'id="ai-assistant-button" class="runtime-ai-action semantic-monitor__ai-action"',
+    );
     expect(app.innerHTML).not.toContain(
       'class="workspace-switcher__button" type="button" aria-label="打开 AI 助手"',
     );
@@ -465,6 +467,7 @@ class FakeApp extends FakeElement {
 
 function buildStaticShell(document: FakeDocument): FakeElement {
   const shell = element(document, "div", "workbench-shell", "workbench-shell");
+  const appBar = element(document, "header", "app-bar", "app-bar");
   const dock = element(document, "nav", "workbench-dock", "dock-bar");
   const pageStack = element(document, "main", "workbench-pages", "workbench-pages");
   const dashboard = element(document, "section", "dashboard-panel", "workbench-page");
@@ -484,6 +487,7 @@ function buildStaticShell(document: FakeDocument): FakeElement {
     identified(document.createElement("button"), "workspace-lesson-exit"),
   );
   const buildLayout = element(document, "div", "build-layout");
+  const narrowPanelScrim = identified(document.createElement("button"), "narrow-panel-scrim");
   const workArea = element(document, "div", "work-area");
   const primaryWorkspace = element(document, "div", "primary-workspace");
   const leftPane = element(document, "aside", "left-pane");
@@ -495,11 +499,43 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   const bottomPane = element(document, "section", "bottom-pane");
   const codePanel = element(document, "section", "code-panel");
   const inspectorStack = element(document, "section", "inspector-stack");
+  const projectToolsToggle = identified(document.createElement("button"), "project-tools-toggle");
+  const projectToolsClose = identified(document.createElement("button"), "project-tools-close");
+  const semanticMonitorToggle = identified(
+    document.createElement("button"),
+    "semantic-monitor-toggle",
+  );
+  const semanticMonitorClose = identified(
+    document.createElement("button"),
+    "semantic-monitor-close",
+  );
+  const runtimePanelToggle = identified(document.createElement("button"), "runtime-panel-toggle");
+  const leftFilesTab = identified(document.createElement("button"), "left-files-tab");
+  const leftVariablesTab = identified(document.createElement("button"), "left-variables-tab");
+  const leftPresetsTab = identified(document.createElement("button"), "left-presets-tab");
+  const leftCasesTab = identified(document.createElement("button"), "left-cases-tab");
+  const leftHistoryTab = identified(document.createElement("button"), "left-history-tab");
+  const leftFilesPanel = element(document, "section", "left-files-panel");
+  const leftVariablesPanel = element(document, "section", "left-variables-panel");
+  const leftPresetsPanel = element(document, "section", "left-presets-panel");
+  const leftCasesPanel = element(document, "section", "left-cases-panel");
+  const leftHistoryPanel = element(document, "section", "left-history-panel");
+  const projectFilesHost = element(document, "div", "project-files-host");
+  const runtimeVariablesHost = element(document, "div", "runtime-variables-host");
+  const workspaceCasesHost = element(document, "div", "workspace-cases-host");
+  const workspaceHistoryHost = element(document, "div", "workspace-history-host");
   const palette = element(document, "div", "block-palette", "block-palette");
   const lessonPresetsMask = element(document, "div", "workspace-lesson-presets-mask");
   lessonPresetsMask.hidden = true;
   const tree = element(document, "div", "block-tree", "block-tree");
   const flowCanvas = element(document, "div", "flow-canvas", "flow-canvas-host");
+  const dataFlowStatusHost = element(document, "div", "data-flow-status-host");
+  const commandSurface = element(document, "div", "command-surface");
+  const cCommandTab = identified(document.createElement("button"), "c-command-tab");
+  const mainSourceTab = identified(document.createElement("button"), "main-source-tab");
+  const cCommandPanel = element(document, "section", "c-command-panel");
+  const mainSourcePanel = element(document, "section", "main-source-panel");
+  const cCommandHost = element(document, "div", "c-command-host");
   const tracePrimaryButton = identified(document.createElement("button"), "trace-primary-action");
   const traceObserveButton = identified(document.createElement("button"), "trace-observe-action");
   const analysisPrimaryButton = identified(
@@ -508,12 +544,21 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   );
   const manualRunInputHost = element(document, "div", "manual-run-input-host");
   const code = element(document, "div", "code-pane", "code-pane");
+  const semanticFlowTab = identified(document.createElement("button"), "semantic-flow-tab");
+  const semanticDiagnosticsTab = identified(
+    document.createElement("button"),
+    "semantic-diagnostics-tab",
+  );
+  const semanticAiTab = identified(document.createElement("button"), "semantic-ai-tab");
+  const semanticFlowPanel = element(document, "section", "semantic-flow-panel");
   const explanationPanel = element(document, "section", "explanation-panel");
   const explanationHost = element(document, "div", "explanation-host");
   explanationPanel.append(explanationHost);
   const editPanel = element(document, "section", "edit-panel");
   const editHost = element(document, "div", "edit-host");
   editPanel.append(editHost);
+  const semanticDiagnosticsPanel = element(document, "section", "semantic-diagnostics-panel");
+  const semanticAiPanel = element(document, "section", "semantic-ai-panel");
   const runPanel = element(document, "section", "run-panel");
   const scenarioHost = element(document, "div", "scenario-workbench-host");
   const traceHost = element(document, "div", "trace-workbench-host");
@@ -524,28 +569,68 @@ function buildStaticShell(document: FakeDocument): FakeElement {
   metricsPanel.append(metricsHost);
   const diagnosticsPanel = element(document, "section", "diagnostics-panel");
   const diagnosticsHost = element(document, "section", "runtime-diagnostics-host");
-  diagnosticsPanel.append(diagnosticsHost);
   const mentorPanel = element(document, "section", "mentor-panel");
   const mentorHost = element(document, "section", "mentor-hints-host");
-  mentorPanel.append(mentorHost);
-  presetsPane.append(palette, lessonPresetsMask);
+  leftFilesPanel.append(projectFilesHost);
+  leftVariablesPanel.append(runtimeVariablesHost);
+  leftPresetsPanel.append(palette, lessonPresetsMask);
+  leftCasesPanel.append(workspaceCasesHost);
+  leftHistoryPanel.append(workspaceHistoryHost);
+  presetsPane.append(
+    leftFilesTab,
+    leftVariablesTab,
+    leftPresetsTab,
+    leftCasesTab,
+    leftHistoryTab,
+    projectToolsClose,
+    leftFilesPanel,
+    leftVariablesPanel,
+    leftPresetsPanel,
+    leftCasesPanel,
+    leftHistoryPanel,
+  );
   outlinePane.append(tree);
   leftPane.append(presetsPane, outlinePane);
+  cCommandPanel.append(cCommandHost);
+  mainSourcePanel.append(code);
+  commandSurface.append(cCommandPanel, mainSourcePanel);
   centerCanvasPane.append(
+    projectToolsToggle,
+    semanticMonitorToggle,
+    cCommandTab,
+    mainSourceTab,
     tracePrimaryButton,
     traceObserveButton,
     analysisPrimaryButton,
+    runtimePanelToggle,
     manualRunInputHost,
-    flowCanvas,
+    commandSurface,
   );
   bottomPane.append(runPanel, metricsPanel, diagnosticsPanel, mentorPanel);
   centerPane.append(centerCanvasPane);
-  codePanel.append(code);
-  inspectorStack.append(explanationPanel, editPanel);
+  semanticFlowPanel.append(dataFlowStatusHost, flowCanvas);
+  semanticDiagnosticsPanel.append(diagnosticsHost);
+  semanticAiPanel.append(
+    identified(document.createElement("button"), "ai-assistant-button"),
+    mentorHost,
+  );
+  codePanel.append(
+    semanticFlowTab,
+    identified(document.createElement("button"), "explanation-tab"),
+    semanticDiagnosticsTab,
+    semanticAiTab,
+    identified(document.createElement("button"), "edit-tab"),
+    semanticMonitorClose,
+    semanticFlowPanel,
+    explanationPanel,
+    semanticDiagnosticsPanel,
+    semanticAiPanel,
+    editPanel,
+  );
   rightPane.append(codePanel, inspectorStack);
   primaryWorkspace.append(centerPane, rightPane);
   workArea.append(primaryWorkspace, bottomPane);
-  buildLayout.append(leftPane, workArea);
+  buildLayout.append(narrowPanelScrim, leftPane, workArea);
   buildHost.append(lessonStrip, buildLayout);
   build.append(buildHost);
   const analysis = element(document, "section", "analysis-panel", "workbench-page");
@@ -589,15 +674,15 @@ function buildStaticShell(document: FakeDocument): FakeElement {
     generalSettings,
     aiSettings,
   );
-  shell.append(
-    startupRoot,
+  appBar.append(
     identified(document.createElement("button"), "dashboard-tab"),
     identified(document.createElement("button"), "tutorials-tab"),
     identified(document.createElement("button"), "build-tab"),
     identified(document.createElement("button"), "analysis-tab"),
-    identified(document.createElement("button"), "ai-assistant-button"),
-    identified(document.createElement("button"), "explanation-tab"),
-    identified(document.createElement("button"), "edit-tab"),
+  );
+  shell.append(
+    startupRoot,
+    appBar,
     identified(document.createElement("button"), "run-tab"),
     identified(document.createElement("button"), "metrics-tab"),
     identified(document.createElement("button"), "mentor-tab"),

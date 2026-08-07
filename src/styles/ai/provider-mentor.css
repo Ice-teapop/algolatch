@@ -20,7 +20,7 @@
   align-items: center;
   gap: 10px;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .ai-provider-settings__model input,
@@ -35,14 +35,14 @@
   color: var(--ink);
   background: transparent;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .ai-provider-settings__text-button,
 .mentor-panel__tab,
 .mentor-panel__text-button {
   width: max-content;
-  min-height: 26px;
+  min-height: var(--interaction-target-compact);
   padding: 0;
   border: 0;
   border-bottom: 1px solid transparent;
@@ -68,11 +68,11 @@
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .ai-provider-settings__connected > strong {
-  font-size: 10px;
+  font-size: var(--text-control);
 }
 
 .ai-provider-settings__status[data-state="warning"] {
@@ -92,7 +92,7 @@
   align-items: center;
   gap: 10px;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .ai-provider-settings__permission select {
@@ -111,7 +111,7 @@
 .ai-provider-settings__permission p {
   margin: 0 0 0 98px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.45;
 }
 
@@ -154,7 +154,7 @@
 .mentor-panel__preset-heading,
 .mentor-panel__composer > span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .mentor-panel__presets {
@@ -164,7 +164,7 @@
 }
 
 .mentor-panel__preset {
-  min-height: 22px;
+  min-height: var(--interaction-target-compact);
   color: var(--ink-secondary);
 }
 
@@ -180,7 +180,7 @@
   margin: 0;
   padding: 12px 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
   line-height: 1.5;
 }
 
@@ -198,7 +198,7 @@
 
 .mentor-panel__message-role {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 650;
 }
 
@@ -227,7 +227,7 @@
   padding: 6px 0;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .mentor-panel__composer {
@@ -273,7 +273,7 @@
 
 .mentor-panel__context {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .mentor-panel__context summary {

@@ -5,10 +5,17 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CompileRequest } from "../../src/shared/api.js";
+
+// Every launch gets its own workspace root and Electron profile. Without them these specs
+// write into the user's real Documents workspace and share one browser profile, which both
+// pollutes real data and lets state leak between spec files under `workers: 1`.
+const e2eWorkspaceRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-workspace-"));
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 let electronApplication: ElectronApplication | undefined;
 let page: Page;
@@ -35,10 +42,11 @@ test.beforeAll(async () => {
     ),
   );
   electronApplication = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...inheritedEnvironment,
+      PANEL_WORKSPACE_ROOT: e2eWorkspaceRoot,
       PANEL_RUNNER_MODE: "trusted-only",
     },
   });
@@ -451,15 +459,169 @@ test("grants exactly one compile and one run after separate native confirmations
   expect(dialogCount).toBe(3);
 });
 
+test("streams a Verified Run through a window-bound, bounded session", async () => {
+  const application = getElectronApplication();
+  await application.evaluate(({ dialog }) => {
+    const mutableDialog = dialog as unknown as {
+      showMessageBox: () => Promise<{
+        readonly response: number;
+        readonly checkboxChecked: boolean;
+      }>;
+    };
+    mutableDialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+  });
+
+  const compileResult = await page.evaluate(() =>
+    window.panelApi.compile({
+      source: '#include <stdio.h>\nint main(void){fputs("verified\\n", stdout);return 0;}',
+      sourceName: "verified.c",
+    }),
+  );
+  expect(compileResult).toMatchObject({ ok: true });
+  if (!compileResult.ok) throw new Error(compileResult.error.message);
+  const started = await page.evaluate(
+    (artifactId) => window.panelApi.startRun({ artifactId }),
+    compileResult.artifactId,
+  );
+  expect(started).toMatchObject({ ok: true, status: "preparing" });
+  if (!started.ok) throw new Error(started.error.message);
+
+  await expect(
+    page.evaluate((sessionId) => window.panelApi.readRun(sessionId, -1), started.sessionId),
+  ).resolves.toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+  await expect(
+    page.evaluate(() => window.panelApi.readRun("run_not_owned_00000000", 0)),
+  ).resolves.toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+
+  let afterSequence = 0;
+  const output: number[] = [];
+  let finalResult: Awaited<ReturnType<Window["panelApi"]["readRun"]>> | undefined;
+  await expect
+    .poll(async () => {
+      const batch = await page.evaluate(
+        ({ sessionId, cursor }) => window.panelApi.readRun(sessionId, cursor),
+        { sessionId: started.sessionId, cursor: afterSequence },
+      );
+      if (!batch.ok) return batch.error.code;
+      for (const event of batch.events) {
+        if (event.stream === "stdout") output.push(...event.data);
+      }
+      afterSequence = batch.nextSequence;
+      finalResult = batch;
+      return batch.result === null ? batch.status : "settled";
+    })
+    .toBe("settled");
+  expect(finalResult).toMatchObject({
+    ok: true,
+    status: "completed",
+    result: { ok: true, exitCode: 0 },
+  });
+  expect(output).toEqual(Array.from(new TextEncoder().encode("verified\n")));
+  await expect(
+    page.evaluate((sessionId) => window.panelApi.readRun(sessionId, 0), started.sessionId),
+  ).resolves.toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+});
+
+test("cancels Verified Run and releases the shared runner gate after native reap", async () => {
+  const application = getElectronApplication();
+  await application.evaluate(({ dialog }) => {
+    const mutableDialog = dialog as unknown as {
+      showMessageBox: () => Promise<{
+        readonly response: number;
+        readonly checkboxChecked: boolean;
+      }>;
+    };
+    mutableDialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+  });
+
+  const compiled = await page.evaluate(() =>
+    window.panelApi.compile({
+      source: "int main(void){for(;;){} return 0;}",
+      sourceName: "cancel.c",
+    }),
+  );
+  expect(compiled).toMatchObject({ ok: true });
+  if (!compiled.ok) throw new Error(compiled.error.message);
+  const started = await page.evaluate(
+    (artifactId) => window.panelApi.startRun({ artifactId }),
+    compiled.artifactId,
+  );
+  expect(started).toMatchObject({ ok: true });
+  if (!started.ok) throw new Error(started.error.message);
+  await expect(
+    page.evaluate((sessionId) => window.panelApi.cancelRun(sessionId), started.sessionId),
+  ).resolves.toMatchObject({ ok: true, status: "cancelled" });
+
+  await expect
+    .poll(async () => {
+      const result = await page.evaluate(() =>
+        window.panelApi.compile({ source: "int main(void){return 0;}", sourceName: "next.c" }),
+      );
+      return result.ok ? "ok" : result.error.code;
+    })
+    .toBe("ok");
+  await expect
+    .poll(async () => {
+      const batch = await page.evaluate(
+        (sessionId) => window.panelApi.readRun(sessionId, 0),
+        started.sessionId,
+      );
+      return batch.ok && batch.result !== null ? batch.status : "settling";
+    })
+    .toBe("cancelled");
+});
+
+test("rejects every Verified Run channel from a BrowserWindow outside the workbench set", async () => {
+  const application = getElectronApplication();
+  const outcomes = await application.evaluate(
+    async ({ BrowserWindow }, options) => {
+      const untrustedWindow = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          preload: options.preloadPath,
+          contextIsolation: true,
+          sandbox: true,
+          nodeIntegration: false,
+        },
+      });
+      try {
+        await untrustedWindow.loadURL(options.rendererUrl);
+        return (await untrustedWindow.webContents.executeJavaScript(`
+          Promise.all([
+            window.panelApi.startRun({ artifactId: "artifact_untrusted_00000001" }),
+            window.panelApi.readRun("run_untrusted_session_00000001", 0),
+            window.panelApi.cancelRun("run_untrusted_session_00000001")
+          ].map((request) => request.then(
+            () => "resolved",
+            (error) => String(error?.message ?? error)
+          )))
+        `)) as string[];
+      } finally {
+        untrustedWindow.destroy();
+      }
+    },
+    {
+      rendererUrl: page.url(),
+      preloadPath: join(process.cwd(), "dist-electron/preload/index.cjs"),
+    },
+  );
+
+  expect(outcomes).toHaveLength(3);
+  for (const outcome of outcomes) {
+    expect(outcome).not.toBe("resolved");
+    expect(outcome).toMatch(/非工作台|IPC/u);
+  }
+});
+
 test("opens the local desktop shell with a narrow preload API", async () => {
   const systemLocale = await page.evaluate(() => window.panelApi.getSystemLocale());
   const appInfo = await page.evaluate(() => window.panelApi.getAppInfo());
   expect(appInfo).toMatchObject({
-    version: "0.1.1-preview.2",
+    version: "0.1.1-preview.3",
     license: "PolyForm-Noncommercial-1.0.0",
     repositoryUrl: "https://github.com/Ice-teapop/algolatch",
     releasesUrl: "https://github.com/Ice-teapop/algolatch/releases",
-    platform: "darwin",
+    platform: process.platform,
     electronVersion: "43.0.0",
   });
   const expectedTitle = "AlgoLatch";
@@ -469,9 +631,23 @@ test("opens the local desktop shell with a narrow preload API", async () => {
 
   const rendererBoundary = await page.evaluate(() => ({
     apiKeys: Object.keys(window.panelApi).sort(),
-    forbiddenApiKeys: ["readFile", "openPath", "getPathForFile", "path", "send", "on"].filter(
-      (key) => key in (window.panelApi as unknown as Record<string, unknown>),
-    ),
+    forbiddenApiKeys: [
+      "readFile",
+      "openPath",
+      "getPathForFile",
+      "path",
+      "send",
+      "on",
+      "shell",
+      "exec",
+      "spawn",
+      "openTerminal",
+      "writeTerminal",
+      "resizeTerminal",
+      "interruptTerminal",
+      "closeTerminal",
+      "subscribeTerminalEvents",
+    ].filter((key) => key in (window.panelApi as unknown as Record<string, unknown>)),
     hasNodeProcess: "process" in window,
     hasNodeRequire: "require" in window,
   }));
@@ -480,6 +656,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
     apiKeys: [
       "appendAiConversationMessage",
       "cancelAiMentor",
+      "cancelRun",
       "cancelTrace",
       "capabilities",
       "compile",
@@ -506,6 +683,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
       "readAiConversation",
       "readAiMentor",
       "readLearningCatalog",
+      "readRun",
       "readTrace",
       "readWorkspaceSidecar",
       "renameAiConversation",
@@ -517,6 +695,7 @@ test("opens the local desktop shell with a narrow preload API", async () => {
       "setAiConversationArchived",
       "setInterfaceLocale",
       "startAiMentor",
+      "startRun",
       "startTrace",
       "toggleAiWindow",
     ],
@@ -625,6 +804,7 @@ test("loads both WASM modules and projects an explicitly opened C document", asy
 });
 
 test("uses the enforced BrowserWindow security preferences", async () => {
+  const expectedWindowVisible = process.env.PANEL_E2E_HIDE_WINDOW !== "1";
   const security = await getElectronApplication().evaluate(({ app, BrowserWindow }) => {
     const mainWindow = BrowserWindow.getAllWindows()[0] as
       | (Electron.BrowserWindow & {
@@ -659,11 +839,91 @@ test("uses the enforced BrowserWindow security preferences", async () => {
     webSecurity: true,
     navigateOnDragDrop: false,
     rendererProcessSandboxed: true,
-    visible: true,
+    visible: expectedWindowVisible,
   });
+});
+
+test("reaps an active Verified Run process when the application window closes", async () => {
+  const application = getElectronApplication();
+  await application.evaluate(({ dialog }) => {
+    const mutableDialog = dialog as unknown as {
+      showMessageBox: () => Promise<{
+        readonly response: number;
+        readonly checkboxChecked: boolean;
+      }>;
+    };
+    mutableDialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+  });
+  const processIdSource =
+    process.platform === "win32"
+      ? [
+          "#include <stdio.h>",
+          "#include <windows.h>",
+          "int main(void){",
+          '  printf("%lu\\n", (unsigned long)GetCurrentProcessId());',
+          "  fflush(stdout);",
+          "  for(;;){}",
+          "  return 0;",
+          "}",
+        ].join("\n")
+      : [
+          "#include <stdio.h>",
+          "#include <unistd.h>",
+          "int main(void){",
+          '  printf("%d\\n", (int)getpid());',
+          "  fflush(stdout);",
+          "  for(;;){}",
+          "  return 0;",
+          "}",
+        ].join("\n");
+  const compiled = await page.evaluate(
+    (source) =>
+      window.panelApi.compile({
+        source,
+        sourceName: "close-reap.c",
+      }),
+    processIdSource,
+  );
+  expect(compiled).toMatchObject({ ok: true });
+  if (!compiled.ok) throw new Error(compiled.error.message);
+  const started = await page.evaluate(
+    (artifactId) => window.panelApi.startRun({ artifactId }),
+    compiled.artifactId,
+  );
+  expect(started).toMatchObject({ ok: true });
+  if (!started.ok) throw new Error(started.error.message);
+
+  let childPid = 0;
+  await expect
+    .poll(async () => {
+      const batch = await page.evaluate(
+        (sessionId) => window.panelApi.readRun(sessionId, 0),
+        started.sessionId,
+      );
+      if (!batch.ok) return 0;
+      const stdout = batch.events
+        .filter((event) => event.stream === "stdout")
+        .flatMap((event) => [...event.data]);
+      childPid = Number.parseInt(new TextDecoder().decode(Uint8Array.from(stdout)), 10);
+      return childPid;
+    })
+    .toBeGreaterThan(1);
+
+  await application.close();
+  electronApplication = undefined;
+  await expect.poll(() => isProcessAlive(childPid)).toBe(false);
 });
 
 test.afterAll(async () => {
   await electronApplication?.close();
   await rm(importFixtureDirectory, { recursive: true, force: true });
 });
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}

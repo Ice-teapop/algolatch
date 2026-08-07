@@ -69,13 +69,13 @@
 }
 
 .edit-panel__history-button {
-  min-height: 26px;
+  min-height: var(--interaction-target-compact);
   padding: 3px 7px;
   border: 1px solid var(--line-strong);
   border-radius: 2px;
   color: var(--ink-secondary);
   background: var(--surface-raised);
-  font-size: 10px;
+  font-size: var(--text-control);
   font-weight: 600;
   cursor: pointer;
 }
@@ -96,7 +96,7 @@
   margin: 0;
   padding: 6px 8px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
   line-height: 1.4;
 }
 
@@ -153,7 +153,7 @@
 
 .edit-panel__field-label {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
   font-weight: 600;
 }
 
@@ -178,7 +178,7 @@
 
 .edit-panel__input,
 .edit-panel__select {
-  min-height: 28px;
+  min-height: var(--interaction-target-compact);
   padding: 4px 6px;
 }
 
@@ -191,7 +191,7 @@
 }
 
 .edit-panel__submit {
-  min-height: 28px;
+  min-height: var(--interaction-target-compact);
   border: 1px solid var(--accent);
   border-radius: 2px;
   color: var(--on-accent);
@@ -233,7 +233,7 @@
   padding: 6px 8px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
   line-height: 1.4;
 }
 
@@ -278,7 +278,7 @@
   color: var(--code-ink);
   background: var(--input-surface);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: var(--text-control);
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -292,14 +292,14 @@
 
 .structure-edit-panel__field-label {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
   font-weight: 600;
 }
 
 .structure-edit-panel__input {
   width: 100%;
   min-width: 0;
-  min-height: 28px;
+  min-height: var(--interaction-target-compact);
   padding: 4px 6px;
   border: 1px solid var(--line-strong);
   border-radius: 2px;
@@ -324,13 +324,13 @@
 }
 
 .structure-edit-panel__button {
-  min-height: 27px;
+  min-height: var(--interaction-target-compact);
   padding: 3px 7px;
   border: 1px solid var(--line-strong);
   border-radius: 2px;
   color: var(--ink-secondary);
   background: var(--surface-raised);
-  font-size: 10px;
+  font-size: var(--text-control);
   font-weight: 600;
   cursor: pointer;
 }
@@ -358,7 +358,7 @@
 .structure-edit-panel__more-actions > summary {
   padding: 6px 0;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
   cursor: pointer;
 }
 
@@ -371,7 +371,7 @@
 .structure-edit-panel__unavailable {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
   line-height: 1.4;
 }
 
@@ -427,7 +427,7 @@
 .edit-panel__diff {
   padding-left: 2px;
   color: var(--ink-secondary);
-  font-size: 10px;
+  font-size: var(--text-control);
 }
 
 .edit-panel__diff strong {
@@ -511,7 +511,7 @@
 .explanation__analysis h5 {
   margin: 3px 0 -2px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 650;
   letter-spacing: 0.08em;
 }
@@ -585,7 +585,7 @@
   border-left: 2px solid var(--warning);
   color: var(--ink-secondary);
   background: var(--warning-soft);
-  font-size: 10px;
+  font-size: var(--text-control);
   line-height: 1.45;
 }
 

@@ -38,6 +38,11 @@ import type {
   TraceStartResult,
   TraceUnsupportedReason,
 } from "../../../src/shared/trace.js";
+import type {
+  VerifiedRunBatch,
+  VerifiedRunCancelResult,
+  VerifiedRunStartResult,
+} from "../../../src/shared/verified-run.js";
 import { ArtifactRegistry, type ArtifactRuntimeProfile } from "./artifact-registry.js";
 import { cleanupStaleWorkDirectories } from "./stale-cleanup.js";
 import {
@@ -80,6 +85,10 @@ import {
   type TraceSessionHandle,
 } from "./trace-session.js";
 import { validateTraceRequest, type ValidatedTraceRequest } from "./trace-request.js";
+import {
+  VerifiedRunSessionRegistry,
+  type VerifiedRunSessionHandle,
+} from "./verified-run-session.js";
 import {
   validateCompileRequest,
   validateDiagnoseRequest,
@@ -176,6 +185,7 @@ export interface RunnerOptions {
   readonly toolchainDetector?: ToolchainDetector;
   readonly idGenerator?: () => string;
   readonly traceIdGenerator?: () => string;
+  readonly runSessionIdGenerator?: () => string;
   readonly tempRoot?: string;
 }
 
@@ -200,6 +210,8 @@ export class Runner {
   readonly #trustedGrants = new WeakMap<TrustedExecutionGrant, TrustedGrantRecord>();
   readonly #traceSessions = new TraceSessionRegistry();
   readonly #traceIdGenerator: () => string;
+  readonly #verifiedRunSessions = new VerifiedRunSessionRegistry();
+  readonly #runSessionIdGenerator: () => string;
   readonly #activeProcesses = new Map<number, ManagedChildProcess>();
   readonly #activeWorkDirectories = new Set<string>();
   readonly #staleCleanupPromise: Promise<number>;
@@ -246,6 +258,8 @@ export class Runner {
     });
     this.#traceIdGenerator =
       options.traceIdGenerator ?? (() => `trace_${randomBytes(24).toString("base64url")}`);
+    this.#runSessionIdGenerator =
+      options.runSessionIdGenerator ?? (() => `run_${randomBytes(24).toString("base64url")}`);
   }
 
   async getCapabilities(): Promise<Capabilities> {
@@ -375,6 +389,49 @@ export class Runner {
     } finally {
       releaseTask?.();
     }
+  }
+
+  async startRun(
+    request: RunRequest,
+    trustedGrant?: TrustedExecutionGrant,
+  ): Promise<VerifiedRunStartResult> {
+    let releaseTask: (() => void) | undefined;
+    try {
+      const validated = validateRunRequest(request, this.#limits);
+      const trustedAuthorized = this.#consumeTrustedGrant(
+        "run",
+        fingerprintRunRequest(validated),
+        trustedGrant,
+      );
+      releaseTask = this.#acquireTask();
+      await this.#staleCleanupPromise;
+      const strategy = await this.#resolveExecutionStrategy(trustedAuthorized);
+      const sessionId = this.#runSessionIdGenerator();
+      const session = this.#verifiedRunSessions.create(sessionId);
+      const backgroundRelease = releaseTask;
+      releaseTask = undefined;
+      void this.#executeVerifiedRunSession(session, validated, strategy).finally(backgroundRelease);
+      return Object.freeze({ ok: true, sessionId, status: "preparing" });
+    } catch (error) {
+      return verifiedRunStartFailure(error);
+    } finally {
+      releaseTask?.();
+    }
+  }
+
+  readRun(sessionId: string, afterSequence: number): VerifiedRunBatch {
+    this.#assertAcceptingRequests();
+    return this.#verifiedRunSessions.read(sessionId, afterSequence);
+  }
+
+  cancelRun(sessionId: string): VerifiedRunCancelResult {
+    this.#assertAcceptingRequests();
+    const previousStatus = this.#verifiedRunSessions.getStatus(sessionId);
+    const result = this.#verifiedRunSessions.cancel(sessionId);
+    if (result.ok && (previousStatus === "preparing" || previousStatus === "running")) {
+      this.#cancelActiveProcesses();
+    }
+    return result;
   }
 
   async startTrace(
@@ -582,8 +639,48 @@ export class Runner {
     }
     await this.#artifactRegistry.dispose();
     this.#traceSessions.clear();
+    this.#verifiedRunSessions.clear();
     if (staleCleanupError !== undefined) {
       throw staleCleanupError;
+    }
+  }
+
+  async #executeVerifiedRunSession(
+    session: VerifiedRunSessionHandle,
+    request: ValidatedRunRequest,
+    strategy: ExecutionStrategy,
+  ): Promise<void> {
+    try {
+      if (session.cancelRequested) {
+        session.complete(
+          runFailure(new RunnerFailure("INTERNAL_ERROR", "Verified Run 在进程启动前已取消。")),
+        );
+        return;
+      }
+      session.setRunning();
+      const result = await this.#runValidated(
+        request.artifactId,
+        request.args,
+        Buffer.from(request.stdin, "utf8"),
+        request.fixtures,
+        strategy,
+        "direct",
+        Object.freeze([]),
+        {
+          observer: {
+            onStdout: (chunk) => {
+              if (!session.append("stdout", chunk)) this.#cancelActiveProcesses();
+            },
+            onStderr: (chunk) => {
+              if (!session.append("stderr", chunk)) this.#cancelActiveProcesses();
+            },
+          },
+          cancelRequested: () => session.cancelRequested,
+        },
+      );
+      session.complete(result);
+    } catch (error) {
+      session.complete(runFailure(error));
     }
   }
 
@@ -782,11 +879,13 @@ export class Runner {
     options: Readonly<{
       observer?: ProcessObserver;
       supervisionProfile?: "leaks-positive-control";
+      cancelRequested?: (() => boolean) | undefined;
     }> = Object.freeze({}),
   ): Promise<VerificationRunResult> {
     const workDirectory = await this.#createPrivateTempDirectory("run-");
 
     try {
+      assertRunNotCancelled(options.cancelRequested);
       const lease = await this.#artifactRegistry.acquire(artifactId);
       let artifactRuntimeProfile: ArtifactRuntimeProfile;
       const executablePath = join(workDirectory, this.#executableName);
@@ -798,6 +897,7 @@ export class Runner {
       } finally {
         await lease.release();
       }
+      assertRunNotCancelled(options.cancelRequested);
       if (mode === "leaks" && artifactRuntimeProfile === "sanitizer") {
         throw new RunnerFailure(
           "INVALID_REQUEST",
@@ -817,6 +917,7 @@ export class Runner {
       await this.#writeFixtures(workDirectory, fixtures);
       await this.#prepareWritableFiles(workDirectory, writableFiles);
       if (this.#platform !== "win32") await this.#writeLimitsScript(limitsScriptPath);
+      assertRunNotCancelled(options.cancelRequested);
       const targetCommand = mode === "leaks" ? LEAKS_PATH : executablePath;
       const targetArguments =
         mode === "leaks" ? [...LEAKS_ARGUMENTS, executablePath, ...args] : args;
@@ -849,6 +950,7 @@ export class Runner {
           ...(mode === "leaks" ? { normalExitReapGraceMs: LEAKS_NORMAL_EXIT_REAP_GRACE_MS } : {}),
         },
         options.observer,
+        options.cancelRequested,
       );
       const effectiveOutcome = normalizeCompletedLeaksLeader(mode, outcome);
 
@@ -1188,8 +1290,10 @@ export class Runner {
     input: Uint8Array,
     limits: SupervisionLimits,
     observer?: ProcessObserver,
+    cancelRequested?: (() => boolean) | undefined,
   ): Promise<ProcessOutcome> {
     this.#assertAcceptingRequests();
+    assertRunNotCancelled(cancelRequested);
     if (specification.resourceMetricsPath !== undefined) {
       await writeFile(specification.resourceMetricsPath, '{"rssBytes":0,"processCount":0}', {
         encoding: "utf8",
@@ -1197,6 +1301,7 @@ export class Runner {
         mode: PRIVATE_FILE_MODE,
       });
     }
+    assertRunNotCancelled(cancelRequested);
     let processGroupId: number | undefined;
     const trackingHost: ProcessHost = {
       spawn: (spawnSpecification) => {
@@ -1867,6 +1972,17 @@ function traceStartFailure(cause: unknown): TraceStartResult {
   return Object.freeze({ ok: false, unsupported: null, error: runnerError });
 }
 
+function verifiedRunStartFailure(cause: unknown): VerifiedRunStartResult {
+  const runnerError =
+    cause instanceof Error && cause.message === "Verified Run session capacity reached"
+      ? Object.freeze({
+          code: "RESOURCE_LIMIT" as const,
+          message: "Verified Run session 数量达到上限。",
+        })
+      : toRunnerError(cause);
+  return Object.freeze({ ok: false, error: runnerError });
+}
+
 function diagnoseFailure(error: unknown, rawDiagnostics: string): DiagnoseResult {
   return Object.freeze({
     ok: false,
@@ -1891,6 +2007,12 @@ function runFailure(error: unknown): RunResult {
     operationCount: null,
     error: toRunnerError(error),
   });
+}
+
+function assertRunNotCancelled(cancelRequested: (() => boolean) | undefined): void {
+  if (cancelRequested?.() === true) {
+    throw new RunnerFailure("INTERNAL_ERROR", "Verified Run 在进程启动前已取消。");
+  }
 }
 
 function toRunnerError(error: unknown): RunnerError {

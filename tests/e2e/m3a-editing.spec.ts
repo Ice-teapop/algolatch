@@ -5,6 +5,16 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { showSourceAndBlocks } from "./support/c-cell-layout.js";
+
+// Every launch gets its own workspace root and Electron profile. Without them these specs
+// write into the user's real Documents workspace and share one browser profile, which both
+// pollutes real data and lets state leak between spec files under `workers: 1`.
+const e2eWorkspaceRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-workspace-"));
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 const LITERAL_SOURCE = `${["int main(void) {", "  int value = 41;", "  return value;", "}"].join(
   "\n",
@@ -20,9 +30,9 @@ test.beforeAll(async () => {
     ),
   );
   electronApplication = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
-    env: inheritedEnvironment,
+    env: { ...inheritedEnvironment, PANEL_WORKSPACE_ROOT: e2eWorkspaceRoot },
   });
   page = await electronApplication.firstWindow();
   await page.evaluate(() =>
@@ -34,6 +44,7 @@ test.beforeEach(async () => {
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.getByRole("button", { name: "粘贴源码" })).toBeEnabled();
+  await showSourceAndBlocks(page);
 });
 
 test.afterAll(async () => {
@@ -77,9 +88,9 @@ test("previews and cancels without mutation, then commits a literal with button 
   await expect(undoButton).toBeEnabled();
   await expect(redoButton).toBeDisabled();
 
-  await page.getByRole("tab", { name: "解释", exact: true }).click();
+  await page.getByRole("tab", { name: "Blocks", exact: true }).click();
   await expect(
-    page.getByRole("tabpanel", { name: "解释" }).locator(".explanation__title"),
+    page.getByRole("tabpanel", { name: "Blocks" }).locator(".explanation__title"),
   ).toBeVisible();
   await page.getByRole("tab", { name: "编辑", exact: true }).click();
 
@@ -93,7 +104,7 @@ test("previews and cancels without mutation, then commits a literal with button 
   await expectEditorSource(editedSource);
 
   await openBuildDock();
-  const content = page.locator(".cm-content");
+  const content = page.locator("#code-pane .cm-content");
   await content.click();
   await expect(content).toBeFocused();
   await page.keyboard.press("Meta+Z");
@@ -235,7 +246,7 @@ test("a new import clears both history branches", async () => {
   await expect(historyButton("重做")).toBeDisabled();
 
   await openBuildDock();
-  const content = page.locator(".cm-content");
+  const content = page.locator("#code-pane .cm-content");
   await content.click();
   await page.keyboard.press("Meta+Z");
   await expectEditorSource(imported);
@@ -243,7 +254,7 @@ test("a new import clears both history branches", async () => {
 
 test("exposes CodeMirror as the editable exact-source surface", async () => {
   await pasteSource(LITERAL_SOURCE);
-  const content = page.locator(".cm-content");
+  const content = page.locator("#code-pane .cm-content");
   await expect(content).toHaveAttribute("contenteditable", "true");
   await expect(content).toHaveAttribute("aria-readonly", "false");
   await expect(content).toHaveAttribute("aria-label", "C 源码编辑器");
@@ -292,12 +303,12 @@ async function expectEditorSource(source: string): Promise<void> {
 
 async function editorText(): Promise<string> {
   return page
-    .locator(".cm-line")
+    .locator("#code-pane .cm-line")
     .evaluateAll((lines) => lines.map((line) => line.textContent ?? "").join("\n"));
 }
 
 async function clickCodeOccurrence(needle: string, occurrence: number): Promise<void> {
-  const point = await page.locator(".cm-content").evaluate(
+  const point = await page.locator("#code-pane .cm-content").evaluate(
     (content, target) => {
       const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
       let remaining = target.occurrence;

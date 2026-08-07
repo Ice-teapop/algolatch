@@ -43,7 +43,7 @@ export interface RunPanelCompletion {
 
 export interface RunPanel {
   refreshCapabilities(): Promise<void>;
-  runCurrent(): Promise<void>;
+  runCurrent(): Promise<RunPanelCompletion | null>;
   invalidateSource(): void;
   destroy(): void;
 }
@@ -419,9 +419,23 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
     }
   }
 
-  async function compileAndRun(): Promise<void> {
-    if (destroyed || busy || capabilities?.runnerEnabled !== true) {
-      return;
+  async function compileAndRun(): Promise<RunPanelCompletion | null> {
+    if (destroyed || busy) {
+      return null;
+    }
+    if (capabilities?.runnerEnabled !== true) {
+      root.dataset.state = capabilityFailed ? "error" : "disabled";
+      root.dataset.failureReason = "runner-unavailable";
+      result.hidden = false;
+      setBothMessages(
+        capabilities === undefined && !capabilityFailed
+          ? "无法运行：本地运行器尚未就绪。"
+          : "无法运行：本地运行器当前不可用。",
+        capabilities === undefined && !capabilityFailed
+          ? "Cannot run: the local runner is not ready yet."
+          : "Cannot run: the local runner is currently unavailable.",
+      );
+      return null;
     }
 
     const runCapabilities = snapshotCapabilities(capabilities);
@@ -462,27 +476,27 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
         "source-unavailable",
       );
       finishRun(requestId);
-      return;
+      return null;
     }
 
     let completedCompile: CompileResult | null = null;
     let completionDelivered = false;
+    let deliveredCompletion: RunPanelCompletion | null = null;
     const deliverCompletion = (runResult: RunResult | null): void => {
       if (completionDelivered) return;
       const compileResult = completedCompile;
       if (compileResult === null) return;
       completionDelivered = true;
       try {
-        options.onRunComplete?.(
-          Object.freeze({
-            source,
-            sourceFingerprint: fingerprintSource(source),
-            compileResult,
-            runResult,
-            capabilities: runCapabilities,
-            scenario,
-          }),
-        );
+        deliveredCompletion = Object.freeze({
+          source,
+          sourceFingerprint: fingerprintSource(source),
+          compileResult,
+          runResult,
+          capabilities: runCapabilities,
+          scenario,
+        });
+        options.onRunComplete?.(deliveredCompletion);
       } catch {
         // Evidence consumers are isolated from the compile/run interaction.
       }
@@ -495,11 +509,11 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       });
       completedCompile = compileResult;
       if (!isCurrentRun(requestId)) {
-        return;
+        return null;
       }
       if (!isCurrentSource(source)) {
         finishStale(requestId);
-        return;
+        return null;
       }
       setOutput(diagnosticsHeading, diagnostics, compileResult.diagnostics);
       compileDurationEvidence = compileResult.compileDurationMs;
@@ -515,7 +529,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
           ),
           "compile-failed",
         );
-        return;
+        return deliveredCompletion;
       }
 
       setBothMessages("编译完成，正在运行…", "Compilation complete; running…");
@@ -529,11 +543,11 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
             }),
       });
       if (!isCurrentRun(requestId)) {
-        return;
+        return null;
       }
       if (!isCurrentSource(source)) {
         finishStale(requestId);
-        return;
+        return null;
       }
 
       setOutput(stdoutHeading, stdout, decodeOutput(runResult.stdout));
@@ -562,6 +576,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
           "run-failed",
         );
       }
+      return deliveredCompletion;
     } catch {
       if (isCurrentSource(source)) {
         deliverCompletion(null);
@@ -576,6 +591,7 @@ export function createRunPanel(host: HTMLElement, options: RunPanelOptions): Run
       } else {
         finishStale(requestId);
       }
+      return deliveredCompletion;
     } finally {
       finishRun(requestId);
     }

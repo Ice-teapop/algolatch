@@ -1,0 +1,815 @@
+/* Section: Code-first MATLAB-style workbench hierarchy. */
+.command-workspace,
+.project-tools,
+.semantic-monitor {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.command-workspace {
+  display: grid;
+  grid-template-rows: calc(var(--interaction-target-compact) + 8px) minmax(0, 1fr);
+}
+
+.command-workspace__bar {
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--surface-soft);
+}
+
+.command-workspace__tabs {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px 6px 0;
+  overflow: hidden;
+  border-bottom: 0;
+  background: var(--surface-soft);
+}
+
+.command-workspace__tabs.panel-tabs > button {
+  position: relative;
+  min-width: auto;
+  min-height: var(--interaction-target-compact);
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 570;
+}
+
+.command-workspace__tabs.panel-tabs > button:hover:not(:disabled) {
+  color: var(--ink-secondary);
+  background: var(--surface);
+}
+
+.command-workspace__tabs.panel-tabs > button[aria-selected="true"] {
+  margin-bottom: -1px;
+  border-color: var(--line-strong);
+  border-bottom-color: var(--surface);
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--surface);
+  font-weight: 680;
+}
+
+.command-workspace__tabs.panel-tabs > button:disabled {
+  color: var(--muted-subtle);
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.command-workspace__actions {
+  flex: 0 0 auto;
+  padding: 0 10px;
+}
+
+/* One primary action per context. C Cell owns its local Run button; project Run/Trace only
+   appear with main.c, so a learner cannot execute stale project source while inspecting a draft. */
+.workbench-shell[data-command-view="command"]
+  .command-workspace__actions
+  .canvas-toolbar__runtime-action:not(#runtime-panel-toggle) {
+  display: none;
+}
+
+.command-workspace__panel-toggles {
+  display: none;
+  align-items: stretch;
+}
+
+.command-workspace__panel-toggles > button {
+  min-height: var(--interaction-target-compact);
+  padding: 0 10px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  color: var(--ink-secondary);
+  background: transparent;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+
+.command-workspace__panel-toggles > button[aria-expanded="true"] {
+  color: var(--ink);
+  box-shadow: inset 0 -1px 0 var(--ink-secondary);
+  font-weight: 650;
+}
+
+.command-surface,
+.command-surface__panel,
+.c-command-host,
+#main-source-panel,
+#code-pane {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.command-surface {
+  position: relative;
+  overflow: hidden;
+}
+
+.command-surface__panel {
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.project-tools {
+  position: relative;
+  display: grid;
+  grid-template-rows: calc(var(--interaction-target-compact) + 4px) minmax(0, 1fr);
+}
+
+.project-tools__tabs,
+.semantic-monitor__tabs {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 0 10px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.project-tools__tabs > button,
+.semantic-monitor__tabs > button {
+  flex: 0 1 auto;
+  min-width: var(--interaction-target-compact);
+  min-height: var(--interaction-target-compact);
+  padding: 0 2px;
+  overflow: hidden;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: var(--text-control);
+  font-weight: 540;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-tools__tabs > button:hover:not(:disabled),
+.semantic-monitor__tabs > button:hover:not(:disabled) {
+  color: var(--ink-secondary);
+  background: transparent;
+}
+
+.panel-tabs.project-tools__tabs > button[aria-selected="true"],
+.panel-tabs.semantic-monitor__tabs > button[aria-selected="true"] {
+  color: var(--ink);
+  background: transparent;
+  box-shadow: inset 0 -1px 0 var(--ink-secondary);
+  font-weight: 680;
+}
+
+.project-tools__panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+#left-presets-panel {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+#left-presets-panel[hidden] {
+  display: none;
+}
+
+.project-files-host:empty::before,
+.runtime-variables-host:empty::before,
+.workspace-cases-host:empty::before,
+.workspace-history-host:empty::before {
+  display: block;
+  padding: 14px 12px;
+  color: var(--muted-subtle);
+  font-size: var(--text-control);
+  line-height: 1.5;
+}
+
+.project-files-host:empty::before {
+  content: "当前项目文件将在此处显示。";
+}
+
+.runtime-variables-host:empty::before {
+  content: "完成可信运行后显示有证据的变量摘要。";
+}
+
+.workspace-cases-host:empty::before {
+  content: "运行案例将在此处显示。";
+}
+
+.workspace-history-host:empty::before {
+  content: "可信运行历史将在此处显示。";
+}
+
+.project-files-host__file {
+  display: block;
+  width: 100%;
+  min-height: var(--interaction-target-default);
+  padding: 0 12px;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-control);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.project-files-host__file:hover {
+  background: var(--surface-hover);
+}
+
+.workspace-cases-host {
+  padding: 8px 10px;
+}
+
+.scenario-picker {
+  min-width: 0;
+}
+
+.scenario-picker__trigger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  min-height: var(--interaction-target-default);
+  gap: 8px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 1px;
+  color: var(--ink);
+  background: var(--input-surface);
+  font-size: var(--text-control);
+  text-align: left;
+}
+
+.scenario-picker__trigger:hover,
+.scenario-picker__trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+.scenario-picker__trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scenario-picker__disclosure {
+  color: var(--muted);
+  font-size: var(--text-control);
+}
+
+.scenario-picker__popover {
+  position: fixed;
+  z-index: 120;
+  top: var(--scenario-picker-top, 8px);
+  left: var(--scenario-picker-left, 8px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: var(--scenario-picker-width, 300px);
+  max-width: calc(100vw - 16px);
+  max-height: var(--scenario-picker-max-height, 320px);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 1px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 14%);
+}
+
+.scenario-picker__popover:not(:popover-open):not([data-fallback-open="true"]) {
+  display: none;
+}
+
+.scenario-picker__search {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--input-surface);
+  font-size: var(--text-control);
+  outline: 0;
+}
+
+.scenario-picker__search:focus {
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+.scenario-picker__listbox {
+  min-height: 0;
+  max-height: 260px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.scenario-picker__group-label {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  padding: 5px 8px 3px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--surface-soft);
+  font-size: var(--text-caption);
+  font-weight: 650;
+}
+
+.scenario-picker__option {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+  min-height: 28px;
+  gap: 4px;
+  padding: 4px 8px;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink-secondary);
+  background: var(--surface-raised);
+  font-size: var(--text-control);
+  text-align: left;
+}
+
+.scenario-picker__option:hover,
+.scenario-picker__option[data-active="true"] {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.scenario-picker__option[aria-selected="true"] {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.scenario-picker__option-marker {
+  color: var(--accent);
+  text-align: center;
+}
+
+.scenario-picker__option-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scenario-picker__empty {
+  margin: 0;
+  padding: 12px 8px;
+  color: var(--muted);
+  font-size: var(--text-control);
+}
+
+.workspace-cases-host__preview {
+  margin: 8px 0 0;
+  padding: 8px 0 0;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  background: transparent;
+  font-size: var(--text-caption);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.workspace-history-host__entry {
+  display: grid;
+  gap: 3px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-control);
+  line-height: 1.4;
+}
+
+.workspace-history-host__entry strong {
+  color: var(--ink-secondary);
+  font-weight: 620;
+}
+
+.workspace-history-host__entry span {
+  color: var(--muted);
+}
+
+.workspace-history-host__entry[data-state="succeeded"] strong {
+  color: var(--success);
+}
+
+.workspace-history-host__entry[data-state="compile-failed"] strong,
+.workspace-history-host__entry[data-state="run-failed"] strong,
+.workspace-history-host__entry[data-state="internal-error"] strong {
+  color: var(--danger);
+}
+
+.workbench-shell[data-locale="en"] .project-files-host:empty::before {
+  content: "Project files appear here.";
+}
+
+.workbench-shell[data-locale="en"] .runtime-variables-host:empty::before {
+  content: "Evidence-backed variables appear after a verified run.";
+}
+
+.workbench-shell[data-locale="en"] .workspace-cases-host:empty::before {
+  content: "Run cases appear here.";
+}
+
+.workbench-shell[data-locale="en"] .workspace-history-host:empty::before {
+  content: "Verified run history appears here.";
+}
+
+.semantic-monitor {
+  display: grid;
+  grid-template-rows: calc(var(--interaction-target-compact) + 4px) minmax(0, 1fr);
+}
+
+.semantic-monitor__panel {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+#semantic-flow-panel {
+  display: grid;
+  grid-template-rows: calc(var(--interaction-target-compact) + 4px) auto minmax(0, 1fr);
+}
+
+#semantic-flow-panel[hidden] {
+  display: none;
+}
+
+/* Explicit tracks: the status host is display:none until a reason exists, and an
+   unplaced grid item would otherwise slide the canvas onto the auto row, where a
+   size container holding only absolute children resolves to 0px. */
+#semantic-flow-panel .canvas-toolbar {
+  grid-row: 1;
+  min-width: 0;
+  padding: 0 8px;
+  border-bottom-color: var(--line);
+  background: var(--surface);
+}
+
+#semantic-flow-panel .data-flow-status-host {
+  grid-row: 2;
+}
+
+#semantic-flow-panel .flow-canvas-host {
+  grid-row: 3;
+}
+
+#semantic-flow-panel .canvas-toolbar h2 {
+  flex: 0 0 auto;
+}
+
+.canvas-toolbar__source-badge {
+  flex: 0 0 auto;
+  color: var(--ink-secondary);
+  font-size: var(--text-caption);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+/* Compact controls remain visually dense while meeting the existing 28px target. */
+.command-workspace__actions .canvas-toolbar__runtime-action,
+.semantic-monitor .canvas-toolbar__actions button,
+.semantic-monitor .runtime-ai-action,
+.semantic-monitor .flow-canvas__structure-buttons > button,
+.semantic-monitor .flow-canvas__edge-insert-choices > button,
+.semantic-monitor .flow-canvas__edge-insert-preset {
+  min-height: var(--interaction-target-compact);
+}
+
+.semantic-monitor .flow-canvas__edge-insert,
+.semantic-monitor .flow-node__port {
+  width: var(--interaction-target-compact);
+  height: var(--interaction-target-compact);
+}
+
+.semantic-monitor .flow-minimap {
+  grid-template-rows: var(--interaction-target-compact) 112px;
+}
+
+.semantic-monitor .flow-minimap[data-collapsed="true"] {
+  grid-template-rows: var(--interaction-target-compact);
+}
+
+.semantic-monitor .flow-minimap__toggle {
+  min-height: var(--interaction-target-compact);
+}
+
+.semantic-monitor .flow-canvas__edge-insert {
+  display: grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.semantic-monitor .flow-node__port--input {
+  top: -20px;
+}
+
+.semantic-monitor .flow-node__port--output {
+  bottom: -20px;
+}
+
+.semantic-monitor .flow-node__port::after {
+  top: 50%;
+  left: 50%;
+}
+
+@container flow-canvas-host (max-height: 190px) {
+  .semantic-monitor .flow-minimap {
+    grid-template-rows: var(--interaction-target-compact);
+  }
+}
+
+#semantic-flow-panel .canvas-toolbar__hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#semantic-flow-panel .canvas-toolbar__actions {
+  flex: 0 0 auto;
+}
+
+#semantic-flow-panel .canvas-toolbar[data-presentation="preview"] .canvas-toolbar__actions {
+  display: none;
+}
+
+/* Same shape as the flow panel: the scrolling child takes the leftover row instead of
+   claiming the panel's full height beneath fixed-height siblings, which would push its tail
+   past the panel's hidden overflow and out of reach. Rows are assigned explicitly because the
+   source note is display:none outside command view, and an unplaced grid item shifts tracks. */
+#semantic-ai-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+#semantic-ai-panel > .semantic-monitor__source-note {
+  grid-row: 1;
+}
+
+#semantic-ai-panel > .semantic-monitor__ai-entry {
+  grid-row: 2;
+}
+
+#semantic-ai-panel > #mentor-hints-host {
+  grid-row: 3;
+  height: auto;
+  min-height: 0;
+}
+
+.semantic-monitor__panel--blocks {
+  display: grid;
+  grid-template-rows: auto minmax(120px, 1fr) minmax(90px, auto);
+  overflow: hidden;
+}
+
+.semantic-monitor__panel--blocks[hidden] {
+  display: none;
+}
+
+.semantic-monitor__panel--blocks #block-tree,
+.semantic-monitor__panel--blocks #explanation-host {
+  min-height: 0;
+  overflow: auto;
+}
+
+.semantic-monitor__panel--blocks #explanation-host {
+  border-top: 1px solid var(--line);
+}
+
+.semantic-monitor__source-note {
+  display: none;
+  margin: 0;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-caption);
+  line-height: 1.45;
+}
+
+.workbench-shell[data-command-view="command"] .semantic-monitor__source-note {
+  display: block;
+}
+
+.data-flow-status-host:not(:empty) {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-caption);
+  line-height: 1.45;
+}
+
+.semantic-monitor__ai-entry {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.semantic-monitor__ai-action {
+  margin: 0;
+}
+
+.legacy-layout-host {
+  display: none !important;
+}
+
+.legacy-runtime-pane[hidden] {
+  display: none !important;
+}
+
+.narrow-panel-scrim {
+  display: none;
+}
+
+.narrow-panel-close {
+  display: none;
+}
+
+@media (max-width: 1099px) {
+  .command-workspace__panel-toggles {
+    display: flex;
+  }
+
+  #build-layout {
+    position: relative;
+  }
+
+  .workbench-shell[data-narrow-project-tools="open"] .narrow-panel-scrim,
+  .workbench-shell[data-narrow-semantic-monitor="open"] .narrow-panel-scrim {
+    position: absolute;
+    z-index: 45;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: color-mix(in srgb, var(--overlay) 42%, transparent);
+    cursor: default;
+  }
+
+  #left-pane {
+    position: absolute;
+    z-index: 55;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    display: none !important;
+    width: min(320px, 84vw) !important;
+    max-width: min(320px, 84vw) !important;
+    border-right: 1px solid var(--line-strong);
+    background: var(--surface);
+    box-shadow: 8px 0 18px rgba(0, 0, 0, 0.08);
+  }
+
+  #left-pane .project-tools__tabs {
+    padding-right: 58px;
+  }
+
+  #project-tools-close {
+    position: absolute;
+    z-index: 2;
+    top: 2px;
+    right: 6px;
+    display: block;
+    min-height: var(--interaction-target-compact);
+    padding: 0 6px;
+    border: 0;
+    color: var(--ink-secondary);
+    background: var(--surface-soft);
+    font-size: var(--text-control);
+    cursor: pointer;
+  }
+
+  .workbench-shell[data-narrow-project-tools="open"] #left-pane {
+    display: flex !important;
+  }
+
+  #build-layout > .resizable-layout__splitter[data-splitter-for="left"] {
+    display: none;
+  }
+
+  #work-area {
+    flex: 1 1 0 !important;
+    max-width: none !important;
+  }
+}
+
+@media (min-width: 900px) and (max-width: 1099px) {
+  #semantic-monitor-toggle {
+    display: none;
+  }
+}
+
+@media (max-width: 899px) {
+  #primary-workspace {
+    position: relative;
+  }
+
+  #right-pane {
+    position: absolute;
+    z-index: 50;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: none !important;
+    width: min(390px, 88vw) !important;
+    max-width: min(390px, 88vw) !important;
+    border-left: 1px solid var(--line-strong);
+    background: var(--surface);
+    box-shadow: -8px 0 18px rgba(0, 0, 0, 0.08);
+  }
+
+  #right-pane .semantic-monitor {
+    position: relative;
+  }
+
+  #right-pane .semantic-monitor__tabs {
+    padding-right: 58px;
+  }
+
+  #semantic-monitor-close {
+    position: absolute;
+    z-index: 2;
+    top: 2px;
+    right: 6px;
+    display: block;
+    min-height: var(--interaction-target-compact);
+    padding: 0 6px;
+    border: 0;
+    color: var(--ink-secondary);
+    background: var(--surface-soft);
+    font-size: var(--text-control);
+    cursor: pointer;
+  }
+
+  .workbench-shell[data-narrow-semantic-monitor="open"] #right-pane {
+    display: flex !important;
+  }
+
+  #primary-workspace > .resizable-layout__splitter[data-splitter-for="center"] {
+    display: none;
+  }
+
+  #center-pane {
+    flex: 1 1 0 !important;
+    max-width: none !important;
+    border-right: 0;
+  }
+
+  .command-workspace__tabs.panel-tabs > button {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .command-workspace__actions {
+    gap: 8px;
+    padding-right: 7px;
+    padding-left: 7px;
+  }
+}
+
+@media (max-width: 620px) {
+  .command-workspace__actions #analysis-primary-action {
+    display: none;
+  }
+
+  #semantic-flow-panel .canvas-toolbar__hint,
+  #semantic-flow-panel .canvas-toolbar__actions button:not([data-flow-command="undo"]) {
+    display: none;
+  }
+}

@@ -4,12 +4,19 @@ import type {
   WorkspaceEntrySummary,
   WorkspaceErrorCode,
   WorkspaceKind,
+  WorkspaceSnapshot,
 } from "../shared/workspace.js";
 import {
   createWorkspacePersistence,
   type WorkspacePersistenceStatus,
 } from "./workspace-persistence.js";
+import {
+  createWorkspaceResumeStore,
+  type WorkspaceResumeStorage,
+  type WorkspaceResumeStore,
+} from "./workspace-resume-store.js";
 import { createWorkspaceDashboard, type WorkspaceDashboard } from "../ui/workspace-dashboard.js";
+import { INSERTION_SORT_SAMPLE_SOURCE } from "../samples/insertion-sort-sandbox.js";
 
 export interface WorkspaceControllerOptions {
   readonly host: HTMLElement;
@@ -23,9 +30,11 @@ export interface WorkspaceControllerOptions {
   readonly saveStatus: HTMLOutputElement;
   readonly recoveryButton: HTMLButtonElement;
   readonly load: (document: ImportedSource) => void;
+  readonly getCurrentDocument: () => ImportedSource | null;
   readonly enterWorkbench: () => void;
   readonly onActiveEntryChange?:
     ((entry: WorkspaceEntrySummary | null) => void | Promise<void>) | undefined;
+  readonly resumeStore?: WorkspaceResumeStore | undefined;
 }
 
 export interface WorkspaceController {
@@ -60,6 +69,10 @@ export function createWorkspaceController(
   } | null = null;
   let lastPersistenceStatus: WorkspacePersistenceStatus | null = null;
   let activeEntryTransition: Promise<void> = Promise.resolve();
+  let persistenceStatusEntry: WorkspaceEntrySummary | null = null;
+  let durablePresentation: WorkspaceDurablePresentation = "saved";
+  const resumeStore =
+    options.resumeStore ?? createWorkspaceResumeStore(resolveWorkspaceResumeStorage(options.host));
 
   const serializeActiveEntryTransition = <T>(transition: () => T | Promise<T>): Promise<T> => {
     const result = activeEntryTransition.then(transition, transition);
@@ -76,6 +89,8 @@ export function createWorkspaceController(
     options.saveStatus.textContent = workspacePersistenceMessage(
       status,
       english() ? "en" : "zh-CN",
+      persistenceStatusEntry,
+      durablePresentation,
     );
     options.recoveryButton.hidden = status.recovery !== "reload-disk";
   };
@@ -90,8 +105,14 @@ export function createWorkspaceController(
   };
 
   const persistence = createWorkspacePersistence({
-    save: (entryId, expectedRevision, source) =>
-      options.api.saveWorkspaceDocument({ entryId, expectedRevision, source }),
+    async save(entryId, expectedRevision, source) {
+      const result = await options.api.saveWorkspaceDocument({ entryId, expectedRevision, source });
+      if (result.status === "saved") {
+        persistenceStatusEntry = result.entry;
+        durablePresentation = "saved";
+      }
+      return result;
+    },
     onStatus: renderPersistenceStatus,
   });
 
@@ -103,36 +124,88 @@ export function createWorkspaceController(
     );
   };
 
+  const restoreActiveEntryConsumer = async (entry: WorkspaceEntrySummary | null): Promise<void> => {
+    if (destroyed) return;
+    try {
+      await options.onActiveEntryChange?.(entry);
+    } catch {
+      // Source ownership stays unchanged even if a secondary consumer cannot roll back.
+    }
+  };
+
+  const restoreWorkspaceAdoption = async (snapshot: WorkspaceAdoptionSnapshot): Promise<void> => {
+    await restoreActiveEntryConsumer(null);
+    persistenceStatusEntry = snapshot.persistenceStatusEntry;
+    durablePresentation = snapshot.durablePresentation;
+    if (snapshot.entry === null) {
+      if (persistence.activeEntry !== null) persistence.deactivateAfterFlush();
+    } else {
+      persistence.adopt(snapshot.entry);
+    }
+    if (snapshot.document !== null) options.load(snapshot.document);
+    await restoreActiveEntryConsumer(snapshot.entry);
+  };
+
   const adopt = (document: WorkspaceDocument, requestGeneration: number): Promise<boolean> =>
     serializeActiveEntryTransition(async () => {
       if (destroyed || requestGeneration !== generation) return false;
-      persistence.adopt(document.entry);
-      options.load({
-        source: document.source,
-        displayName: `${document.entry.title}.c`,
-        origin: "workspace",
+      const previous: WorkspaceAdoptionSnapshot = Object.freeze({
+        entry: persistence.activeEntry,
+        document: options.getCurrentDocument(),
+        persistenceStatusEntry,
+        durablePresentation,
       });
-      await options.onActiveEntryChange?.(document.entry);
-      if (destroyed || requestGeneration !== generation) return false;
+      let stateChanged = false;
+      try {
+        // Flush and detach consumers while the old source is still current.
+        // Loading first would let the new projection persist into the old entry sidecar.
+        if (previous.entry !== null) {
+          await options.onActiveEntryChange?.(null);
+          stateChanged = true;
+        }
+        if (destroyed || requestGeneration !== generation) {
+          if (!destroyed && stateChanged) await restoreWorkspaceAdoption(previous);
+          return false;
+        }
+        persistenceStatusEntry = document.entry;
+        durablePresentation = "opened";
+        persistence.adopt(document.entry);
+        stateChanged = true;
+        options.load({
+          source: document.source,
+          displayName: `${document.entry.title}.c`,
+          origin: "workspace",
+        });
+        await options.onActiveEntryChange?.(document.entry);
+      } catch (error: unknown) {
+        if (stateChanged && !destroyed) await restoreWorkspaceAdoption(previous);
+        throw error;
+      }
+      if (destroyed || requestGeneration !== generation) {
+        if (!destroyed) await restoreWorkspaceAdoption(previous);
+        return false;
+      }
       options.enterWorkbench();
+      resumeStore.write(document.entry.id);
       setDashboardStatus(
-        `已打开“${document.entry.title}”。`,
-        `Opened “${document.entry.title}”.`,
+        `已打开“${document.entry.title}” · 修订 ${String(document.entry.revision)}。`,
+        `Opened “${document.entry.title}” · revision ${String(document.entry.revision)}.`,
         "success",
       );
       return true;
     });
 
-  const refresh = async (): Promise<void> => {
-    if (destroyed) return;
+  const readSnapshot = async (): Promise<WorkspaceSnapshot | null> => {
+    if (destroyed) return null;
     const requestGeneration = ++generation;
+    dashboard.setSnapshotUnconfirmed();
     setDashboardStatus("正在读取 Documents 工作区…", "Reading the Documents workspace…", "loading");
     try {
       const result = await options.api.listWorkspaceDocuments();
-      if (destroyed || requestGeneration !== generation) return;
+      if (destroyed || requestGeneration !== generation) return null;
       if (result.status === "failed") {
         setFailure(result.error.code, result.error.message);
-        return;
+        return null;
       }
       dashboard.setSnapshot(result.snapshot);
       setDashboardStatus(
@@ -144,11 +217,16 @@ export function createWorkspaceController(
           : `Loaded ${String(result.snapshot.entries.length)} local entries.`,
         "ready",
       );
+      return result.snapshot;
     } catch {
       if (!destroyed && requestGeneration === generation) {
         setDashboardStatus("工作区 IPC 调用失败。", "Workspace IPC request failed.", "error");
       }
+      return null;
     }
+  };
+  const refresh = async (): Promise<void> => {
+    await readSnapshot();
   };
 
   async function createDocument(
@@ -185,22 +263,54 @@ export function createWorkspaceController(
     }
   }
 
-  const dashboard = createWorkspaceDashboard(options.host, {
-    onCreate: createDocument,
-    async onOpen(entryId: string): Promise<void> {
-      const requestGeneration = ++generation;
-      setDashboardStatus("正在打开本地条目…", "Opening the local entry…", "loading");
-      try {
-        await persistence.flush();
-        const result = await options.api.openWorkspaceDocument({ entryId });
-        if (destroyed || requestGeneration !== generation) return;
-        if (result.status === "failed") {
+  const resetFailedResumeAdoption = async (entryId: string): Promise<void> => {
+    resumeStore.clear();
+    if (persistence.activeEntry?.id !== entryId || persistence.hasUnsavedChanges) return;
+    await restoreActiveEntryConsumer(null);
+    persistenceStatusEntry = null;
+    durablePresentation = "saved";
+    persistence.deactivateAfterFlush();
+  };
+
+  const openDocument = async (entryId: string, restoring: boolean): Promise<boolean> => {
+    const requestGeneration = ++generation;
+    setDashboardStatus(
+      restoring ? "正在恢复上次项目…" : "正在打开本地条目…",
+      restoring ? "Restoring the last project…" : "Opening the local entry…",
+      "loading",
+    );
+    try {
+      await persistence.flush();
+      const result = await options.api.openWorkspaceDocument({ entryId });
+      if (destroyed || requestGeneration !== generation) return false;
+      if (result.status === "failed") {
+        if (restoring) {
+          await resetFailedResumeAdoption(entryId);
+          setDashboardStatus(
+            `无法恢复上次项目；已停留在项目列表。${result.error.code}：${result.error.message}`,
+            `The last project could not be restored; staying on Projects. ${result.error.code}: ${safeWorkspaceErrorMessage(result.error.code, result.error.message)}`,
+            "error",
+          );
+        } else {
           setFailure(result.error.code, result.error.message);
-          return;
         }
-        await adopt(result.document, requestGeneration);
-      } catch {
-        if (!destroyed && requestGeneration === generation) {
+        return false;
+      }
+      const adopted = await adopt(result.document, requestGeneration);
+      if (!adopted && restoring && !destroyed && requestGeneration === generation) {
+        await resetFailedResumeAdoption(entryId);
+      }
+      return adopted;
+    } catch {
+      if (!destroyed && requestGeneration === generation) {
+        if (restoring) {
+          await resetFailedResumeAdoption(entryId);
+          setDashboardStatus(
+            "无法恢复上次项目；已停留在项目列表。",
+            "The last project could not be restored; staying on Projects.",
+            "error",
+          );
+        } else {
           setDashboardStatus(
             "打开条目的 IPC 调用失败。",
             "Open-entry IPC request failed.",
@@ -208,6 +318,20 @@ export function createWorkspaceController(
           );
         }
       }
+      return false;
+    }
+  };
+
+  const dashboard = createWorkspaceDashboard(options.host, {
+    onCreate: createDocument,
+    onCreateSample: () =>
+      createDocument(
+        "sandbox",
+        english() ? "Example · Insertion Sort" : "示例 · 插入排序",
+        INSERTION_SORT_SAMPLE_SOURCE,
+      ),
+    async onOpen(entryId: string): Promise<void> {
+      await openDocument(entryId, false);
     },
     onRefresh: refresh,
   });
@@ -247,16 +371,32 @@ export function createWorkspaceController(
           );
           return;
         }
+        const previousDocument = options.getCurrentDocument();
+        try {
+          await options.onActiveEntryChange?.(null);
+        } catch (error: unknown) {
+          await restoreActiveEntryConsumer(entry);
+          throw error;
+        }
         options.load({
           source: result.document.source,
           displayName: `${result.document.entry.title}.c`,
           origin: "workspace",
         });
+        try {
+          await options.onActiveEntryChange?.(result.document.entry);
+        } catch (error: unknown) {
+          if (previousDocument !== null) options.load(previousDocument);
+          await restoreActiveEntryConsumer(entry);
+          throw error;
+        }
         persistence.discardActiveChanges(expectedSourceVersion);
+        persistenceStatusEntry = result.document.entry;
+        durablePresentation = "opened";
         persistence.adopt(result.document.entry);
-        await options.onActiveEntryChange?.(result.document.entry);
         if (destroyed || requestGeneration !== generation) return;
         options.enterWorkbench();
+        resumeStore.write(result.document.entry.id);
         setDashboardStatus(
           `已重新载入“${result.document.entry.title}”的磁盘版本。`,
           `Reloaded the disk version of “${result.document.entry.title}”.`,
@@ -299,7 +439,20 @@ export function createWorkspaceController(
       if (destroyed) return;
       dashboard.setBusy(true);
       try {
-        await refresh();
+        const snapshot = await readSnapshot();
+        if (snapshot === null || destroyed) return;
+        const resumeEntryId = resumeStore.read();
+        if (resumeEntryId === null) return;
+        if (!snapshot.entries.some((entry) => entry.id === resumeEntryId)) {
+          resumeStore.clear();
+          setDashboardStatus(
+            "上次打开的项目已不存在；已停留在项目列表。",
+            "The last opened project no longer exists; staying on Projects.",
+            "ready",
+          );
+          return;
+        }
+        await openDocument(resumeEntryId, true);
       } finally {
         if (!destroyed) dashboard.setBusy(false);
       }
@@ -316,8 +469,26 @@ export function createWorkspaceController(
         if (destroyed || !isCurrent()) return false;
         await persistence.flush();
         if (destroyed || !isCurrent()) return false;
-        persistence.deactivateAfterFlush();
-        await options.onActiveEntryChange?.(null);
+        const previousEntry = persistence.activeEntry;
+        try {
+          await options.onActiveEntryChange?.(null);
+        } catch (error: unknown) {
+          await restoreActiveEntryConsumer(previousEntry);
+          throw error;
+        }
+        if (destroyed || !isCurrent()) {
+          await restoreActiveEntryConsumer(previousEntry);
+          return false;
+        }
+        try {
+          persistence.deactivateAfterFlush();
+        } catch (error: unknown) {
+          await restoreActiveEntryConsumer(previousEntry);
+          throw error;
+        }
+        persistenceStatusEntry = null;
+        durablePresentation = "saved";
+        resumeStore.clear();
         return true;
       });
     },
@@ -325,8 +496,19 @@ export function createWorkspaceController(
       if (destroyed) return;
       await serializeActiveEntryTransition(async () => {
         if (destroyed) return;
-        await persistence.deactivate();
-        await options.onActiveEntryChange?.(null);
+        await persistence.flush();
+        const previousEntry = persistence.activeEntry;
+        try {
+          await options.onActiveEntryChange?.(null);
+        } catch (error: unknown) {
+          await restoreActiveEntryConsumer(previousEntry);
+          throw error;
+        }
+        if (destroyed) return;
+        persistenceStatusEntry = null;
+        durablePresentation = "saved";
+        persistence.deactivateAfterFlush();
+        resumeStore.clear();
       });
     },
     destroy(): void {
@@ -347,7 +529,19 @@ export function createWorkspaceController(
 export function workspacePersistenceMessage(
   status: WorkspacePersistenceStatus,
   locale: "zh-CN" | "en",
+  entry: WorkspaceEntrySummary | null = null,
+  durablePresentation: WorkspaceDurablePresentation = "saved",
 ): string {
+  if (entry !== null && status.message === "已保存到 Documents") {
+    if (locale !== "en") {
+      return durablePresentation === "opened"
+        ? `已从 Documents 打开“${entry.title}” · 修订 ${String(entry.revision)}`
+        : `已保存“${entry.title}”到 Documents · 修订 ${String(entry.revision)}`;
+    }
+    return durablePresentation === "opened"
+      ? `Opened “${entry.title}” from Documents · revision ${String(entry.revision)}`
+      : `Saved “${entry.title}” to Documents · revision ${String(entry.revision)}`;
+  }
   if (locale !== "en") return status.message;
   switch (status.message) {
     case "正在同步到 Documents…":
@@ -396,6 +590,23 @@ function containsHan(value: string): boolean {
   return /[\u3400-\u9fff]/u.test(value);
 }
 
+type WorkspaceDurablePresentation = "opened" | "saved";
+
+interface WorkspaceAdoptionSnapshot {
+  readonly entry: WorkspaceEntrySummary | null;
+  readonly document: ImportedSource | null;
+  readonly persistenceStatusEntry: WorkspaceEntrySummary | null;
+  readonly durablePresentation: WorkspaceDurablePresentation;
+}
+
+function resolveWorkspaceResumeStorage(host: HTMLElement): WorkspaceResumeStorage | null {
+  try {
+    return host.ownerDocument.defaultView?.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function assertOptions(options: WorkspaceControllerOptions): void {
   if (
     typeof options.api?.listWorkspaceDocuments !== "function" ||
@@ -405,6 +616,7 @@ function assertOptions(options: WorkspaceControllerOptions): void {
     !(options.saveStatus instanceof HTMLOutputElement) ||
     !(options.recoveryButton instanceof HTMLButtonElement) ||
     typeof options.load !== "function" ||
+    typeof options.getCurrentDocument !== "function" ||
     typeof options.enterWorkbench !== "function"
   ) {
     throw new TypeError("Workspace controller options 无效");

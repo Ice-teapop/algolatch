@@ -5,6 +5,10 @@
 Only the latest available release for each platform receives security fixes.
 `v0.0.1` is the first public release in the reset version line.
 
+`v0.1.1-preview.3` is an unsigned testing prerelease for macOS Universal and
+Windows 10/11 x64. It is not Apple-notarized or Authenticode-signed. Preview
+availability is not a platform security review or stable-release claim.
+
 The historical `v0.0.1` Universal DMG is unsigned and unnotarized. Public
 availability is not an Apple security review, signing claim, or notarization
 claim. Each platform is published only after its own applicable signing and
@@ -32,7 +36,7 @@ Fix timing depends on severity, reproducibility, and the affected boundary.
 
 ## Source-authoritative editing boundary
 
-`main.c` is the only executable source of truth. Flow coordinates, sidecars,
+`main.c` is the only persistent project source of truth. Flow coordinates, sidecars,
 AI conversations, model output, and analysis results cannot directly redefine
 program semantics.
 
@@ -41,6 +45,11 @@ validation, candidate-source generation, full reparsing, lossless round-trip
 validation, and the required CFG postcondition. Raw text, macro boundaries,
 partial CFG, unsafe fan-out, cross-syntax connections, and ambiguous anchors
 fail closed.
+
+C Cell statement and control-block submissions use labeled temporary wrapper
+source. Running a cell does not change `main.c`. Selecting **Write to main.c**
+shows the complete candidate and exact diff before the normal source-authority
+checks run. Cancelling the review leaves project source unchanged.
 
 Deleting or corrupting `flow-view.json`, `scenarios.json`,
 `run-history.json`, `tutorial-progress.json`, or `ai-project.json` must not
@@ -111,6 +120,14 @@ The application compiles and runs C programs on the user's computer. Treat
 unknown C files as executable code. Resource limits and best-effort isolation
 reduce risk but do not turn arbitrary native code into a safe document format.
 
+C Cell uses the same supervised compiler and runner boundary. Each cell
+compiles independently, receives only its selected-case or explicit inline
+input, streams bounded output through a start/read/cancel session, and maps
+wrapper diagnostics back to the submitted source. Invalid cursors, missing
+sessions, output limits, cancellation, and process-control failures fail
+closed. C Cell is not a persistent REPL and this release does not provide a
+System Shell or general shell IPC.
+
 When the app reports that macOS Seatbelt isolation is unavailable, trusted-only
 execution requires native confirmation for the exact request. The authorization
 is single-use and binds the displayed request summary. Renderer code cannot
@@ -167,6 +184,11 @@ Control-click → Open or explicit approval in **System Settings → Privacy &
 Security**; never disable Gatekeeper globally.
 The Windows Beta follows the same separation under `release-windows-beta/` and
 must never be described as Authenticode-verified.
+
+The `v0.1.1-preview.3` workflow publishes only those explicitly unsigned
+macOS and Windows prerelease assets after both installed-state jobs pass. It
+also publishes one checksum manifest for the final DMG and EXE. It does not
+promote either artifact to the signed stable channel.
 
 A formal Windows Release can be created after the Windows Authenticode and
 installed-state jobs succeed. It does not wait for Apple credentials or macOS

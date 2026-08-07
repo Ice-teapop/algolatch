@@ -1,11 +1,12 @@
 # 当前架构
 
-本文描述当前 `main`（目标 `v0.1.1-preview.2`）的实际系统结构。它是可更新的架构总览，不替代
-[ADR](./decisions/README.md)；已经 Accepted 的决策只能由新的 ADR 修订。
+本文描述当前 `main`（目标 `v0.1.1-preview.3`）的实际系统结构。它是可更新的
+架构总览，不替代 [ADR](./decisions/README.md)；已经 Accepted 的决策只能由
+新的 ADR 修订。
 
 ## 核心不变量
 
-1. `main.c` 是唯一可执行事实源。
+1. `main.c` 是唯一持久化项目事实源；C Cell 包装源码只属于临时运行。
 2. 画布、分析、课程、运行历史和 AI 对话都是可删除、可重建或可迁移的
    辅助数据。
 3. 任何语义写入都必须绑定当前源码 revision 和 fingerprint，并经过候选
@@ -14,6 +15,8 @@
    图而猜测语义。
 5. renderer 不拥有任意文件系统、原生进程、明文凭据或通用网络能力。
 6. 实测、静态推断、教学模拟和启发式建议是不同的证据类型。
+7. C Cell 是独立编译运行单元，不是持久 C REPL。单元历史、临时包装源码和
+   输出只存在于当前会话，除非用户明确把候选写入 `main.c`。
 
 ## 系统地图
 
@@ -23,6 +26,7 @@ flowchart TB
 
   subgraph Renderer["Renderer sandbox"]
     Shell["UI shell and views"]
+    Cell["C Cell and semantic monitor"]
     App["Application controllers"]
     Core["C parser, projection, editing"]
     Analysis["Analysis worker"]
@@ -43,6 +47,8 @@ flowchart TB
   Providers["Selected official AI provider"]
 
   User --> Shell
+  Shell --> Cell
+  Cell --> App
   Shell --> App
   App --> Core
   App --> Analysis
@@ -69,7 +75,11 @@ Electron sandbox 和 `webSecurity`。窗口拒绝新开页面和非受信导航�
 
 Renderer 负责：
 
-- 工作台 UI、自由画布、代码编辑器、Library、教程和分析可视化；
+- 以 C Cell 为中央主入口的工作台 UI，以及 `main.c` 编辑器、辅助自由画布、
+  Library、教程和分析可视化；
+- 对完整程序、语句或控制块生成只用于本次运行的临时包装，并把诊断映射回
+  用户输入；
+- 在右侧 Flow、Blocks、Diagnostics、AI 和 Edit 视图中展示语义监督；
 - 在浏览器 Worker 中按函数生成 CFG 和其他只读分析；
 - 生成连接意图、源码补丁计划和运行请求；
 - 根据 fingerprint 丢弃过期的分析、Trace 和 AI 结果。
@@ -85,7 +95,8 @@ API 按能力分组：
 
 - 应用与语言：公开版本信息、系统语言和本地界面语言；
 - 工作区：列表、新建、打开、保存和版本化 sidecar；
-- 执行：capabilities、compile、run、diagnose 和 Trace；
+- 执行：capabilities、compile、普通 run、具备 start/read/cancel 的有界实时
+  run、diagnose 和 Trace；
 - 学习：自定义积木目录；
 - AI：Provider 配置、模型列表、导师请求、项目和对话；
 - 窗口：打开 AI 子窗口并交换受限状态和意图。
@@ -99,7 +110,7 @@ Preload 不暴露通用 `send`、`on`、`readFile`、路径或解密接口。
 - `workspace-store.ts` 和 `workspace-sidecar-store.ts` 管理 Documents 中的
   原子文件写入、revision 冲突、大小限制和符号链接拒绝；
 - `runner/` 管理平台工具链探测、编译制品、进程树、资源限制、macOS
-  Seatbelt、Windows Job Object、诊断和有界 Trace；
+  Seatbelt、Windows Job Object、诊断、有界实时运行会话和 Trace；
 - `ai-provider-*` 固定官方主机、验证模型响应，并使用 `safeStorage` 保存密钥；
 - `ai-project-store.ts` 管理每个托管工作区的版本化多对话记录；
 - `ai-window-*` 管理单独的 AI BrowserWindow 和窗口所有权。
@@ -130,6 +141,11 @@ Preload 不暴露通用 `send`、`on`、`readFile`、路径或解密接口。
 
 `src/main.ts` 只负责 renderer 组合和会话连接，具体功能继续下沉到 `src/app/`
 控制器。架构门禁将它限制在 500 行以内。
+
+C Cell 的控制器位于 `src/app/c-command-*`，编辑器和结果视图位于
+`src/ui/c-command-*`。它复用既有编译器、受限运行器、分析 Worker 和 Flow
+投影，不拥有新的文件、进程或网络能力。本版未实现 System Shell，也没有
+向 renderer 暴露通用 shell IPC。
 
 `src/style.css` 是唯一共享样式入口，只保存有序 `@import` 清单。子样式表必须保留
 清单中的级联顺序，并保持在 900 行以内；功能专属覆盖样式继续由对应 HTML 在共享入口
@@ -166,7 +182,7 @@ re-export 公共类型，避免拆分迫使调用方迁移或形成循环依赖�
 
 | 数据                     | 权威程度                        | 失败行为                         |
 | ------------------------ | ------------------------------- | -------------------------------- |
-| `main.c`                 | 唯一可执行事实源                | 保存冲突时拒绝覆盖并要求显式恢复 |
+| `main.c`                 | 唯一持久化项目事实源            | 保存冲突时拒绝覆盖并要求显式恢复 |
 | `entry.json`             | 条目身份、标题和磁盘 revision   | 无效条目不会作为项目打开         |
 | `flow-view.json`         | 坐标、视口、草稿、锚点和布局    | 损坏或歧义时只重置对应视图状态   |
 | `scenarios.json`         | 输入、期望输出、分支目标和规模  | 失效案例不能成为运行证据         |
@@ -177,7 +193,31 @@ re-export 公共类型，避免拆分迫使调用方迁移或形成循环依赖�
 Renderer 只看到 opaque workspace ID，不看到托管目录的绝对路径。主进程使用
 同目录临时文件、刷盘和原子替换更新持久化数据。
 
+C Cell 草稿、临时包装、实时输出和历史不属于上述持久化结构。它们按工作区和
+源码指纹在 renderer 会话中隔离，关闭应用后不恢复，也不进入项目运行历史。
+
 ## 关键写入路径
+
+### C Cell 运行与写入
+
+```mermaid
+flowchart LR
+  Input["完整程序、语句或控制块"] --> Wrap["必要时生成临时包装"]
+  Wrap --> Parse["解析与无损往返"]
+  Parse --> Preview["只读 Flow 与 Blocks 监督"]
+  Parse --> Compile["编译"]
+  Compile --> Run["有界 start/read/cancel 运行"]
+  Run --> Result["原处 stdout、stderr 与证据"]
+  Input --> Review["用户选择写入 main.c"]
+  Review --> Diff["完整候选与精确 diff"]
+  Diff --> Gate["源码权威门禁"]
+  Gate --> Commit["原子保存 main.c"]
+```
+
+每个单元独立编译，不继承前一个单元的变量或进程状态。选定案例提供默认
+输入；单元内显式 `stdin` 会覆盖该默认值。实时输出有事件和字节上限，取消、
+源码变化、无效 cursor 或丢失 session 都会 fail closed。临时包装默认折叠，
+不会因为运行成功而自动写入项目。
 
 ### 源码与画布
 
@@ -197,22 +237,25 @@ flowchart LR
 
 ### 运行与 Trace
 
-普通运行把当前 source snapshot 发送给主进程。主进程先检查工具链和运行
-边界，再创建短期编译制品并在受限进程树中运行。macOS 使用已验证的 Apple
-clang 与 Seatbelt；Windows 10/11 x64 使用随包分发、摘要锁定的 llvm-mingw，
-并通过 `algolatch-job-host.exe` 把子进程放入 Windows Job Object。关键运行
-能力不可用时执行会 fail closed，或在受支持的 trusted-only 路径中要求用户
-对该次请求明确授权。
+普通运行和 C Cell 运行都把明确的 source snapshot 发送给主进程。主进程先
+检查工具链和运行边界，再创建短期编译制品并在受限进程树中运行。macOS 使用
+已验证的 Apple clang 与 Seatbelt；Windows 10/11 x64 使用随包分发、摘要
+锁定的 llvm-mingw，并通过 `algolatch-job-host.exe` 把子进程放入 Windows
+Job Object。关键运行能力不可用时执行会 fail closed，或在受支持的
+trusted-only 路径中要求用户对该次请求明确授权。
 
 Windows Job Object 限制进程数、聚合内存和 CPU 时间，并在宿主关闭时回收
 进程树，但不提供文件系统或网络隔离。它是资源与生命周期边界，不是任意
 原生代码沙箱。
 
-“运行”和“观察”是两条独立管线：运行只编译并执行一次，成功结果可以写入
+“运行”和“观察”是两条独立管线：项目运行只编译并执行一次，成功结果可以写入
 同源码/同案例历史；观察才启动 Trace 并生成路径证据。Benchmark 的每个重复
 样本也只执行一次，不隐式插桩。Trace 使用临时影子源码，不修改项目目录。session 绑定窗口、源码指纹、
 一次性授权和资源限制；renderer 通过序号批量拉取事件。达到 10,000 条事件、
 8 MiB、取消、窗口关闭或源码变化时，旧轨迹停止或失效。
+
+C Cell 的实时运行结果在当前单元下展示，但不会写入项目 `run-history.json`。
+从 C Cell 启动的真实 Trace 仍使用相同的影子源码、指纹和证据边界。
 
 ### AI 请求与源码修改
 
@@ -269,7 +312,8 @@ npm run build
 ## 当前约束
 
 - 支持 macOS Universal 与 Windows 10/11 x64；仍只支持单个 `main.c`。
-- 自由画布是 C 的投影，不是独立通用图语言。
+- C Cell 是中央主入口；自由画布是辅助的 C 投影，不是独立通用图语言。
+- C Cell 不在单元间保留变量状态；本版没有 System Shell。
 - 宏、`goto`、解析恢复和 partial CFG 会降低可安全编辑的范围。
 - Trace 提供执行行与分支路径，不采集任意变量值。
 - 静态分析是保守事实和提示，不是完整形式化证明。

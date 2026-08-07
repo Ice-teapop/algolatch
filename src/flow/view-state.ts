@@ -271,7 +271,11 @@ function validateAnchoredFlowViewState(
   return success(
     freezeFlowViewState({
       schemaVersion: FLOW_VIEW_STATE_SCHEMA_VERSION,
-      sourceFingerprint: projection.sourceFingerprint,
+      // Keep the persisted fingerprint until the caller has applied its
+      // fail-closed same-source policy. Replacing it with the current
+      // projection fingerprint here would make every stale sidecar look
+      // current and silently bypass that guard.
+      sourceFingerprint: savedFingerprint,
       viewport,
       positions: Object.freeze(positions),
       selectedNodeIds: Object.freeze(selectedNodeIds),

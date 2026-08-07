@@ -16,6 +16,8 @@
 @import "./styles/workbench/build-shell.css";
 @import "./styles/workbench/flow-canvas.css";
 @import "./styles/workbench/flow-detail-layout.css";
+@import "./styles/workbench/matlab-workbench.css";
+@import "./styles/workbench/c-command.css";
 @import "./styles/runtime/scenarios-mentor.css";
 @import "./styles/runtime/settings-density.css";
 @import "./styles/analysis/analysis-dashboard.css";
@@ -29,3 +31,4 @@
 @import "./styles/tutorials/responsive-input.css";
 @import "./styles/tutorials/flow-frame.css";
 @import "./styles/tutorials/specialized-lessons.css";
+@import "./styles/workbench/semantic-projection-progressive.css";

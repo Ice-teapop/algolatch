@@ -7,12 +7,16 @@ const menu = readFileSync(new URL("../../src/ui/workbench-menu.ts", import.meta.
 
 describe("interaction foundation", () => {
   it("centralizes target, state, duration and easing tokens", () => {
-    expect(style).toContain("--interaction-target-compact: 28px");
+    expect(style).toContain("--text-caption: 11px");
+    expect(style).toContain("--text-control: 12px");
+    expect(style).toContain("--interaction-target-compact: 32px");
     expect(style).toContain("--interaction-hover-background:");
     expect(style).toContain("--interaction-pressed-background:");
-    expect(style).toContain("--motion-feedback: 110ms");
-    expect(style).toContain("--motion-surface: 200ms");
+    expect(style).toContain("--motion-feedback: 120ms");
+    expect(style).toContain("--motion-surface: 220ms");
     expect(style).toContain("--ease-out-quart:");
+    expect(style).not.toContain("transform: scale(0.98)");
+    expect(style).toContain("@media (forced-colors: active)");
   });
 
   it("keeps motion spatially restrained and honors reduced motion", () => {

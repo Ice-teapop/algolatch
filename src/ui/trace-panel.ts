@@ -62,11 +62,24 @@ export const TRACE_PANEL_EVENT_LIMIT = 500;
 export const TRACE_CHART_POINT_LIMIT = 80;
 
 export type TraceChartXAxisMode = "time" | "sequence";
+export type TraceChartView = "timeline" | "line-hits" | "branches";
+
+export interface TraceChartBar {
+  readonly key: string;
+  readonly label: string;
+  readonly count: number;
+  readonly kind: "line" | "true" | "false";
+}
 
 export interface TraceChartTimeDomain {
   readonly startMs: number;
   readonly endMs: number;
   readonly spanMs: number;
+}
+
+export interface TraceChartLineDomain {
+  readonly minimum: number;
+  readonly maximum: number;
 }
 
 const TRACE_CHART_WIDTH = 320;
@@ -87,8 +100,14 @@ interface TracePanelCopy {
   readonly resumePlayback: string;
   readonly visualAria: string;
   readonly chartInitialCaption: string;
+  readonly chartViewsAria: string;
+  readonly chartViewTimeline: string;
+  readonly chartViewLineHits: string;
+  readonly chartViewBranches: string;
   readonly chartTimeAria: string;
   readonly chartSequenceAria: string;
+  readonly chartLineHitsAria: string;
+  readonly chartBranchesAria: string;
   readonly safety: string;
   readonly evidenceLabels: readonly [string, string, string, string, string, string];
   readonly events: string;
@@ -104,9 +123,15 @@ interface TracePanelCopy {
   readonly chartEmptyCaption: string;
   readonly chartTimeCaption: string;
   readonly chartSequenceCaption: string;
+  readonly chartLineHitsCaption: string;
+  readonly chartBranchesCaption: string;
   readonly chartEmpty: string;
+  readonly chartLineHitsEmpty: string;
+  readonly chartBranchesEmpty: string;
   readonly chartGuideSummary: string;
   readonly chartGuideItems: readonly (readonly [string, string])[];
+  readonly chartLineHitGuideItems: readonly (readonly [string, string])[];
+  readonly chartBranchGuideItems: readonly (readonly [string, string])[];
   readonly line: string;
   readonly branch: string;
   readonly statement: string;
@@ -153,9 +178,15 @@ const TRACE_PANEL_COPY: Readonly<Record<InterfaceLocale, TracePanelCopy>> = Obje
     pausePlayback: "暂停回放",
     resumePlayback: "继续回放",
     visualAria: "真实 Trace 执行阶段与事件序列轨",
-    chartInitialCaption: "执行阶段 · 事件顺序",
-    chartTimeAria: "横轴为 Trace 事件时间跨度，纵轴为累计真实 Trace 事件；墙钟耗时单独显示",
-    chartSequenceAria: "本次执行快于计时分辨率；横轴按真实事件顺序展开，纵轴为累计真实 Trace 事件",
+    chartInitialCaption: "执行时间线 · 步序 × 行号",
+    chartViewsAria: "真实 Trace 证据视图",
+    chartViewTimeline: "执行时间线",
+    chartViewLineHits: "行命中",
+    chartViewBranches: "分支结果",
+    chartTimeAria: "横轴为 Trace 事件时间跨度，纵轴为源码行号；墙钟耗时单独显示",
+    chartSequenceAria: "横轴按真实事件顺序展开，纵轴为对应源码行号；同一行重复执行仍沿横轴展开",
+    chartLineHitsAria: "按源码行聚合的后端确认真实 Trace 命中次数",
+    chartBranchesAria: "后端确认的真实 Trace 分支 true 与 false 结果次数",
     safety: "暂停只影响画布视觉回放；C 进程仍在后台继续运行。",
     evidenceLabels: Object.freeze([
       "墙钟耗时",
@@ -175,17 +206,30 @@ const TRACE_PANEL_COPY: Readonly<Record<InterfaceLocale, TracePanelCopy>> = Obje
     referenceTerminal: "实测/参考工作量比",
     referenceIdle: "参考工作量",
     referenceUnavailable: "不可用（尚未建立同规模参考）",
-    chartEmptyCaption: "执行阶段",
-    chartTimeCaption: "执行阶段 · 事件时间跨度",
-    chartSequenceCaption: "执行阶段 · 事件顺序",
+    chartEmptyCaption: "执行时间线 · 步序 × 行号",
+    chartTimeCaption: "执行时间线 · 事件时间 × 行号",
+    chartSequenceCaption: "执行时间线 · 步序 × 行号",
+    chartLineHitsCaption: "行命中直方图",
+    chartBranchesCaption: "分支结果 · true / false",
     chartEmpty: "等待真实 Trace 事件",
+    chartLineHitsEmpty: "尚无可聚合的行命中证据",
+    chartBranchesEmpty: "尚无真实分支结果",
     chartGuideSummary: "怎么看",
     chartGuideItems: Object.freeze([
       Object.freeze(["横轴", "事件顺序；时间模式只表示首末 Trace 事件的跨度。"] as const),
-      Object.freeze(["纵轴", "累计后端确认的真实 Trace 事件。"] as const),
+      Object.freeze(["纵轴", "后端确认事件对应的源码行号。"] as const),
       Object.freeze(["点", "小点是语句；较大的点是 true / false 分支结果。"] as const),
-      Object.freeze(["虚线", "同一输入规模下的参考工作量。"] as const),
       Object.freeze(["证据边界", "实测/参考不是速度评分，也不能单独证明 Big-O。"] as const),
+    ]),
+    chartLineHitGuideItems: Object.freeze([
+      Object.freeze(["横轴", "本次真实 Trace 命中的源码行。"] as const),
+      Object.freeze(["纵轴", "该行被后端确认命中的次数。"] as const),
+      Object.freeze(["柱", "每根柱只聚合当前保留的真实事件，不包含教学模拟。"] as const),
+    ]),
+    chartBranchGuideItems: Object.freeze([
+      Object.freeze(["横轴", "真实条件判断得到的 true / false。"] as const),
+      Object.freeze(["纵轴", "对应结果在本次 Trace 中出现的次数。"] as const),
+      Object.freeze(["证据边界", "没有分支事件时不会推测或补造结果。"] as const),
     ]),
     line: "行",
     branch: "分支",
@@ -217,11 +261,17 @@ const TRACE_PANEL_COPY: Readonly<Record<InterfaceLocale, TracePanelCopy>> = Obje
     pausePlayback: "Pause Playback",
     resumePlayback: "Resume Playback",
     visualAria: "Real Trace execution stages and event sequence track",
-    chartInitialCaption: "Execution stages · event order",
+    chartInitialCaption: "Execution timeline · sequence × source line",
+    chartViewsAria: "Real Trace evidence views",
+    chartViewTimeline: "Execution Timeline",
+    chartViewLineHits: "Line Hits",
+    chartViewBranches: "Branch Outcomes",
     chartTimeAria:
-      "Horizontal axis: Trace event time span; vertical axis: cumulative real Trace events; wall time is shown separately",
+      "Horizontal axis: Trace event time span; vertical axis: source line; wall time is shown separately",
     chartSequenceAria:
-      "This run is faster than the timer resolution; the horizontal axis follows real event order and the vertical axis shows cumulative real Trace events",
+      "Horizontal axis: real event order; vertical axis: source line; repeated execution of one line remains separated along the horizontal axis",
+    chartLineHitsAria: "Backend-confirmed real Trace hit counts aggregated by source line",
+    chartBranchesAria: "Backend-confirmed real Trace true and false branch outcome counts",
     safety: "Pausing affects only canvas playback; the C process continues in the background.",
     evidenceLabels: Object.freeze([
       "Wall time",
@@ -241,25 +291,44 @@ const TRACE_PANEL_COPY: Readonly<Record<InterfaceLocale, TracePanelCopy>> = Obje
     referenceTerminal: "Measured/reference work ratio",
     referenceIdle: "Reference work",
     referenceUnavailable: "unavailable (no same-size reference)",
-    chartEmptyCaption: "Execution stages",
-    chartTimeCaption: "Execution stages · event time span",
-    chartSequenceCaption: "Execution stages · event order",
+    chartEmptyCaption: "Execution timeline · sequence × source line",
+    chartTimeCaption: "Execution timeline · event time × source line",
+    chartSequenceCaption: "Execution timeline · sequence × source line",
+    chartLineHitsCaption: "Line-hit histogram",
+    chartBranchesCaption: "Branch outcomes · true / false",
     chartEmpty: "Waiting for real Trace events",
+    chartLineHitsEmpty: "No line-hit evidence to aggregate yet",
+    chartBranchesEmpty: "No real branch outcomes yet",
     chartGuideSummary: "How to read",
     chartGuideItems: Object.freeze([
       Object.freeze([
         "Horizontal",
         "Event order; time mode covers only the span between the first and last Trace events.",
       ] as const),
-      Object.freeze(["Vertical", "Cumulative backend-confirmed real Trace events."] as const),
+      Object.freeze(["Vertical", "Source line for each backend-confirmed event."] as const),
       Object.freeze([
         "Markers",
         "Small points are statements; larger points are true / false branch outcomes.",
       ] as const),
-      Object.freeze(["Dashed line", "Reference work for the same input size."] as const),
       Object.freeze([
         "Evidence limit",
         "Measured/reference is not a speed score and cannot prove Big-O by itself.",
+      ] as const),
+    ]),
+    chartLineHitGuideItems: Object.freeze([
+      Object.freeze(["Horizontal", "Source lines hit by this real Trace."] as const),
+      Object.freeze(["Vertical", "Backend-confirmed hit count for each line."] as const),
+      Object.freeze([
+        "Bars",
+        "Each bar aggregates only retained real events and never includes teaching simulation.",
+      ] as const),
+    ]),
+    chartBranchGuideItems: Object.freeze([
+      Object.freeze(["Horizontal", "Real condition outcomes: true and false."] as const),
+      Object.freeze(["Vertical", "Count of each outcome in this Trace."] as const),
+      Object.freeze([
+        "Evidence limit",
+        "When no branch event exists, the panel does not infer or invent an outcome.",
       ] as const),
     ]),
     line: "line",
@@ -312,15 +381,28 @@ export function createTracePanel(host: HTMLElement, options: TracePanelOptions):
   visual.className = "trace-panel__visual";
   visual.tabIndex = -1;
   visual.setAttribute("aria-label", "真实 Trace 时间与累计事件图");
+  const chartViews = ownerDocument.createElement("div");
+  chartViews.className = "trace-panel__chart-views";
+  chartViews.setAttribute("role", "group");
+  chartViews.setAttribute("aria-label", "真实 Trace 证据视图");
+  const timelineView = button(ownerDocument, "执行时间线", "chart-timeline");
+  const lineHitsView = button(ownerDocument, "行命中", "chart-line-hits");
+  const branchesView = button(ownerDocument, "分支结果", "chart-branches");
+  const chartViewButtons: Readonly<Record<TraceChartView, HTMLButtonElement>> = Object.freeze({
+    timeline: timelineView,
+    "line-hits": lineHitsView,
+    branches: branchesView,
+  });
+  chartViews.append(timelineView, lineHitsView, branchesView);
   const chartCaption = ownerDocument.createElement("figcaption");
   chartCaption.className = "trace-panel__chart-caption";
-  chartCaption.textContent = "时间 × 累计真实事件";
+  chartCaption.textContent = "执行时间线 · 步序 × 行号";
   const chart = svg(ownerDocument, "svg");
   chart.setAttribute("class", "trace-panel__chart");
   chart.setAttribute("viewBox", `0 0 ${String(TRACE_CHART_WIDTH)} ${String(TRACE_CHART_HEIGHT)}`);
   chart.setAttribute("role", "img");
   chart.setAttribute("aria-label", "横轴为运行毫秒，纵轴为累计真实 Trace 事件");
-  visual.append(chartCaption, chart);
+  visual.append(chartViews, chartCaption, chart);
 
   const chartGuide = ownerDocument.createElement("details");
   chartGuide.className = "trace-panel__chart-guide";
@@ -385,6 +467,7 @@ export function createTracePanel(host: HTMLElement, options: TracePanelOptions):
   let currentState = emptyPanelState();
   let currentEvents: readonly TraceEvent[] = Object.freeze([]);
   let chartEvents: readonly TraceEvent[] = Object.freeze([]);
+  let currentChartView: TraceChartView = "timeline";
   let currentReference: TracePanelReference | null = null;
   let destroyed = false;
   const localeHost =
@@ -401,8 +484,11 @@ export function createTracePanel(host: HTMLElement, options: TracePanelOptions):
     if (ownsStartButton) start.textContent = copy.observe;
     cancel.textContent = copy.cancel;
     visual.setAttribute("aria-label", copy.visualAria);
+    chartViews.setAttribute("aria-label", copy.chartViewsAria);
+    timelineView.textContent = copy.chartViewTimeline;
+    lineHitsView.textContent = copy.chartViewLineHits;
+    branchesView.textContent = copy.chartViewBranches;
     chartGuideSummary.textContent = copy.chartGuideSummary;
-    renderReadingGuide(ownerDocument, chartGuideList, copy.chartGuideItems);
     safety.textContent = copy.safety;
     for (let index = 0; index < evidenceRows.length; index += 1) {
       const row = evidenceRows[index];
@@ -545,17 +631,52 @@ export function createTracePanel(host: HTMLElement, options: TracePanelOptions):
   const renderChart = (): void => {
     const copy = getCopy();
     chart.replaceChildren();
+    chart.dataset.chartView = currentChartView;
+    chart.dataset.barCount = "0";
+    for (const [view, viewButton] of Object.entries(chartViewButtons) as Array<
+      [TraceChartView, HTMLButtonElement]
+    >) {
+      viewButton.setAttribute("aria-pressed", String(view === currentChartView));
+    }
+    const guideItems =
+      currentChartView === "line-hits"
+        ? copy.chartLineHitGuideItems
+        : currentChartView === "branches"
+          ? copy.chartBranchGuideItems
+          : copy.chartGuideItems;
+    renderReadingGuide(ownerDocument, chartGuideList, guideItems);
+
+    if (currentChartView !== "timeline") {
+      const bars =
+        currentChartView === "line-hits"
+          ? traceLineHitBars(currentEvents)
+          : traceBranchOutcomeBars(currentEvents);
+      chartCaption.textContent =
+        currentChartView === "line-hits" ? copy.chartLineHitsCaption : copy.chartBranchesCaption;
+      chart.setAttribute(
+        "aria-label",
+        currentChartView === "line-hits" ? copy.chartLineHitsAria : copy.chartBranchesAria,
+      );
+      appendTraceBarChart(
+        ownerDocument,
+        chart,
+        bars,
+        currentChartView === "line-hits" ? copy.chartLineHitsEmpty : copy.chartBranchesEmpty,
+        copy,
+      );
+      chart.dataset.pointCount = "0";
+      chart.dataset.barCount = String(bars.length);
+      delete chart.dataset.xMode;
+      delete chart.dataset.eventSpanMs;
+      return;
+    }
+
     const events = chartEvents;
     const xMode = traceChartXAxisMode(events, options.chartXAxisMode ?? "sequence");
     const timeDomain = traceChartTimeDomain(events);
+    const lineDomain = traceChartLineDomain(events);
     chart.dataset.xMode = xMode;
     chart.dataset.eventSpanMs = formatNumber(timeDomain.spanMs);
-    const observedMax = Math.max(
-      events.reduce((maximum, event) => Math.max(maximum, event.sequence), 0),
-      observedOperationCount(currentState, currentEvents),
-    );
-    const referenceMax = currentReference?.referenceOperationCount ?? 0;
-    const operationMax = Math.max(observedMax, referenceMax, 1);
     chartCaption.textContent =
       events.length === 0
         ? copy.chartEmptyCaption
@@ -570,14 +691,11 @@ export function createTracePanel(host: HTMLElement, options: TracePanelOptions):
       ownerDocument,
       chart,
       timeDomain.spanMs,
-      operationMax,
       xMode,
       events.length,
+      lineDomain,
       copy,
     );
-    if (currentReference !== null) {
-      appendReferenceLine(ownerDocument, chart, currentReference, operationMax, copy);
-    }
     if (events.length === 0) {
       const emptyChart = svg(ownerDocument, "text");
       emptyChart.setAttribute("class", "trace-panel__chart-empty");
@@ -589,7 +707,7 @@ export function createTracePanel(host: HTMLElement, options: TracePanelOptions):
       return;
     }
     const coordinates = events.map((event, index) =>
-      chartCoordinate(event, index, events.length, xMode, timeDomain, operationMax),
+      chartCoordinate(event, index, events.length, xMode, timeDomain, lineDomain),
     );
     if (coordinates.length > 1) {
       const series = svg(ownerDocument, "polyline");
@@ -642,6 +760,13 @@ export function createTracePanel(host: HTMLElement, options: TracePanelOptions):
     if (currentState.playbackPaused) options.onResumePlayback();
     else options.onPausePlayback();
   };
+  const setChartView = (view: TraceChartView): void => {
+    currentChartView = view;
+    renderChart();
+  };
+  const onTimelineView = (): void => setChartView("timeline");
+  const onLineHitsView = (): void => setChartView("line-hits");
+  const onBranchesView = (): void => setChartView("branches");
   const onLocaleChange = (): void => {
     renderState();
     renderEvents();
@@ -649,6 +774,9 @@ export function createTracePanel(host: HTMLElement, options: TracePanelOptions):
   if (showStartButton) start.addEventListener("click", onStart);
   cancel.addEventListener("click", onCancel);
   playback.addEventListener("click", onPlayback);
+  timelineView.addEventListener("click", onTimelineView);
+  lineHitsView.addEventListener("click", onLineHitsView);
+  branchesView.addEventListener("click", onBranchesView);
   localeHost?.addEventListener("workbench-locale-change", onLocaleChange);
 
   renderState();
@@ -678,6 +806,7 @@ export function createTracePanel(host: HTMLElement, options: TracePanelOptions):
       currentState = emptyPanelState();
       currentEvents = Object.freeze([]);
       chartEvents = Object.freeze([]);
+      currentChartView = "timeline";
       currentReference = null;
       renderState();
       renderEvents();
@@ -688,6 +817,9 @@ export function createTracePanel(host: HTMLElement, options: TracePanelOptions):
       if (showStartButton) start.removeEventListener("click", onStart);
       cancel.removeEventListener("click", onCancel);
       playback.removeEventListener("click", onPlayback);
+      timelineView.removeEventListener("click", onTimelineView);
+      lineHitsView.removeEventListener("click", onLineHitsView);
+      branchesView.removeEventListener("click", onBranchesView);
       localeHost?.removeEventListener("workbench-locale-change", onLocaleChange);
       if (initialPrimaryState !== null) {
         start.textContent = initialPrimaryState.textContent;
@@ -754,6 +886,46 @@ export function selectTraceChartEvents(events: readonly TraceEvent[]): readonly 
       return event === undefined ? [] : [freezeEvent(event)];
     }),
   );
+}
+
+export function traceLineHitBars(events: readonly TraceEvent[]): readonly TraceChartBar[] {
+  const hits = new Map<number, number>();
+  for (const event of events) {
+    if (!isFiniteTraceEvent(event)) continue;
+    hits.set(event.line, (hits.get(event.line) ?? 0) + 1);
+  }
+  return Object.freeze(
+    [...hits.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([line, count]) =>
+        Object.freeze({
+          key: `line:${String(line)}`,
+          label: String(line),
+          count,
+          kind: "line" as const,
+        }),
+      ),
+  );
+}
+
+export function traceBranchOutcomeBars(events: readonly TraceEvent[]): readonly TraceChartBar[] {
+  let trueCount = 0;
+  let falseCount = 0;
+  for (const event of events) {
+    if (!isFiniteTraceEvent(event) || event.kind !== "branch") continue;
+    if (event.branchTaken) trueCount += 1;
+    else falseCount += 1;
+  }
+  if (trueCount + falseCount === 0) return Object.freeze([]);
+  return Object.freeze([
+    Object.freeze({ key: "branch:true", label: "true", count: trueCount, kind: "true" as const }),
+    Object.freeze({
+      key: "branch:false",
+      label: "false",
+      count: falseCount,
+      kind: "false" as const,
+    }),
+  ]);
 }
 
 function mergeTraceChartEvents(
@@ -839,13 +1011,90 @@ function renderEvent(
   return item;
 }
 
+function appendTraceBarChart(
+  ownerDocument: Document,
+  chart: SVGSVGElement,
+  bars: readonly TraceChartBar[],
+  emptyLabel: string,
+  copy: TracePanelCopy,
+): void {
+  if (bars.length === 0) {
+    const emptyChart = svg(ownerDocument, "text");
+    emptyChart.setAttribute("class", "trace-panel__chart-empty");
+    emptyChart.setAttribute("x", String(TRACE_CHART_LEFT));
+    emptyChart.setAttribute("y", String(TRACE_CHART_HEIGHT / 2));
+    emptyChart.textContent = emptyLabel;
+    chart.append(emptyChart);
+    return;
+  }
+
+  const baseline = TRACE_CHART_HEIGHT - TRACE_CHART_BOTTOM;
+  const plotWidth = TRACE_CHART_WIDTH - TRACE_CHART_LEFT - TRACE_CHART_RIGHT;
+  const plotHeight = TRACE_CHART_HEIGHT - TRACE_CHART_TOP - TRACE_CHART_BOTTOM;
+  const maximum = Math.max(...bars.map((bar) => bar.count), 1);
+  const slotWidth = plotWidth / bars.length;
+  const barWidth = Math.max(1, Math.min(18, slotWidth * 0.64));
+  const axis = svg(ownerDocument, "line");
+  axis.setAttribute("class", "trace-panel__chart-axis");
+  axis.setAttribute("x1", String(TRACE_CHART_LEFT));
+  axis.setAttribute("x2", String(TRACE_CHART_WIDTH - TRACE_CHART_RIGHT));
+  axis.setAttribute("y1", String(baseline));
+  axis.setAttribute("y2", String(baseline));
+  chart.append(axis);
+
+  const maximumLabel = svg(ownerDocument, "text");
+  maximumLabel.setAttribute("class", "trace-panel__chart-label");
+  maximumLabel.setAttribute("x", String(TRACE_CHART_LEFT - 4));
+  maximumLabel.setAttribute("y", String(TRACE_CHART_TOP + 3));
+  maximumLabel.setAttribute("text-anchor", "end");
+  maximumLabel.textContent = String(maximum);
+  chart.append(maximumLabel);
+
+  const labelStride = Math.max(1, Math.ceil(bars.length / 10));
+  for (let index = 0; index < bars.length; index += 1) {
+    const bar = bars[index];
+    if (bar === undefined) continue;
+    const height = (bar.count / maximum) * plotHeight;
+    const centerX = TRACE_CHART_LEFT + slotWidth * (index + 0.5);
+    const x = centerX - barWidth / 2;
+    const y = baseline - height;
+    const rect = svg(ownerDocument, "rect");
+    rect.setAttribute("class", "trace-panel__chart-bar");
+    rect.setAttribute("data-bar-key", bar.key);
+    rect.setAttribute("data-bar-kind", bar.kind);
+    rect.setAttribute("data-count", String(bar.count));
+    rect.setAttribute("x", formatCoordinate(x));
+    rect.setAttribute("y", formatCoordinate(y));
+    rect.setAttribute("width", formatCoordinate(barWidth));
+    rect.setAttribute("height", formatCoordinate(height));
+    const title = svg(ownerDocument, "title");
+    const subject = bar.kind === "line" ? `${copy.line} ${bar.label}` : bar.label;
+    title.textContent =
+      copy === TRACE_PANEL_COPY.en
+        ? `${subject}: ${String(bar.count)} ${copy.countUnit}`
+        : `${subject}：${String(bar.count)} ${copy.countUnit}`;
+    rect.append(title);
+    chart.append(rect);
+
+    if (index % labelStride === 0 || index === bars.length - 1) {
+      const label = svg(ownerDocument, "text");
+      label.setAttribute("class", "trace-panel__chart-bar-label");
+      label.setAttribute("x", formatCoordinate(centerX));
+      label.setAttribute("y", String(TRACE_CHART_HEIGHT - 4));
+      label.setAttribute("text-anchor", "middle");
+      label.textContent = bar.label;
+      chart.append(label);
+    }
+  }
+}
+
 function appendChartAxes(
   ownerDocument: Document,
   chart: SVGSVGElement,
   eventSpanMs: number,
-  operationMax: number,
   xMode: TraceChartXAxisMode,
   eventCount: number,
+  lineDomain: TraceChartLineDomain,
   copy: TracePanelCopy,
 ): void {
   const xAxis = svg(ownerDocument, "line");
@@ -868,37 +1117,19 @@ function appendChartAxes(
   elapsedLabel.setAttribute("text-anchor", "end");
   elapsedLabel.textContent =
     xMode === "time" ? `${formatNumber(eventSpanMs)} ms` : `${String(eventCount)} ${copy.steps}`;
-  const operationLabel = svg(ownerDocument, "text");
-  operationLabel.setAttribute("class", "trace-panel__chart-label");
-  operationLabel.setAttribute("x", String(TRACE_CHART_LEFT - 4));
-  operationLabel.setAttribute("y", String(TRACE_CHART_TOP + 3));
-  operationLabel.setAttribute("text-anchor", "end");
-  operationLabel.textContent = formatNumber(operationMax);
-  chart.append(xAxis, yAxis, elapsedLabel, operationLabel);
-}
-
-function appendReferenceLine(
-  ownerDocument: Document,
-  chart: SVGSVGElement,
-  reference: TracePanelReference,
-  operationMax: number,
-  copy: TracePanelCopy,
-): void {
-  const coordinate = operationY(reference.referenceOperationCount, operationMax);
-  const line = svg(ownerDocument, "line");
-  line.setAttribute("class", "trace-panel__chart-reference");
-  line.setAttribute("data-series", "reference");
-  line.setAttribute("x1", String(TRACE_CHART_LEFT));
-  line.setAttribute("x2", String(TRACE_CHART_WIDTH - TRACE_CHART_RIGHT));
-  line.setAttribute("y1", formatCoordinate(coordinate));
-  line.setAttribute("y2", formatCoordinate(coordinate));
-  const title = svg(ownerDocument, "title");
-  title.textContent =
-    copy === TRACE_PANEL_COPY.en
-      ? `${reference.label}: ${formatNumber(reference.referenceOperationCount)} ${copy.countUnit}, n=${formatNumber(reference.inputSize)}`
-      : `${reference.label}：${formatNumber(reference.referenceOperationCount)} ${copy.countUnit}，n=${formatNumber(reference.inputSize)}`;
-  line.append(title);
-  chart.append(line);
+  const maximumLineLabel = svg(ownerDocument, "text");
+  maximumLineLabel.setAttribute("class", "trace-panel__chart-label");
+  maximumLineLabel.setAttribute("x", String(TRACE_CHART_LEFT - 4));
+  maximumLineLabel.setAttribute("y", String(TRACE_CHART_TOP + 3));
+  maximumLineLabel.setAttribute("text-anchor", "end");
+  maximumLineLabel.textContent = formatNumber(lineDomain.maximum);
+  const minimumLineLabel = svg(ownerDocument, "text");
+  minimumLineLabel.setAttribute("class", "trace-panel__chart-label");
+  minimumLineLabel.setAttribute("x", String(TRACE_CHART_LEFT - 4));
+  minimumLineLabel.setAttribute("y", String(TRACE_CHART_HEIGHT - TRACE_CHART_BOTTOM + 3));
+  minimumLineLabel.setAttribute("text-anchor", "end");
+  minimumLineLabel.textContent = formatNumber(lineDomain.minimum);
+  chart.append(xAxis, yAxis, elapsedLabel, maximumLineLabel, minimumLineLabel);
 }
 
 function chartCoordinate(
@@ -907,7 +1138,7 @@ function chartCoordinate(
   eventCount: number,
   xMode: TraceChartXAxisMode,
   timeDomain: TraceChartTimeDomain,
-  operationMax: number,
+  lineDomain: TraceChartLineDomain,
 ): Readonly<{ x: number; y: number }> {
   const plotWidth = TRACE_CHART_WIDTH - TRACE_CHART_LEFT - TRACE_CHART_RIGHT;
   const horizontalRatio =
@@ -918,7 +1149,7 @@ function chartCoordinate(
         : clamp(index / (eventCount - 1), 0, 1);
   return Object.freeze({
     x: TRACE_CHART_LEFT + horizontalRatio * plotWidth,
-    y: operationY(event.sequence, operationMax),
+    y: lineY(event.line, lineDomain),
   });
 }
 
@@ -941,10 +1172,17 @@ export function traceChartTimeDomain(events: readonly TraceEvent[]): TraceChartT
   return Object.freeze({ startMs, endMs, spanMs: endMs - startMs });
 }
 
-function operationY(operationCount: number, operationMax: number): number {
+export function traceChartLineDomain(events: readonly TraceEvent[]): TraceChartLineDomain {
+  const lines = events.filter(isFiniteTraceEvent).map((event) => event.line);
+  if (lines.length === 0) return Object.freeze({ minimum: 0, maximum: 0 });
+  return Object.freeze({ minimum: Math.min(...lines), maximum: Math.max(...lines) });
+}
+
+function lineY(line: number, domain: TraceChartLineDomain): number {
   const plotHeight = TRACE_CHART_HEIGHT - TRACE_CHART_TOP - TRACE_CHART_BOTTOM;
-  const operationRatio = clamp(operationCount / operationMax, 0, 1);
-  return TRACE_CHART_HEIGHT - TRACE_CHART_BOTTOM - operationRatio * plotHeight;
+  if (domain.maximum <= domain.minimum) return TRACE_CHART_TOP + plotHeight / 2;
+  const lineRatio = clamp((line - domain.minimum) / (domain.maximum - domain.minimum), 0, 1);
+  return TRACE_CHART_HEIGHT - TRACE_CHART_BOTTOM - lineRatio * plotHeight;
 }
 
 function button(ownerDocument: Document, label: string, action: string): HTMLButtonElement {

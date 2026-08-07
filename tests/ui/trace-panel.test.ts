@@ -7,8 +7,11 @@ import {
   selectTracePanelEvents,
   TRACE_CHART_POINT_LIMIT,
   TRACE_PANEL_EVENT_LIMIT,
+  traceBranchOutcomeBars,
   traceChartXAxisMode,
+  traceChartLineDomain,
   traceChartTimeDomain,
+  traceLineHitBars,
   tracePanelStateMessage,
   tracePlaybackControlEnabled,
   traceStatusPresentation,
@@ -131,6 +134,25 @@ describe("trace panel event list", () => {
     expect(selected[0]?.sequence).toBe(1);
     expect(selected.at(-1)?.sequence).toBe(620);
   });
+
+  it("aggregates only finite real events for line-hit and branch bars", () => {
+    const events = [
+      event(1, "line", 4),
+      event(2, "line", 4),
+      event(3, "branch", 7, true),
+      event(4, "branch", 7, false),
+      { ...event(5, "line", 9), elapsedMs: Number.POSITIVE_INFINITY },
+    ];
+
+    expect(traceLineHitBars(events)).toEqual([
+      { key: "line:4", label: "4", count: 2, kind: "line" },
+      { key: "line:7", label: "7", count: 2, kind: "line" },
+    ]);
+    expect(traceBranchOutcomeBars(events)).toEqual([
+      { key: "branch:true", label: "true", count: 1, kind: "true" },
+      { key: "branch:false", label: "false", count: 1, kind: "false" },
+    ]);
+  });
 });
 
 describe("trace panel interaction", () => {
@@ -197,7 +219,12 @@ describe("trace panel interaction", () => {
     expect(traceChartXAxisMode(events)).toBe("sequence");
     expect(chart?.dataset.xMode).toBe("sequence");
     expect(uniqueX.size).toBe(3);
-    expect(fixture.findByClass("trace-panel__chart-caption")?.textContent).toContain("事件顺序");
+    expect(fixture.findByClass("trace-panel__chart-caption")?.textContent).toContain("步序 × 行号");
+    expect(traceChartLineDomain(events)).toEqual({ minimum: 2, maximum: 4 });
+    const markerY = walk(chart!)
+      .filter((element) => element.tagName === "circle")
+      .map((element) => element.getAttribute("cy"));
+    expect(new Set(markerY).size).toBe(3);
     const guide = fixture.findByClass("trace-panel__chart-guide");
     expect(guide?.hidden).toBe(false);
     expect(guide?.children[0]?.textContent).toBe("怎么看");
@@ -227,6 +254,49 @@ describe("trace panel interaction", () => {
     panel.setEvents(timed);
     expect(traceChartXAxisMode(timed)).toBe("sequence");
     expect(fixture.findByClass("trace-panel__chart")?.dataset.xMode).toBe("sequence");
+  });
+
+  it("switches between the timeline and two real-evidence bar views", () => {
+    const fixture = fakeHost();
+    const panel = createTracePanel(fixture.host, {
+      onStart: vi.fn(),
+      onCancel: vi.fn(),
+      onPausePlayback: vi.fn(),
+      onResumePlayback: vi.fn(),
+    });
+    panel.setEvents([
+      event(1, "line", 4),
+      event(2, "line", 4),
+      event(3, "branch", 7, true),
+      event(4, "branch", 7, false),
+    ]);
+
+    const chart = fixture.findByClass("trace-panel__chart");
+    const timeline = fixture.findByAction("chart-timeline");
+    const lineHits = fixture.findByAction("chart-line-hits");
+    const branches = fixture.findByAction("chart-branches");
+    expect(chart?.dataset.chartView).toBe("timeline");
+    expect(chart?.dataset.barCount).toBe("0");
+    expect(timeline?.textContent).toBe("执行时间线");
+    expect(timeline?.getAttribute("aria-pressed")).toBe("true");
+
+    lineHits?.click();
+    expect(chart?.dataset.chartView).toBe("line-hits");
+    expect(chart?.dataset.barCount).toBe("2");
+    expect(fixture.findByClass("trace-panel__chart-caption")?.textContent).toBe("行命中直方图");
+    expect(fixture.findByData("bar-key", "line:4")?.dataset.count).toBe("2");
+    expect(fixture.findByData("bar-key", "line:7")?.dataset.count).toBe("2");
+    expect(lineHits?.getAttribute("aria-pressed")).toBe("true");
+
+    branches?.click();
+    expect(chart?.dataset.chartView).toBe("branches");
+    expect(chart?.dataset.barCount).toBe("2");
+    expect(fixture.findByClass("trace-panel__chart-caption")?.textContent).toBe(
+      "分支结果 · true / false",
+    );
+    expect(fixture.findByData("bar-key", "branch:true")?.dataset.count).toBe("1");
+    expect(fixture.findByData("bar-key", "branch:false")?.dataset.count).toBe("1");
+    expect(branches?.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("uses only the event span in an explicit time view and keeps wall time separate", () => {
@@ -323,7 +393,7 @@ describe("trace panel interaction", () => {
     expect(fixture.findByClass("trace-panel__reference")?.textContent).toBe(
       "已消耗参考预算：0.40×（40 / 100）· n=32 · O(n log n) 参考",
     );
-    expect(fixture.findByData("series", "reference")?.tagName).toBe("line");
+    expect(fixture.findByData("series", "reference")).toBeUndefined();
 
     panel.setState(
       panelState({ status: "completed", eventCount: 40, evidence: traceEvidence(125) }),
@@ -399,6 +469,9 @@ describe("trace panel interaction", () => {
     expect(fixture.findByClass("trace-panel__chart-guide")?.children[0]?.textContent).toBe(
       "How to read",
     );
+    expect(fixture.findByAction("chart-timeline")?.textContent).toBe("Execution Timeline");
+    expect(fixture.findByAction("chart-line-hits")?.textContent).toBe("Line Hits");
+    expect(fixture.findByAction("chart-branches")?.textContent).toBe("Branch Outcomes");
 
     fixture.shell.dataset.locale = "zh-CN";
     fixture.shell.dispatch("workbench-locale-change");

@@ -117,6 +117,7 @@ export function createFlowProjection(
 
     const entryNodeId = requiredFlowNodeId(sourceNodeToFlowNode, cfg.entryId);
     const exitNodeId = requiredFlowNodeId(sourceNodeToFlowNode, cfg.exitId);
+    const defUse = analysis.defUse.find((candidate) => candidate.functionId === cfg.id);
     functions.push(
       Object.freeze({
         id: cfg.id,
@@ -126,6 +127,8 @@ export function createFlowProjection(
         exitNodeId,
         partial: cfg.partial,
         lockReasons,
+        dataFlowAvailable: defUse?.status === "complete",
+        dataFlowDisabledReasons: Object.freeze([...(defUse?.disabledReasons ?? [])]),
       }),
     );
   }

@@ -5,10 +5,16 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FIRST_ALGORITHM_SOURCE } from "../../src/tutorials/first-algorithm.js";
+import { showFlowCanvas, showRuntimePanel, showSourceEditor } from "./support/c-cell-layout.js";
+
+// A dedicated Electron profile: a shared one lets localStorage and window state leak
+// between spec files, which run strictly in sequence under `workers: 1`.
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 let application: ElectronApplication | undefined;
 let page: Page;
@@ -23,7 +29,7 @@ test.beforeAll(async () => {
     ),
   );
   application = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...inheritedEnvironment,
@@ -31,6 +37,15 @@ test.beforeAll(async () => {
       PANEL_WORKSPACE_ROOT: workspaceRoot,
       VITE_DEV_SERVER_URL: `http://127.0.0.1:${developmentServerPort}/`,
     },
+  });
+  await application.evaluate(({ dialog }) => {
+    const mutableDialog = dialog as unknown as {
+      showMessageBox: () => Promise<{
+        readonly response: number;
+        readonly checkboxChecked: boolean;
+      }>;
+    };
+    mutableDialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
   });
   page = await application.firstWindow();
   await page.addInitScript(() => {
@@ -61,7 +76,8 @@ test.beforeAll(async () => {
   await create.getByRole("textbox", { name: "条目名称" }).fill("画布可读性实机检查");
   await create.getByRole("button", { name: "创建并打开" }).click();
 
-  const content = page.locator(".cm-content");
+  await showSourceEditor(page);
+  const content = page.locator("#code-pane .cm-content");
   await content.click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText(FIRST_ALGORITHM_SOURCE);
@@ -82,6 +98,201 @@ test("keeps project creation and real source input CSP-clean", async () => {
     return state.__canvasCspViolations ?? [];
   });
   expect(violations).toEqual([]);
+});
+
+test("progressively reveals Flow editing affordances without shrinking their targets", async () => {
+  await showFlowCanvas(page);
+  const canvas = page.locator(".flow-canvas");
+  const node = page.locator(".flow-node:has(.flow-node__port:not(:disabled))").first();
+  const port = node.locator(".flow-node__port:not(:disabled)").first();
+  const toolbar = page.locator("#semantic-flow-panel .canvas-toolbar");
+  const toolbarActions = toolbar.locator(".canvas-toolbar__actions");
+
+  await expect(node).toBeVisible();
+  await expect
+    .poll(() => progressiveStyle(port))
+    .toEqual({
+      opacity: "0",
+      pointerEvents: "none",
+    });
+  await expect
+    .poll(() => progressiveStyle(toolbarActions))
+    .toEqual({
+      opacity: "0",
+      pointerEvents: "none",
+    });
+
+  await toolbar.hover();
+  await expect
+    .poll(() => progressiveStyle(toolbarActions))
+    .toEqual({
+      opacity: "1",
+      pointerEvents: "auto",
+    });
+  await toolbar.getByRole("button", { name: "撤销", exact: true }).focus();
+  await expect
+    .poll(() => progressiveStyle(toolbarActions))
+    .toEqual({
+      opacity: "1",
+      pointerEvents: "auto",
+    });
+  await canvas.focus();
+  await page.mouse.move(2, 2);
+  await expect
+    .poll(() => progressiveStyle(toolbarActions))
+    .toEqual({
+      opacity: "0",
+      pointerEvents: "none",
+    });
+
+  await canvas.evaluate((element) => {
+    element.dataset.interactionContext = "wiring";
+  });
+  await expect
+    .poll(() => progressiveStyle(port))
+    .toEqual({
+      opacity: "1",
+      pointerEvents: "auto",
+    });
+  await canvas.evaluate((element) => {
+    element.dataset.interactionContext = "idle";
+  });
+  await expect
+    .poll(() => progressiveStyle(port))
+    .toEqual({
+      opacity: "0",
+      pointerEvents: "none",
+    });
+
+  await node.hover();
+  await expect
+    .poll(() => progressiveStyle(port))
+    .toEqual({
+      opacity: "1",
+      pointerEvents: "auto",
+    });
+  const target = await port.boundingBox();
+  expect(target?.width ?? 0).toBeGreaterThanOrEqual(32);
+  expect(target?.height ?? 0).toBeGreaterThanOrEqual(32);
+
+  await node.click({ position: { x: 72, y: 16 } });
+  await expect(node).toHaveClass(/is-selected/u);
+  await page.mouse.move(2, 2);
+  await expect
+    .poll(() => progressiveStyle(port))
+    .toEqual({
+      opacity: "1",
+      pointerEvents: "auto",
+    });
+});
+
+test("never exposes edit affordances in the read-only C Cell Flow preview", async () => {
+  await page.getByRole("tab", { name: "C Cell", exact: true }).click();
+  const input = page.getByRole("textbox", { name: "输入 C 程序、语句或控制块" });
+  await input.fill('int probe = 3;\nprintf("%d\\n", probe);');
+  const previewToolbar = page.locator("#semantic-flow-panel .canvas-toolbar");
+  await expect(previewToolbar).toHaveAttribute("data-presentation", "preview");
+
+  const node = page.locator(".flow-node:has(.flow-node__port)").first();
+  const port = node.locator(".flow-node__port").first();
+  await node.hover();
+  await expect
+    .poll(() => progressiveStyle(port))
+    .toEqual({
+      opacity: "0",
+      pointerEvents: "none",
+    });
+
+  await page.getByRole("tab", { name: "main.c", exact: true }).click();
+  await expect(previewToolbar).not.toHaveAttribute("data-presentation", "preview");
+});
+
+test("keeps the C Cell semantic projection readable at 100%, 125%, and 150% zoom", async () => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.locator("#c-command-tab").click();
+  const input = page.getByRole("textbox", { name: "输入 C 程序、语句或控制块" });
+  await input.fill(FIRST_ALGORITHM_SOURCE);
+
+  const previewToolbar = page.locator("#semantic-flow-panel .canvas-toolbar");
+  await expect(previewToolbar).toHaveAttribute("data-presentation", "preview");
+  await expect.poll(() => page.locator(".flow-node").count()).toBeGreaterThan(10);
+
+  for (const zoomFactor of [1, 1.25, 1.5]) {
+    await setZoomFactor(zoomFactor);
+    await showFlowCanvas(page);
+    await expect
+      .poll(async () => Number(await page.locator(".flow-canvas").getAttribute("data-zoom")))
+      .toBeGreaterThanOrEqual(0.8);
+
+    const geometry = await page.evaluate(() => {
+      const canvas = document.querySelector<HTMLElement>(".flow-canvas");
+      const nodes = [...document.querySelectorAll<HTMLElement>(".flow-node")];
+      const tabs = [
+        ...document.querySelectorAll<HTMLButtonElement>("#semantic-monitor-tabs > button"),
+      ].filter((button) => getComputedStyle(button).display !== "none");
+      if (canvas === null || nodes.length === 0) {
+        throw new Error("Semantic projection fixture is incomplete");
+      }
+      const canvasBounds = canvas.getBoundingClientRect();
+      const nodeBounds = nodes.map((node) => node.getBoundingClientRect());
+      const firstNode = nodeBounds.reduce((first, current) =>
+        current.top < first.top ? current : first,
+      );
+      const tabBounds = tabs.map((tab) => tab.getBoundingClientRect());
+      return {
+        canvasTop: canvasBounds.top,
+        canvasLeft: canvasBounds.left,
+        firstNodeTop: firstNode.top,
+        firstNodeLeft: firstNode.left,
+        firstNodeWidth: firstNode.width,
+        adjacentTabsOverlap: tabBounds.some((bounds, index) => {
+          const next = tabBounds[index + 1];
+          return next !== undefined && next.left < bounds.right - 0.5;
+        }),
+      };
+    });
+
+    expect(geometry.firstNodeTop).toBeGreaterThanOrEqual(geometry.canvasTop - 1);
+    expect(geometry.firstNodeLeft).toBeGreaterThanOrEqual(geometry.canvasLeft - 1);
+    expect(geometry.firstNodeWidth).toBeGreaterThanOrEqual(127);
+    expect(geometry.adjacentTabsOverlap).toBe(false);
+  }
+
+  const canvas = page.locator(".flow-canvas");
+  const firstNode = page.locator(".flow-node").first();
+  const beforePan = await firstNode.boundingBox();
+  await canvas.dispatchEvent("wheel", { deltaX: 0, deltaY: 52 });
+  await page.waitForTimeout(150);
+  const afterPan = await firstNode.boundingBox();
+  expect(beforePan).not.toBeNull();
+  expect(afterPan).not.toBeNull();
+  expect((afterPan?.y ?? 0) - (beforePan?.y ?? 0)).toBeLessThan(-40);
+
+  await showRuntimePanel(page);
+  await showFlowCanvas(page);
+  const drawerGeometry = await page.evaluate(() => {
+    const workArea = document.querySelector<HTMLElement>("#work-area");
+    const rightPane = document.querySelector<HTMLElement>("#right-pane");
+    if (workArea === null || rightPane === null) {
+      throw new Error("Narrow semantic drawer fixture is incomplete");
+    }
+    const workAreaBounds = workArea.getBoundingClientRect();
+    const rightPaneBounds = rightPane.getBoundingClientRect();
+    return {
+      workAreaTop: workAreaBounds.top,
+      workAreaBottom: workAreaBounds.bottom,
+      rightPaneTop: rightPaneBounds.top,
+      rightPaneBottom: rightPaneBounds.bottom,
+    };
+  });
+  expect(Math.abs(drawerGeometry.rightPaneTop - drawerGeometry.workAreaTop)).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(drawerGeometry.rightPaneBottom - drawerGeometry.workAreaBottom),
+  ).toBeLessThanOrEqual(1);
+
+  await setZoomFactor(1);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await showSourceEditor(page);
 });
 
 test("keeps the first-algorithm projection readable without changing its CFG", async () => {
@@ -184,14 +395,37 @@ test("keeps the first-algorithm projection readable without changing its CFG", a
   expect(readability.dataWireCount).toBeGreaterThan(0);
   expect(readability.maximumIdleDataOpacity).toBeLessThanOrEqual(0.1);
 
+  await showFlowCanvas(page);
   await page.locator(".flow-node[data-node-kind='declaration']").first().click();
   await expect
     .poll(() => page.locator(".flow-canvas__wire--data.is-contextual").count())
     .toBeGreaterThan(0);
 });
 
+async function progressiveStyle(locator: import("@playwright/test").Locator): Promise<{
+  readonly opacity: string;
+  readonly pointerEvents: string;
+}> {
+  return locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return Object.freeze({ opacity: style.opacity, pointerEvents: style.pointerEvents });
+  });
+}
+
+async function setZoomFactor(factor: number): Promise<void> {
+  if (application === undefined) throw new Error("Electron application is not running");
+  await application.evaluate(({ BrowserWindow }, zoomFactor) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (window === undefined) throw new Error("Electron window is unavailable");
+    window.webContents.setZoomFactor(zoomFactor);
+  }, factor);
+  await page.waitForTimeout(100);
+}
+
 test("keeps node inspector geometry stable while switching Explain and Edit", async () => {
-  const inspector = page.locator("#inspector-stack");
+  // #inspector-stack is an empty legacy shell now; the semantic monitor is what holds the
+  // Blocks and Edit panels, so it is the box whose geometry must stay put across switches.
+  const inspector = page.locator("#code-panel");
   const explainTab = page.locator("#explanation-tab");
   const editTab = page.locator("#edit-tab");
   const explainPanel = page.locator("#explanation-panel");
@@ -224,7 +458,7 @@ test("keeps node inspector geometry stable while switching Explain and Edit", as
     await expect(active === "edit" ? explainPanel : editPanel).toBeHidden();
     snapshots.push(
       await page.evaluate((activeView) => {
-        const inspectorElement = document.querySelector<HTMLElement>("#inspector-stack");
+        const inspectorElement = document.querySelector<HTMLElement>("#code-panel");
         const panelElement = document.querySelector<HTMLElement>(`#${activeView}-panel`);
         if (inspectorElement === null || panelElement === null) {
           throw new Error("Node inspector fixture is incomplete");
@@ -272,6 +506,7 @@ test("keeps node inspector geometry stable while switching Explain and Edit", as
 });
 
 test("keeps detached block source visible as grey code until the draft is deleted", async () => {
+  await showFlowCanvas(page);
   const detailClose = page.locator("[data-flow-detail-close]");
   if (await detailClose.isVisible()) await detailClose.click();
   const statementNodes = page.locator(".flow-node[data-node-kind='statement']");
@@ -375,10 +610,18 @@ test("keeps the overview pinned to the canvas bottom-right through pan and zoom"
     const measure = () => {
       const canvasBounds = host.getBoundingClientRect();
       const minimapBounds = minimap.getBoundingClientRect();
+      const port = canvas.querySelector<HTMLElement>(".flow-node__port");
+      if (port === null) throw new Error("Canvas port fixture is incomplete");
+      const portStyle = getComputedStyle(port);
+      const dotStyle = getComputedStyle(port, "::after");
       return {
         right: canvasBounds.right - minimapBounds.right,
         bottom: canvasBounds.bottom - minimapBounds.bottom,
         zoom: canvas.dataset.zoom ?? "",
+        portWidth: Number.parseFloat(portStyle.width),
+        portHeight: Number.parseFloat(portStyle.height),
+        dotWidth: Number.parseFloat(dotStyle.width),
+        dotHeight: Number.parseFloat(dotStyle.height),
       };
     };
     const settle = async () => {
@@ -421,5 +664,95 @@ test("keeps the overview pinned to the canvas bottom-right through pan and zoom"
   ]) {
     expect(position.right).toBeCloseTo(12, 0);
     expect(position.bottom).toBeCloseTo(12, 0);
+    expect(position.portWidth).toBe(32);
+    expect(position.portHeight).toBe(32);
+    expect(position.dotWidth).toBe(6);
+    expect(position.dotHeight).toBe(6);
   }
+});
+
+test("keeps an ordinary C projection legible in idle and real-path states without faking reachability", async () => {
+  const ordinaryProgram = [
+    "#include <stdio.h>",
+    "int main(void) {",
+    '  puts("hello");',
+    "  return 0;",
+    '  puts("unreachable");',
+    "}",
+    "",
+  ].join("\n");
+
+  await showSourceEditor(page);
+  const content = page.locator("#code-pane .cm-content");
+  await content.click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+a" : "Control+a");
+  await page.keyboard.insertText(ordinaryProgram);
+  await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "saved");
+  await expect(page.locator("#parser-status")).toHaveAttribute("data-analysis-state", "complete");
+
+  await showFlowCanvas(page);
+  const projectedNodes = page.locator(".flow-node");
+  const reachableNode = page.locator('.flow-node[data-execution-reachability="reachable"]');
+  const unreachableNode = page.locator('.flow-node[data-execution-reachability="unreachable"]');
+  const sourceProjection = page.locator('.flow-node[data-execution-reachability="not-applicable"]');
+  await expect(reachableNode.first()).toBeVisible();
+  await expect(unreachableNode).toHaveCount(1);
+  await expect(sourceProjection.first()).toBeVisible();
+  await expect(sourceProjection.first()).not.toHaveAttribute("aria-label", /不可达/u);
+
+  const idleVisuals = await projectedNodes.evaluateAll((nodes) => {
+    const reachable = nodes.find(
+      (node) => (node as HTMLElement).dataset.executionReachability === "reachable",
+    );
+    const unreachable = nodes.find(
+      (node) => (node as HTMLElement).dataset.executionReachability === "unreachable",
+    );
+    if (reachable === undefined || unreachable === undefined) {
+      throw new Error("Ordinary C projection is missing its reachability evidence");
+    }
+    const reachableStyle = getComputedStyle(reachable);
+    const unreachableStyle = getComputedStyle(unreachable);
+    return {
+      opacityRecords: nodes.map((node) => ({
+        kind: (node as HTMLElement).dataset.nodeKind ?? "unknown",
+        reachability: (node as HTMLElement).dataset.executionReachability ?? "missing",
+        opacity: Number.parseFloat(getComputedStyle(node).opacity),
+      })),
+      reachableColor: reachableStyle.color,
+      unreachableColor: unreachableStyle.color,
+      unreachableBorderStyle: unreachableStyle.borderStyle,
+    };
+  });
+  expect(idleVisuals.opacityRecords).toEqual(
+    idleVisuals.opacityRecords.map((record) => ({ ...record, opacity: 1 })),
+  );
+  expect(idleVisuals.unreachableColor).toBe(idleVisuals.reachableColor);
+  expect(idleVisuals.unreachableBorderStyle).toContain("dashed");
+
+  await showSourceEditor(page);
+  const runtimeToggle = page.locator("#runtime-panel-toggle");
+  if ((await runtimeToggle.getAttribute("aria-expanded")) !== "true") await runtimeToggle.click();
+  await page.getByRole("tab", { name: "运行", exact: true }).click();
+  const casePicker = page.getByRole("combobox", { name: "算法案例" });
+  await casePicker.selectOption("");
+  await page.getByRole("button", { name: "运行", exact: true }).click();
+  await expect(page.locator("#trace-primary-action")).toHaveText("再次运行");
+  await page.getByRole("button", { name: "观察路径", exact: true }).click();
+  await expect(page.locator(".trace-panel")).toHaveAttribute("data-status", "completed", {
+    timeout: 20_000,
+  });
+
+  await showFlowCanvas(page);
+  await expect(page.locator(".flow-canvas")).toHaveClass(/has-active-path/u);
+  await expect(page.locator(".flow-node.is-active-path").first()).toBeVisible();
+  await expect(unreachableNode).not.toHaveClass(/is-active-path/u);
+  const pathVisuals = await projectedNodes.evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      active: node.classList.contains("is-active-path"),
+      opacity: Number.parseFloat(getComputedStyle(node).opacity),
+    })),
+  );
+  expect(pathVisuals.some((node) => node.active)).toBe(true);
+  expect(pathVisuals.some((node) => !node.active)).toBe(true);
+  expect(pathVisuals.every((node) => node.opacity === 1)).toBe(true);
 });

@@ -54,6 +54,7 @@ describe("runtime workspace controller", () => {
     expect(harness.api.startTrace).not.toHaveBeenCalled();
     expect(harness.api.compile).not.toHaveBeenCalled();
     expect(harness.api.run).not.toHaveBeenCalled();
+    expect(harness.onRevealFlow).toHaveBeenCalledOnce();
     expect(harness.paths.at(-1)).toMatchObject({ mode: "simulation" });
     expect(harness.paths.at(-1)?.nodeIds.length).toBeGreaterThan(0);
     expect(harness.saved.some((request) => request.kind === "run-history")).toBe(false);
@@ -74,6 +75,10 @@ describe("runtime workspace controller", () => {
     expect(harness.api.run).toHaveBeenCalledWith(
       expect.objectContaining({ stdin: "1\n", args: ["--case", "1"] }),
     );
+    expect(
+      findElement(harness.elements.runHost, (element) => element.dataset.runField === "stdout")
+        .textContent,
+    ).toBe("positive\n");
     expect(harness.learningObservations).toEqual([
       expect.objectContaining({
         type: "run-completed",
@@ -193,7 +198,12 @@ describe("runtime workspace controller", () => {
     harness.controller.scenario.selectScenario("scenario.test.branch");
 
     const run = harness.controller.scenario.runReal();
-    await expect(run).rejects.toThrow(/期望不一致/u);
+    await expect(run).rejects.toThrow(/实际 "wrong\\n"；期望 "positive\\n"/u);
+
+    expect(
+      findElement(harness.elements.runHost, (element) => element.dataset.runField === "stdout")
+        .textContent,
+    ).toBe("wrong\n");
 
     expect(harness.learningObservations).toEqual([
       expect.objectContaining({
@@ -208,6 +218,26 @@ describe("runtime workspace controller", () => {
     ]);
     await harness.controller.flush();
     expect(harness.saved.some((request) => request.kind === "run-history")).toBe(false);
+    await harness.controller.destroy();
+  });
+
+  it("keeps the primary action unconsumed when the local runner is unavailable", async () => {
+    const harness = setup({ runnerEnabled: false });
+    await harness.controller.setWorkspaceEntry("runner-disabled", FINGERPRINT);
+    await flushAsync();
+    harness.controller.scenario.selectScenario("scenario.test.branch");
+
+    await expect(harness.controller.scenario.runReal()).rejects.toThrow(/没有开始执行/u);
+
+    expect(harness.api.compile).not.toHaveBeenCalled();
+    expect(harness.api.run).not.toHaveBeenCalled();
+    expect(harness.elements.tracePrimaryButton.textContent).toBe("运行");
+    expect(
+      findElement(
+        harness.elements.runHost,
+        (element) => element.className === "run-panel__result-status",
+      ).textContent,
+    ).toMatch(/运行器当前不可用/u);
     await harness.controller.destroy();
   });
 
@@ -259,6 +289,7 @@ describe("runtime workspace controller", () => {
     await harness.controller.setWorkspaceEntry("manual-observe", FINGERPRINT);
 
     harness.elements.traceObserveButton.click();
+    expect(harness.elements.focusPanel).toHaveBeenCalledWith("runtime");
     expect(harness.api.startTrace).not.toHaveBeenCalled();
     findElement(
       harness.elements.manualRunInputHost,
@@ -430,6 +461,37 @@ describe("runtime workspace controller", () => {
     await restored.controller.destroy();
   });
 
+  it("exposes the confirmed free stdin and args for the C Cell runtime", async () => {
+    const harness = setup();
+    await harness.controller.setWorkspaceEntry("c-cell-input", FINGERPRINT);
+    harness.elements.tracePrimaryButton.click();
+    const stdin = findElement(
+      harness.elements.manualRunInputHost,
+      (element) => element.className === "manual-run-input__stdin",
+    );
+    const args = findElement(
+      harness.elements.manualRunInputHost,
+      (element) => element.className === "manual-run-input__args",
+    );
+    stdin.value = "7\n";
+    args.value = "--case\n7";
+    const editor = findElement(
+      harness.elements.manualRunInputHost,
+      (element) => element.className === "manual-run-input__editor",
+    );
+    editor.dispatch("submit", { preventDefault: vi.fn() });
+    await waitFor(() => harness.api.run.mock.calls.length === 1);
+
+    expect(harness.controller.getRuntimeInput()).toEqual({
+      stdin: "7\n",
+      arguments: ["--case", "7"],
+    });
+    expect(harness.api.run).toHaveBeenCalledWith(
+      expect.objectContaining({ stdin: "7\n", args: ["--case", "7"] }),
+    );
+    await harness.controller.destroy();
+  });
+
   it("keeps run stable and cycles certain findings only with F8 shortcuts", async () => {
     const analysis = analysisWithCertainFindings();
     const harness = setup({ analysis });
@@ -539,6 +601,7 @@ interface SetupOptions {
   readonly traceBranches?: readonly boolean[];
   readonly traceUnsupported?: boolean;
   readonly runStdout?: string;
+  readonly runnerEnabled?: boolean;
   readonly deferCompileCall?: number;
   readonly deferredCompile?: Deferred<CompileResult>;
   readonly damagedScenarioSidecar?: boolean;
@@ -571,7 +634,7 @@ function setup(config: SetupOptions = {}) {
   let compileCalls = 0;
 
   const api = {
-    capabilities: vi.fn(async () => capabilities()),
+    capabilities: vi.fn(async () => capabilities(config.runnerEnabled ?? true)),
     compile: vi.fn(async () => {
       compileCalls += 1;
       if (compileCalls === config.deferCompileCall && config.deferredCompile !== undefined) {
@@ -679,6 +742,7 @@ function setup(config: SetupOptions = {}) {
   };
   vi.stubGlobal("document", document);
   vi.stubGlobal("window", { panelApi: api });
+  const onRevealFlow = vi.fn();
 
   const options: RuntimeWorkspaceControllerOptions = {
     elements: elements as unknown as WorkbenchElements,
@@ -695,6 +759,7 @@ function setup(config: SetupOptions = {}) {
     getAnalysis: () => config.analysis ?? null,
     getProjection: () => (source.value === SOURCE ? projection() : null),
     onSetActivePath: (path) => paths.push(path),
+    onRevealFlow,
     onFocusNode,
     onRevealRange,
     onLearningObservation: (observation) => learningObservations.push(observation),
@@ -712,6 +777,7 @@ function setup(config: SetupOptions = {}) {
     paths,
     learningObservations,
     saved,
+    onRevealFlow,
     onFocusNode,
     onRevealRange,
   };
@@ -846,6 +912,8 @@ function projection(): FlowProjection {
         exitNodeId: "end",
         partial: false,
         lockReasons: Object.freeze([]),
+        dataFlowAvailable: true,
+        dataFlowDisabledReasons: Object.freeze([]),
       }),
     ]),
     nodes: Object.freeze(nodes),
@@ -1019,10 +1087,10 @@ function expectedForInput(stdin: string | undefined): string {
   return Number(stdin?.trim() ?? "0") > 0 ? "positive\n" : "nonpositive\n";
 }
 
-function capabilities(): Capabilities {
+function capabilities(runnerEnabled = true): Capabilities {
   return Object.freeze({
     mode: "trusted-only",
-    runnerEnabled: true,
+    runnerEnabled,
     toolchainId: "verified:Apple clang version 21.0.0 Target: arm64-apple-macos",
     isolationProbe: Object.freeze({
       kind: "macos-seatbelt",

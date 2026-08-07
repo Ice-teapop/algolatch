@@ -6,17 +6,17 @@ on:
     branches:
       - main
     paths:
-      - docs/releases/v0.1.1-preview.2.md
+      - docs/releases/v0.1.1-preview.3.md
 
 permissions:
   contents: read
 
 concurrency:
-  group: cross-platform-preview-v0.1.1-preview.2
+  group: cross-platform-preview-v0.1.1-preview.3
   cancel-in-progress: false
 
 env:
-  PREVIEW_TAG: v0.1.1-preview.2
+  PREVIEW_TAG: v0.1.1-preview.3
 
 jobs:
   build_macos:
@@ -57,19 +57,11 @@ jobs:
       - name: Run unit, integration and architecture tests
         run: npm test
 
+      - name: Run full Electron end-to-end suite
+        run: npm run test:e2e
+
       - name: Build ad-hoc-signed macOS Universal preview
         run: npm run dist:mac:beta
-
-      - name: Run changed canvas, tutorial and AI window Electron regressions
-        run: >-
-          npx playwright test
-          tests/e2e/m6-m8-workbench.spec.ts
-          tests/e2e/flow-canvas-readability.spec.ts
-          tests/e2e/foa-tutorials-course.spec.ts
-          tests/e2e/foa-runtime-visual-matrix.spec.ts
-          tests/e2e/foa-transition-responsive-matrix.spec.ts
-          tests/e2e/foa-late-courses-visual-audit.spec.ts
-          tests/e2e/ai-native-window.spec.ts
 
       - name: Install, launch and verify the macOS preview
         run: npm run verify:installed-dmg:beta
@@ -135,6 +127,9 @@ jobs:
           tests/scripts/installed-windows-gate.test.mjs
           tests/config/windows-packaging.test.ts
           tests/runner/process-host.test.ts
+
+      - name: Run full Electron end-to-end suite
+        run: npm run test:e2e
 
       - name: Build unsigned Windows x64 installer
         run: npm run dist:win:beta

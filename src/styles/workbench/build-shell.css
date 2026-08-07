@@ -7,7 +7,7 @@
 .app-bar {
   z-index: 40;
   display: grid;
-  grid-template-columns: auto minmax(440px, 1fr) minmax(120px, auto) auto;
+  grid-template-columns: auto minmax(220px, 1fr) minmax(120px, auto) auto;
   align-items: stretch;
   min-width: 0;
   height: 42px;
@@ -73,10 +73,14 @@
   color: var(--ink);
 }
 
+/* The accent marks the one control level that swaps the whole page. Panel tabs deliberately
+   settle for weight and an ink rule, so "which page am I on" stays distinguishable from
+   "which panel is open" at a glance. Hover keeps currentColor, so it still reads as a hint. */
 .workspace-switcher__button[aria-selected="true"]::after,
 .workbench-menu__trigger[aria-current="page"]::after,
 .workbench-menu__root.is-open > .workbench-menu__trigger::after {
   height: 2px;
+  background: var(--accent);
   opacity: 1;
 }
 
@@ -132,7 +136,7 @@
 .workbench-menu__group-label {
   padding: 9px 12px 4px;
   color: var(--muted-subtle);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -160,7 +164,7 @@
   padding: 0 10px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
   white-space: nowrap;
 }
 
@@ -189,7 +193,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  font-size: 10px;
+  font-size: var(--text-control);
 }
 
 .app-actions .button:hover {
@@ -216,15 +220,8 @@
   background: var(--surface);
 }
 
-/* Compatibility: Contain the builder minimum width here so other pages still fit under zoom. */
 .workbench-page--build {
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-}
-
-.workbench-page--build > .build-workspace {
-  min-width: 760px;
+  overflow: hidden;
 }
 
 .build-layout {
@@ -305,7 +302,7 @@
 .panel__header,
 .canvas-toolbar,
 .panel-tabs {
-  min-height: 28px;
+  min-height: var(--interaction-target-compact);
   border-bottom: 1px solid var(--line);
   background: var(--surface-soft);
 }
@@ -321,14 +318,14 @@
 .panel__header h2,
 .canvas-toolbar h2 {
   margin: 0;
-  font-size: 10px;
+  font-size: var(--text-control);
   font-weight: 650;
   letter-spacing: 0.03em;
 }
 
 .canvas-toolbar__hint {
   color: var(--muted-subtle);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .canvas-toolbar {
@@ -344,13 +341,13 @@
 }
 
 .canvas-toolbar__runtime-action {
-  min-height: 24px;
+  min-height: var(--interaction-target-compact);
   padding: 1px 0;
   border: 0;
   border-radius: 0;
   color: var(--ink-secondary);
   background: transparent;
-  font-size: 10px;
+  font-size: var(--text-control);
   font-weight: 620;
   line-height: 1;
   white-space: nowrap;
@@ -405,7 +402,7 @@
   border: 0;
   color: var(--ink-secondary);
   background: transparent;
-  font-size: 9px;
+  font-size: var(--text-caption);
   cursor: pointer;
 }
 
@@ -420,10 +417,10 @@
 .manual-run-input__editor {
   position: absolute;
   z-index: 45;
-  top: 28px;
-  left: 0;
+  top: 100%;
+  right: 0;
   display: grid;
-  width: 340px;
+  width: min(340px, calc(100vw - 16px));
   gap: 8px;
   padding: 10px;
   border: 1px solid var(--line-strong);
@@ -432,10 +429,20 @@
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.1);
 }
 
+@media (max-width: 1099px) {
+  .app-bar {
+    grid-template-columns: auto minmax(180px, 1fr) auto;
+  }
+
+  .document-identity {
+    display: none;
+  }
+}
+
 .manual-run-input__hint {
   margin: 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.45;
 }
 
@@ -443,7 +450,7 @@
   display: grid;
   gap: 3px;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .manual-run-input__editor textarea {
@@ -456,7 +463,7 @@
   color: var(--ink);
   background: var(--input-surface);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .manual-run-input__actions {
@@ -465,11 +472,12 @@
 }
 
 .manual-run-input__actions button {
-  padding: 2px 0;
+  min-height: var(--interaction-target-compact);
+  padding: 0;
   border: 0;
   color: var(--accent);
   background: transparent;
-  font-size: 9px;
+  font-size: var(--text-control);
   cursor: pointer;
 }
 
@@ -489,14 +497,14 @@
 }
 
 .canvas-toolbar__actions button {
-  min-height: 20px;
+  min-height: var(--interaction-target-compact);
   padding: 1px 6px;
   border: 1px solid var(--line);
   border-radius: 2px;
   background: var(--input-surface);
   color: var(--ink-secondary);
   font: inherit;
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1;
 }
 
@@ -542,7 +550,7 @@
   border: 0;
   color: var(--muted);
   background: transparent;
-  font-size: 10px;
+  font-size: var(--text-control);
 }
 
 .panel--inspector .panel-tabs > button:hover {
@@ -566,7 +574,7 @@
   min-width: 58px;
   padding: 0 10px;
   border-right: 1px solid var(--line);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .panel-tabs > button[aria-selected="true"] {
@@ -591,14 +599,14 @@
 
 .runtime-ai-action {
   align-self: center;
-  min-height: 22px;
+  min-height: var(--interaction-target-compact);
   margin: 2px 6px;
   padding: 0 9px;
   border: 1px solid var(--accent-line);
   border-radius: 0;
   color: var(--accent);
   background: var(--surface-raised);
-  font-size: 10px;
+  font-size: var(--text-control);
   font-weight: 650;
   line-height: 20px;
   white-space: nowrap;

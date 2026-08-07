@@ -78,4 +78,14 @@ describe("code pane direct-input contract", () => {
     expect(codePaneSource).toContain('"aria-readonly": String(!editable)');
     expect(codePaneSource).toContain('"aria-multiline": "true"');
   });
+
+  it("wraps long source lines inside a resized code pane", () => {
+    expect(codePaneSource).toContain("EditorView.lineWrapping");
+  });
+
+  it("invalidates stale highlights before mapping a changed source", () => {
+    expect(codePaneSource).toContain("selectionHighlights = Object.freeze([])");
+    expect(codePaneSource).toContain("diagnosticHighlights = Object.freeze([])");
+    expect(codePaneSource).toContain("isHighlightInBounds(highlight, offsetMap.sourceLength)");
+  });
 });

@@ -26,7 +26,7 @@
 .workbench-drawer p {
   margin: 10px 0;
   color: var(--ink-secondary);
-  font-size: 10px;
+  font-size: var(--text-caption);
   line-height: 1.6;
 }
 
@@ -92,7 +92,7 @@
 .scenario-workspace__catalog-disclosure > summary {
   padding: 7px 0;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 650;
   cursor: pointer;
 }
@@ -132,7 +132,7 @@
 
 .scenario-catalog__more-actions {
   position: relative;
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .scenario-catalog__more-actions > summary {
@@ -153,7 +153,7 @@
   top: calc(100% + 4px);
   right: 0;
   width: max-content;
-  min-height: 26px;
+  min-height: var(--interaction-target-compact);
   padding: 4px 8px;
   border: 1px solid var(--line-strong);
   color: var(--danger);
@@ -197,7 +197,7 @@
 .scenario-catalog__item small,
 .scenario-catalog__status {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .scenario-catalog__editor form {
@@ -217,14 +217,14 @@
   display: grid;
   gap: 3px;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .scenario-catalog__editor input,
 .scenario-catalog__editor select,
 .scenario-catalog__editor textarea {
   width: 100%;
-  min-height: 26px;
+  min-height: var(--interaction-target-compact);
   border: 1px solid var(--line-strong);
   border-radius: 1px;
   color: var(--ink);
@@ -244,7 +244,7 @@
 .mentor-panel {
   min-width: 0;
   color: var(--ink);
-  font-size: 10px;
+  font-size: var(--text-caption);
 }
 
 .scenario-panel__header,
@@ -274,14 +274,14 @@
 .trace-panel__safety,
 .evidence-metrics__boundary {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .mentor-panel__purpose {
   max-width: 78ch;
   margin: 0 0 8px;
   color: var(--ink-secondary);
-  font-size: 10px;
+  font-size: var(--text-caption);
   line-height: 1.5;
 }
 
@@ -289,7 +289,7 @@
 .mentor-panel__empty {
   margin: 5px 0 8px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.45;
 }
 
@@ -322,7 +322,7 @@
 .scenario-panel__label,
 .scenario-panel__preview-label {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 620;
 }
 
@@ -335,7 +335,7 @@
 .scenario-panel select,
 .scenario-panel input {
   width: 100%;
-  min-height: 25px;
+  min-height: var(--interaction-target-compact);
   padding: 3px 6px;
   border: 1px solid var(--line-strong);
   border-radius: 0;
@@ -348,7 +348,7 @@
 .scenario-panel__benchmark-help,
 .scenario-panel__status {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.45;
 }
 
@@ -364,7 +364,7 @@
 .scenario-panel__advanced > summary {
   padding: 6px 0;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 650;
   cursor: pointer;
 }
@@ -389,7 +389,7 @@
   overflow: auto;
   color: var(--code-ink);
   background: transparent;
-  font-size: 9px;
+  font-size: var(--text-caption);
   white-space: pre-wrap;
 }
 
@@ -405,13 +405,13 @@
 .scenario-panel__run-simulation,
 .scenario-panel__run-benchmark,
 .trace-panel__button {
-  min-height: 26px;
+  min-height: var(--interaction-target-compact);
   padding: 4px 8px;
   border: 1px solid var(--line-strong);
   border-radius: 0;
   color: var(--ink);
   background: var(--surface-raised);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .scenario-panel__run-real,
@@ -431,7 +431,7 @@
 .trace-panel__event-header h3,
 .evidence-metrics h3 {
   margin: 0 0 6px;
-  font-size: 9px;
+  font-size: var(--text-caption);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -457,7 +457,7 @@
 .trace-panel__badge {
   padding: 2px 5px;
   border: 1px solid var(--line-strong);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .trace-panel__badge[data-tone="working"] {
@@ -529,7 +529,7 @@
   border-bottom: 1px solid var(--line);
   color: var(--ink-secondary);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .trace-panel__event[data-kind="branch"] {
@@ -575,7 +575,7 @@
 .mentor-hint__meta,
 .mentor-hint__evidence {
   color: var(--muted);
-  font-size: 8px;
+  font-size: var(--text-caption);
 }
 
 .mentor-hint__summary,

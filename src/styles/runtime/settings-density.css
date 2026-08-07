@@ -44,11 +44,11 @@
   min-height: 38px;
   border-bottom: 1px solid var(--line);
   color: var(--ink-secondary);
-  font-size: 10px;
+  font-size: var(--text-control);
 }
 
 .settings-form select {
-  min-height: 28px;
+  min-height: var(--interaction-target-compact);
   padding: 0 7px;
   border: 0;
   border-bottom: 1px solid var(--line-strong);
@@ -59,7 +59,7 @@
 
 .settings-form .button {
   justify-self: start;
-  min-height: 30px;
+  min-height: var(--interaction-target-compact);
   margin-top: 8px;
   padding: 0;
   border: 0;
@@ -83,13 +83,13 @@
   margin: 0;
   padding: 8px 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.45;
 }
 
 .ai-provider-settings__purpose {
   color: var(--ink);
-  font-size: 10px;
+  font-size: var(--text-control);
 }
 
 .ai-provider-settings__next-step {
@@ -104,7 +104,7 @@
   min-height: 38px;
   border-bottom: 1px solid var(--line);
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .ai-provider-settings input[type="text"],
@@ -119,7 +119,7 @@
   color: var(--ink);
   background: transparent;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .ai-provider-settings__checkbox {
@@ -128,7 +128,7 @@
   gap: 7px;
   min-height: 34px;
   border-bottom: 1px solid var(--line);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .ai-provider-settings__actions {
@@ -138,7 +138,7 @@
 }
 
 .ai-provider-settings__actions button {
-  min-height: 28px;
+  min-height: var(--interaction-target-compact);
   padding: 0;
   border: 0;
   border-bottom: 1px solid var(--line-strong);
@@ -206,7 +206,7 @@
 .scenario-panel__benchmark > summary {
   padding: 6px 0;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 650;
   cursor: pointer;
   list-style-position: inside;
@@ -221,11 +221,45 @@
   border-bottom: 1px solid var(--line);
 }
 
+.trace-panel__chart-views {
+  display: flex;
+  min-width: 0;
+  min-height: var(--interaction-target-compact);
+  align-items: stretch;
+  gap: 14px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.trace-panel__chart-views > .trace-panel__button {
+  flex: 0 0 auto;
+  min-height: var(--interaction-target-compact);
+  padding: 0 1px;
+  color: var(--muted);
+  font-size: var(--text-caption);
+  font-weight: 540;
+  white-space: nowrap;
+}
+
+.trace-panel__chart-views > .trace-panel__button[aria-pressed="true"] {
+  color: var(--ink);
+  background: transparent;
+  box-shadow: inset 0 -1px 0 var(--ink-secondary);
+  font-weight: 680;
+}
+
 .trace-panel__chart-caption {
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 650;
   letter-spacing: 0.02em;
+}
+
+.trace-panel__chart-legend {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-caption);
+  line-height: 1.4;
 }
 
 .trace-panel__chart {
@@ -246,7 +280,7 @@
 .trace-panel__chart-label {
   fill: var(--muted-subtle);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--text-caption);
 }
 
 .trace-panel__chart-series {
@@ -280,9 +314,24 @@
   vector-effect: non-scaling-stroke;
 }
 
+.trace-panel__chart-bar {
+  fill: var(--accent);
+  opacity: 0.82;
+}
+
+.trace-panel__chart-bar[data-bar-kind="false"] {
+  fill: var(--ink-secondary);
+}
+
+.trace-panel__chart-bar-label {
+  fill: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10px;
+}
+
 .trace-panel__chart-empty {
   fill: var(--muted-subtle);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .trace-panel__chart-guide,
@@ -296,7 +345,7 @@
 .analysis-dashboard__chart-guide > summary {
   padding: 7px 0;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 650;
   cursor: pointer;
 }
@@ -327,7 +376,7 @@
 .analysis-dashboard__chart-guide dt,
 .analysis-dashboard__chart-guide dd {
   margin: 0;
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.45;
 }
 
@@ -343,7 +392,7 @@
   margin-bottom: 5px;
   color: var(--ink-secondary);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--text-caption);
   line-height: 1.5;
 }
 
@@ -429,7 +478,7 @@
 .runtime-advanced > summary {
   padding: 9px 12px;
   color: var(--ink-secondary);
-  font-size: 9px;
+  font-size: var(--text-caption);
   cursor: pointer;
   list-style: none;
   white-space: nowrap;

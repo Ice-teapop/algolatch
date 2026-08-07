@@ -1,0 +1,426 @@
+/* C Cell: code-first command surface with inline, evidence-bound results. */
+.c-command {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--surface);
+  flex-direction: column;
+}
+
+.c-command__heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.c-command__heading h2,
+.c-command__heading p {
+  margin: 0;
+}
+
+.c-command__heading h2 {
+  flex: none;
+  font-size: var(--text-heading);
+  font-weight: 680;
+}
+
+.c-command__heading p {
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-caption);
+  line-height: 1.4;
+}
+
+/* At rest the composer owns the panel: the writing surface is the region, not a
+   control inside it. Once a result exists the transcript takes the room and the
+   composer returns to content height. */
+.c-command__composer {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: var(--space-3) var(--space-4);
+}
+
+/* The composer is last in the console order, so its rule against the transcript is a top
+   border, and only once there is a transcript to divide it from. */
+.c-command:has(.c-command__transcript:not(:empty)) .c-command__composer {
+  border-top: 1px solid var(--line);
+}
+
+/* Reachable only once a submission exists, because :empty hides the transcript. */
+.c-command:has(.c-command__transcript:not(:empty)) .c-command__composer {
+  flex: 0 0 auto;
+  grid-template-rows: auto auto auto;
+}
+
+.c-command__input-label {
+  color: var(--ink-secondary);
+  font-size: var(--text-control);
+  font-weight: 620;
+}
+
+/* The prompt is the project's CodeMirror editor, so the writing surface a learner uses
+   most has the same highlighting, bracket handling and indentation as the code pane. */
+.c-command__editor {
+  display: grid;
+  min-height: 0;
+}
+
+.c-command__stdin {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.c-command__stdin > span {
+  padding-top: 6px;
+  color: var(--muted);
+  font-size: var(--text-caption);
+  font-weight: 620;
+}
+
+.c-command__stdin textarea {
+  min-height: 54px;
+  padding: 6px 8px;
+  resize: vertical;
+  border: 1px solid var(--line-strong);
+  color: var(--code-ink);
+  background: var(--input-surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-control);
+  line-height: 1.45;
+}
+
+.c-command__input {
+  min-height: 92px;
+  height: 100%;
+  border-left: 2px solid var(--accent);
+  outline: 1px solid var(--line);
+  color: var(--code-ink);
+  background: var(--input-surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+}
+
+.c-command__input .cm-scroller {
+  overflow: auto;
+  padding: 8px 0;
+  line-height: 1.5;
+}
+
+.c-command__input .cm-content {
+  caret-color: var(--accent);
+}
+
+.c-command__input .cm-gutters {
+  border-right: 1px solid var(--line);
+  color: var(--code-gutter);
+  background: var(--surface-soft);
+}
+
+.c-command__input .cm-lineNumbers .cm-gutterElement {
+  min-width: 30px;
+  padding: 0 6px 0 4px;
+}
+
+.c-command__input .cm-activeLine,
+.c-command__input .cm-activeLineGutter {
+  background: var(--code-active-line);
+}
+
+.c-command__input .cm-selectionBackground,
+.c-command__input .cm-content ::selection {
+  background: var(--accent-soft) !important;
+}
+
+/* The prompt grows with the draft, and that swing is what moves the transcript's clientHeight.
+   340px was nearly four times the 92px resting height, so writing a medium function pushed the
+   newest result card out of view. Capped low enough that the result above stays readable while
+   typing; the editor scrolls internally beyond this. */
+.c-command:has(.c-command__transcript:not(:empty)) .c-command__input {
+  height: auto;
+  max-height: min(28vh, 200px);
+}
+
+.c-command__composer-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--interaction-target-default);
+}
+
+.c-command__hint,
+.c-command__projection-status,
+.c-command__validation {
+  margin: 0;
+  font-size: var(--text-caption);
+  line-height: 1.35;
+}
+
+.c-command__hint {
+  color: var(--muted);
+}
+
+.c-command__projection-status {
+  color: var(--accent);
+}
+
+.c-command__validation {
+  color: var(--danger);
+}
+
+.c-command__run {
+  min-height: var(--interaction-target-default);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: 2px;
+  color: var(--on-accent);
+  background: var(--accent);
+  font-size: var(--text-control);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.c-command__run:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.c-command__run:disabled {
+  cursor: not-allowed;
+  opacity: var(--interaction-disabled-opacity);
+}
+
+.c-command__transcript {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* A short history hugs the prompt instead of leaving a gap above it. auto margin, not
+   justify-content: flex-end, because that variant clips the top of overflowing content
+   out of scroll range. */
+.c-command__transcript > :first-child {
+  margin-top: auto;
+}
+
+.c-command__transcript:empty {
+  display: none;
+}
+
+.c-command__submission {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.c-command__submission-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+/* The echoed submission is context, not the result. Uncapped it rendered at full program height
+   (a 27-line program measured 446px) and pushed the diagnostics, output and timings it belongs to
+   off the bottom of the transcript. It keeps its own scrollbar past this. */
+.c-command__submitted-source {
+  min-width: 0;
+  max-height: min(30vh, 180px);
+  margin: 0;
+  overflow: auto;
+  color: var(--code-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-control);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.c-command__state {
+  color: var(--muted);
+  font-size: var(--text-caption);
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.c-command__submission[data-state="succeeded"] .c-command__state {
+  color: var(--success);
+}
+
+.c-command__submission[data-state="compile-failed"] .c-command__state,
+.c-command__submission[data-state="run-failed"] .c-command__state,
+.c-command__submission[data-state="internal-error"] .c-command__state {
+  color: var(--danger);
+}
+
+.c-command__submission[data-state="cancelled"] .c-command__state {
+  color: var(--warning);
+}
+
+.c-command__result {
+  display: grid;
+  gap: 7px;
+}
+
+.c-command__progress {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-control);
+}
+
+.c-command__wrapper {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.c-command__wrapper summary {
+  padding: 7px 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-control);
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.c-command__wrapper p {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
+
+.c-command__wrapper pre,
+.c-command__output pre {
+  margin: 0 0 7px;
+  padding: 8px 10px;
+  overflow: auto;
+  color: var(--code-ink);
+  background: var(--surface-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-control);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.c-command__output h3 {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: var(--text-caption);
+  font-weight: 620;
+}
+
+.c-command__output[data-output-kind="stderr"] pre,
+.c-command__output[data-output-kind="error"] pre,
+.c-command__output[data-output-kind="diagnostics"] pre {
+  color: var(--danger);
+}
+
+.c-command__evidence {
+  display: grid;
+  grid-template-columns: repeat(3, max-content minmax(0, 1fr));
+  gap: 4px 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
+
+.c-command__evidence dd {
+  margin: 0;
+  color: var(--ink-secondary);
+}
+
+.c-command__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.c-command__actions button {
+  min-height: var(--interaction-target-compact);
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  font-size: var(--text-control);
+  cursor: pointer;
+}
+
+.c-command__actions button:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.c-command__actions button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: var(--interaction-disabled-opacity);
+}
+
+@media (max-width: 900px) {
+  .c-command__heading {
+    display: grid;
+    gap: 3px;
+  }
+
+  .c-command__composer-footer {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .c-command__projection-status,
+  .c-command__validation {
+    grid-column: 1;
+  }
+
+  .c-command__run {
+    grid-row: 1 / span 3;
+    grid-column: 2;
+  }
+
+  .c-command__evidence {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .c-command__heading p,
+  .c-command__hint {
+    display: none;
+  }
+
+  .c-command__composer,
+  .c-command__submission {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .c-command__submission-header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .c-command__stdin {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .c-command *,
+  .c-command *::before,
+  .c-command *::after {
+    scroll-behavior: auto;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

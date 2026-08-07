@@ -39,7 +39,7 @@
 
 .flow-detail__title {
   overflow: hidden;
-  font-size: 10px;
+  font-size: var(--text-control);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -55,19 +55,19 @@
   border-left: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .flow-detail__body {
   min-height: 0;
   padding: 10px;
   overflow: auto;
-  font-size: 10px;
+  font-size: var(--text-control);
 }
 
 .flow-detail__body h3 {
   margin: 12px 0 4px;
-  font-size: 9px;
+  font-size: var(--text-caption);
   text-transform: uppercase;
 }
 
@@ -78,7 +78,7 @@
   overflow: auto;
   border: 1px solid var(--line);
   background: var(--input-surface);
-  font-size: 9px;
+  font-size: var(--text-caption);
   white-space: pre-wrap;
 }
 
@@ -235,12 +235,12 @@
   color: var(--code-ink);
   background: var(--input-surface);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.45;
 }
 
 .flow-detail__editor .button {
-  min-height: 26px;
+  min-height: var(--interaction-target-compact);
   border-radius: 0;
-  font-size: 9px;
+  font-size: var(--text-caption);
 }

@@ -7,11 +7,17 @@ import {
   type Page,
   type TestInfo,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FoaLessonDefinition } from "../../src/tutorials/foa-contracts.js";
 import { FOA_LESSONS } from "../../src/tutorials/foa-curriculum.js";
+import { showSourceEditor } from "./support/c-cell-layout.js";
+
+// A dedicated Electron profile: a shared one lets localStorage and window state leak
+// between spec files, which run strictly in sequence under `workers: 1`.
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 let application: ElectronApplication | undefined;
 let page: Page;
@@ -75,7 +81,7 @@ async function launchApplication(): Promise<void> {
     ),
   );
   application = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...inheritedEnvironment,
@@ -91,7 +97,6 @@ async function launchApplication(): Promise<void> {
   await page.evaluate(() => {
     globalThis.localStorage.clear();
     globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
-    globalThis.localStorage.setItem("c-block-algorithm-panel:first-run-v6", "direct");
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.setViewportSize({ width: 900, height: 650 });
@@ -158,6 +163,13 @@ test("courses 81-120 remain operable and visually bounded at 100% and 150%", asy
 });
 
 async function openTutorials(): Promise<void> {
+  // A workspace lesson focus deliberately disables the page tabs, so a lesson launched by an
+  // earlier course has to be exited before the Tutorials page can be reached again.
+  const exit = page.locator("#workspace-lesson-exit");
+  if (await exit.isVisible()) {
+    await exit.click();
+    await expect(page.locator("#workspace-lesson-strip")).toBeHidden();
+  }
   await page.locator("#tutorials-tab").click({ timeout: 5_000 });
   await expect(page.locator("#tutorials-panel")).toBeVisible();
 }
@@ -256,7 +268,8 @@ async function performLessonAction(lesson: FoaLessonDefinition): Promise<void> {
   if (lesson.mode === "workspace-evidence") {
     await stageFor(lesson).locator("[data-task-lesson-action='open-workspace']").click();
     await expect(page.locator("#build-panel")).toBeVisible();
-    await expect(page.locator(".cm-content")).toBeVisible();
+    // The workspace opens on the C Cell prompt; the project source editor is a tab away.
+    await showSourceEditor(page);
     await restartApplicationAfterWorkspace();
     return;
   }

@@ -109,8 +109,7 @@ describe("run panel scenario completion", () => {
     });
 
     await flushMicrotasks();
-    find(host, (element) => element.className === "run-panel__run-button").click();
-    await flushMicrotasks();
+    await panel.runCurrent();
     shell.dataset.locale = "en";
     shell.dispatchEvent(new Event("workbench-locale-change"));
 
@@ -169,8 +168,7 @@ describe("run panel scenario completion", () => {
     });
 
     await flushMicrotasks();
-    find(host, (element) => element.className === "run-panel__run-button").click();
-    await flushMicrotasks();
+    const returnedCompletion = await panel.runCurrent();
 
     expect(run).toHaveBeenCalledWith({
       artifactId: "artifact-a",
@@ -178,6 +176,7 @@ describe("run panel scenario completion", () => {
       stdin: "3\n3 2 1\n",
     });
     expect(onRunComplete).toHaveBeenCalledOnce();
+    expect(returnedCompletion).toEqual(onRunComplete.mock.calls[0]?.[0]);
     expect(onRunComplete).toHaveBeenCalledWith({
       source,
       sourceFingerprint: fingerprintSource(source),
@@ -190,6 +189,37 @@ describe("run panel scenario completion", () => {
     expect(Object.isFrozen(completion)).toBe(true);
     expect(Object.isFrozen(completion?.capabilities)).toBe(true);
     expect(Object.isFrozen(completion?.scenario)).toBe(true);
+    panel.destroy();
+  });
+
+  it("fails visibly without compiling when the runner is unavailable", async () => {
+    const ownerDocument = new FakeDocument();
+    const host = ownerDocument.createElement("div");
+    const compile = vi.fn(async () => {
+      throw new Error("compile must not start");
+    });
+    const onRunComplete = vi.fn();
+    installPanelGlobals(ownerDocument, {
+      compile,
+      run: vi.fn(async () => runResult({})),
+      capabilities: { ...capabilities(), runnerEnabled: false },
+    });
+    const panel = createRunPanel(host as unknown as HTMLElement, {
+      getSource: () => "int main(void) { return 0; }\n",
+      getDisplayName: () => "main.c",
+      onRunComplete,
+    });
+
+    await flushMicrotasks();
+    const completion = await panel.runCurrent();
+
+    expect(completion).toBeNull();
+    expect(compile).not.toHaveBeenCalled();
+    expect(onRunComplete).not.toHaveBeenCalled();
+    expect(find(host, (element) => element.className === "run-panel__result").hidden).toBe(false);
+    expect(
+      find(host, (element) => element.className === "run-panel__result-status").textContent,
+    ).toMatch(/运行器当前不可用/u);
     panel.destroy();
   });
 
@@ -264,12 +294,13 @@ function installPanelGlobals(
   handlers: {
     readonly compile: (request: unknown) => Promise<CompileResult>;
     readonly run: (request: unknown) => Promise<RunResult>;
+    readonly capabilities?: Capabilities | undefined;
   },
 ): void {
   vi.stubGlobal("document", ownerDocument);
   vi.stubGlobal("window", {
     panelApi: {
-      capabilities: vi.fn(async () => capabilities()),
+      capabilities: vi.fn(async () => handlers.capabilities ?? capabilities()),
       compile: handlers.compile,
       run: handlers.run,
       diagnose: vi.fn(),

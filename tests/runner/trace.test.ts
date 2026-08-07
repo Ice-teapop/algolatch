@@ -313,10 +313,14 @@ async function waitForChild(host: FakeProcessHost): Promise<void> {
 async function retryAfterRunnerBusy<
   T extends { readonly ok: boolean; readonly error?: { readonly code: string } },
 >(operation: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
     const result = await operation();
     if (result.ok || result.error?.code !== "RUNNER_BUSY") return result;
-    await flushAsyncWork();
+    // Terminal evidence is published before asynchronous artifact cleanup releases the runner
+    // lease. Yield a real timer turn so filesystem completions are not starved under full-suite
+    // worker pressure.
+    await new Promise<void>((resolve) => setTimeout(resolve, 1));
   }
   throw new Error("Runner stayed busy after terminal Trace batch");
 }

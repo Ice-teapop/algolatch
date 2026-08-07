@@ -5,10 +5,15 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FOA_LESSONS } from "../../src/tutorials/foa-curriculum.js";
+
+// A dedicated Electron profile: a shared one lets localStorage and window state leak
+// between spec files, which run strictly in sequence under `workers: 1`.
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 let application: ElectronApplication | undefined;
 let page: Page;
@@ -25,7 +30,7 @@ test.beforeAll(async () => {
     ),
   );
   application = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...inheritedEnvironment,
@@ -38,7 +43,6 @@ test.beforeAll(async () => {
   await page.evaluate(() => {
     globalThis.localStorage.clear();
     globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
-    globalThis.localStorage.setItem("c-block-algorithm-panel:first-run-v6", "direct");
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#startup-loader")).toBeHidden();
@@ -84,8 +88,11 @@ test("keeps the Dock and late-course tutorials inside the document at 150% zoom"
     scrollWidth: element.scrollWidth,
     overflowX: getComputedStyle(element).overflowX,
   }));
-  expect(builderOverflow.overflowX).toBe("auto");
-  expect(builderOverflow.scrollWidth).toBeGreaterThanOrEqual(builderOverflow.clientWidth);
+  // The builder used to carry a 760px minimum width and own a horizontal scrollbar; the
+  // C Cell layout fits any width instead, so the contract is that the page contains its
+  // own content and can never leak overflow up to the document.
+  expect(builderOverflow.overflowX).not.toBe("visible");
+  expect(builderOverflow.scrollWidth).toBeLessThanOrEqual(builderOverflow.clientWidth + 1);
 });
 
 async function expectDocumentToOwnNoHorizontalScroll(label: string): Promise<void> {

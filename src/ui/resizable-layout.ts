@@ -22,6 +22,8 @@ export interface ResizableLayoutSnapshot {
 export interface ResizableLayoutOptions {
   readonly axis: ResizableLayoutAxis;
   readonly panes: readonly ResizablePaneDefinition[];
+  /** Absolute-positioned children that belong to the layout host but do not consume pane space. */
+  readonly overlays?: readonly HTMLElement[] | undefined;
   readonly overflowFillPaneId?: string | undefined;
   readonly keyboardStep?: number | undefined;
   readonly localeHost?: HTMLElement | undefined;
@@ -99,6 +101,10 @@ export function createResizableLayout(
   host.style.flexDirection = options.axis === "horizontal" ? "row" : "column";
   host.style.overflow = "hidden";
   host.replaceChildren();
+
+  for (const overlay of options.overlays ?? []) {
+    host.append(overlay);
+  }
 
   for (const [index, pane] of panes.entries()) {
     preparePane(

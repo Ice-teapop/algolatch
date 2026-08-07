@@ -22,6 +22,8 @@ const expectedOrder = Object.freeze([
   "./styles/workbench/build-shell.css",
   "./styles/workbench/flow-canvas.css",
   "./styles/workbench/flow-detail-layout.css",
+  "./styles/workbench/matlab-workbench.css",
+  "./styles/workbench/c-command.css",
   "./styles/runtime/scenarios-mentor.css",
   "./styles/runtime/settings-density.css",
   "./styles/analysis/analysis-dashboard.css",
@@ -35,6 +37,7 @@ const expectedOrder = Object.freeze([
   "./styles/tutorials/responsive-input.css",
   "./styles/tutorials/flow-frame.css",
   "./styles/tutorials/specialized-lessons.css",
+  "./styles/workbench/semantic-projection-progressive.css",
 ]);
 
 describe("renderer style manifest", () => {

@@ -1,13 +1,6 @@
 /* Section: Global tokens, resets, and interaction variables. */
 :root {
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -80,7 +73,7 @@
   --ink: #17191b;
   --ink-secondary: #35393d;
   --muted: #5a6066;
-  --muted-subtle: #737a81;
+  --muted-subtle: #686f76;
   --canvas: #ffffff;
   --surface: #ffffff;
   --surface-soft: #f5f6f7;
@@ -133,8 +126,19 @@
 
 /* Section: Shared interaction targets and motion timings. */
 :root {
-  --interaction-target-compact: 28px;
-  --interaction-target-default: 32px;
+  /* One shared density system: compact enough for a workbench, never microscopic. */
+  --text-caption: 11px;
+  --text-control: 12px;
+  --text-body: 13px;
+  --text-heading: 15px;
+  --text-title: 18px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --interaction-target-compact: 32px;
+  --interaction-target-default: 36px;
   --interaction-focus-width: 2px;
   --interaction-focus-offset: -2px;
   --interaction-disabled-opacity: 0.42;
@@ -143,9 +147,9 @@
   --interaction-selected-background: var(--accent-soft);
   --interaction-selected-ink: var(--accent);
   --motion-instant: 80ms;
-  --motion-feedback: 110ms;
-  --motion-state: 160ms;
-  --motion-surface: 200ms;
+  --motion-feedback: 120ms;
+  --motion-state: 180ms;
+  --motion-surface: 220ms;
   --motion-exit: 90ms;
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-state: cubic-bezier(0.65, 0, 0.35, 1);
@@ -195,6 +199,8 @@ body,
 body {
   color: var(--ink);
   background: var(--canvas);
+  font-size: var(--text-body);
+  line-height: 1.45;
 }
 
 button,
@@ -206,6 +212,14 @@ textarea {
 
 button {
   color: inherit;
+}
+
+button:not(:disabled) {
+  transition:
+    color var(--motion-feedback) var(--ease-out-quart),
+    background-color var(--motion-feedback) var(--ease-out-quart),
+    border-color var(--motion-feedback) var(--ease-out-quart),
+    opacity var(--motion-feedback) var(--ease-out-quart);
 }
 
 button:focus-visible,
@@ -239,4 +253,40 @@ p {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --interaction-target-compact: 40px;
+    --interaction-target-default: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (forced-colors: active) {
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline-color: Highlight;
+  }
+
+  button[aria-selected="true"],
+  button[aria-current="true"] {
+    border-color: Highlight;
+    color: HighlightText;
+    background: Highlight;
+    forced-color-adjust: none;
+  }
 }

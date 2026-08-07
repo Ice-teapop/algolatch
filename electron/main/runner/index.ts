@@ -13,6 +13,11 @@ import type {
   TraceRequest,
   TraceStartResult,
 } from "../../../src/shared/trace.js";
+import type {
+  VerifiedRunBatch,
+  VerifiedRunCancelResult,
+  VerifiedRunStartResult,
+} from "../../../src/shared/verified-run.js";
 import { detectSupportedHostToolchain, parseRunnerMode } from "./capability.js";
 import {
   Runner,
@@ -116,6 +121,21 @@ export async function run(
   trustedGrant?: TrustedExecutionGrant,
 ): Promise<RunResult> {
   return getDefaultRunner().run(request, trustedGrant);
+}
+
+export async function startRun(
+  request: RunRequest,
+  trustedGrant?: TrustedExecutionGrant,
+): Promise<VerifiedRunStartResult> {
+  return getDefaultRunner().startRun(request, trustedGrant);
+}
+
+export function readRun(sessionId: string, afterSequence: number): VerifiedRunBatch {
+  return getDefaultRunner().readRun(sessionId, afterSequence);
+}
+
+export function cancelRun(sessionId: string): VerifiedRunCancelResult {
+  return getDefaultRunner().cancelRun(sessionId);
 }
 
 export async function diagnose(

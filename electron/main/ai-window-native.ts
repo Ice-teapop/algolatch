@@ -23,6 +23,8 @@ export interface NativeAiWindowOptions {
 
 export function registerNativeAiWindow(options: NativeAiWindowOptions): AiWindowManager {
   let rememberedBounds: Rectangle | null = null;
+  const suppressE2eWindowFocus =
+    options.developmentServerUrl !== null && process.env.PANEL_E2E_HIDE_WINDOW === "1";
 
   return registerAiWindowManager({
     ipcMain: options.ipcMain,
@@ -48,6 +50,7 @@ export function registerNativeAiWindow(options: NativeAiWindowOptions): AiWindow
         minWidth: 680,
         minHeight: 480,
         show: false,
+        focusable: !suppressE2eWindowFocus,
         resizable: true,
         minimizable: true,
         maximizable: true,

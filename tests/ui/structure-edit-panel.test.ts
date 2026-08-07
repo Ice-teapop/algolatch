@@ -61,14 +61,17 @@ describe("structure edit request contract", () => {
     expect(Object.isFrozen(rename)).toBe(true);
   });
 
-  it("enforces one physical insertion line and conservative C identifiers", () => {
+  it("accepts multiline control blocks while rejecting unsafe boundaries and identifiers", () => {
     const selection = completeSelection();
-    expect(() =>
+    expect(
       buildStructureEditRequest(selection, {
         kind: "insert-before",
-        statementText: "first();\nsecond();",
+        statementText: "for (int i = 0; i < 5; i++) {\n  total += i;\n}",
       }),
-    ).toThrow(/不允许/u);
+    ).toMatchObject({
+      kind: "insert-statement",
+      statementText: "for (int i = 0; i < 5; i++) {\n  total += i;\n}",
+    });
     expect(() =>
       buildStructureEditRequest(selection, { kind: "insert-before", statementText: " work();" }),
     ).toThrow(/不允许/u);
@@ -209,7 +212,7 @@ describe("structure edit panel DOM behavior", () => {
 
     panel.setSelection(completeSelection());
     expect((panel.element as unknown as FakeElement).hidden).toBe(false);
-    const insertInput = fixture.root.findInputByLabel("要插入的单行 C 语句");
+    const insertInput = fixture.root.findInputByLabel("要插入的 C 语句或控制块");
     const insertBefore = fixture.root.findByOperation("insert-before");
     const deleteButton = fixture.root.findByOperation("delete");
     const movePrevious = fixture.root.findByOperation("move-previous");
@@ -262,7 +265,7 @@ describe("structure edit panel DOM behavior", () => {
         next: { id: "statement:next", text: "finish();" },
       }),
     );
-    const insertInput = fixture.root.findInputByLabel("要插入的单行 C 语句");
+    const insertInput = fixture.root.findInputByLabel("要插入的 C 语句或控制块");
     expect(insertInput?.disabled).toBe(true);
     insertInput?.input("next();");
 
@@ -308,13 +311,13 @@ describe("structure edit panel DOM behavior", () => {
       inertCallbacks(),
     );
     panel.setSelection(completeSelection());
-    fixture.root.findInputByLabel("要插入的单行 C 语句")?.input("custom_call();");
+    fixture.root.findInputByLabel("要插入的 C 语句或控制块")?.input("custom_call();");
     fixture.root.findInputByLabel("局部变量 total 的新名称")?.input("best_total");
 
     fixture.host.changeLocale("en");
 
     expect(panel.element.getAttribute("aria-label")).toBe("Structure editing");
-    expect(fixture.root.findInputByLabel("Single-line C statement to insert")?.value).toBe(
+    expect(fixture.root.findInputByLabel("C statement or control block to insert")?.value).toBe(
       "custom_call();",
     );
     expect(fixture.root.findInputByLabel("New name for local variable total")?.value).toBe(
@@ -498,7 +501,9 @@ class FakeElement {
 
   findInputByLabel(label: string): FakeElement | undefined {
     return this.find(
-      (element) => element.tagName === "INPUT" && element.getAttribute("aria-label") === label,
+      (element) =>
+        (element.tagName === "INPUT" || element.tagName === "TEXTAREA") &&
+        element.getAttribute("aria-label") === label,
     );
   }
 

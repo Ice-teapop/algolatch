@@ -125,7 +125,7 @@
 
 .quick-open__result-meta {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-control);
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -144,7 +144,7 @@
   border-top: 1px solid var(--line);
   color: var(--muted);
   background: var(--surface);
-  font-size: 10px;
+  font-size: var(--text-control);
   line-height: 16px;
 }
 

@@ -196,6 +196,9 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
     Prec.high(keymap.of([indentWithTab])),
     indentUnit.of("  "),
     EditorState.tabSize.of(2),
+    // Keep long C statements inside the independently resizable source pane. Horizontal
+    // scrolling made the code-first layout appear broken at 125%/150% zoom and hid diagnostics.
+    EditorView.lineWrapping,
     // C parsing here is presentation-only; it never replaces the application's source model.
     cpp(),
     // A non-fallback style prevents CodeMirror's light default palette from leaking into
@@ -221,6 +224,11 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
       if (stateSourceChanged) {
         exactSource = nextSource;
         offsetMap = createSourceOffsetMap(nextSource);
+        // Highlights are evidence for the previous source fingerprint. Dropping
+        // them here prevents a deferred diagnostics reset from trying to map an
+        // old source range into the newly edited (possibly much shorter) text.
+        selectionHighlights = Object.freeze([]);
+        diagnosticHighlights = Object.freeze([]);
         const reason = sourceChangeReason(update.transactions);
         sourceNotifications.enqueue(Object.freeze({ source: nextSource, reason }));
       }
@@ -240,18 +248,20 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
   localeHost.addEventListener("workbench-locale-change", onLocaleChange);
 
   const renderHighlightLayers = (): void => {
-    const decorations = [...selectionHighlights, ...diagnosticHighlights].map((highlight) => {
-      const range = sourceRangeToEditorRange(offsetMap, highlight.range, false);
-      const attributes: Record<string, string> = {
-        "data-code-highlight": "true",
-        "data-code-highlight-kind": highlight.kind,
-        ...(highlight.title === undefined ? {} : { title: highlight.title }),
-      };
-      return Decoration.mark({
-        class: `code-pane-highlight code-pane-highlight--${highlight.kind}`,
-        attributes,
-      }).range(range.from, range.to);
-    });
+    const decorations = [...selectionHighlights, ...diagnosticHighlights]
+      .filter((highlight) => isHighlightInBounds(highlight, offsetMap.sourceLength))
+      .map((highlight) => {
+        const range = sourceRangeToEditorRange(offsetMap, highlight.range, false);
+        const attributes: Record<string, string> = {
+          "data-code-highlight": "true",
+          "data-code-highlight-kind": highlight.kind,
+          ...(highlight.title === undefined ? {} : { title: highlight.title }),
+        };
+        return Decoration.mark({
+          class: `code-pane-highlight code-pane-highlight--${highlight.kind}`,
+          attributes,
+        }).range(range.from, range.to);
+      });
 
     view.dispatch({
       effects: replaceHighlights.of(Decoration.set(decorations, true)),
@@ -369,6 +379,16 @@ export function createCodePane(host: HTMLElement, options: CodePaneOptions): Cod
       draftPreviewHost.remove();
     },
   };
+}
+
+function isHighlightInBounds(highlight: CodeHighlight, sourceLength: number): boolean {
+  return (
+    Number.isSafeInteger(highlight.range.from) &&
+    Number.isSafeInteger(highlight.range.to) &&
+    highlight.range.from >= 0 &&
+    highlight.range.from < highlight.range.to &&
+    highlight.range.to <= sourceLength
+  );
 }
 
 export function codePaneAriaLabel(editable: boolean, locale: InterfaceLocale): string {

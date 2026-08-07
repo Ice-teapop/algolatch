@@ -83,6 +83,7 @@ describe("workspace lesson integration", () => {
         configureTutorialCase,
       } as never,
       loadSource,
+      getCurrentDocument: () => null,
       onError: vi.fn(),
     });
 

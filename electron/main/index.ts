@@ -48,6 +48,14 @@ import {
   type TraceStartResult,
 } from "../../src/shared/trace.js";
 import {
+  verifiedRunBatchHasTerminalEvidence,
+  verifiedRunBatchIsFullyDrained,
+  type VerifiedRunBatch,
+  type VerifiedRunCancelResult,
+  type VerifiedRunStartResult,
+} from "../../src/shared/verified-run.js";
+import {
+  cancelRun,
   cancelTrace,
   compile,
   createTrustedExecutionGrant,
@@ -55,8 +63,10 @@ import {
   describeTrustedRequest,
   disposeRunner,
   getCapabilities,
+  readRun,
   readTrace,
   run,
+  startRun,
   startTrace,
   type TrustedExecutionGrant,
   type TrustedOperation,
@@ -95,6 +105,9 @@ const IPC_CHANNELS = Object.freeze({
   capabilities: "panel:capabilities",
   compile: "panel:compile",
   run: "panel:run",
+  startRun: "panel:run-start",
+  readRun: "panel:run-read",
+  cancelRun: "panel:run-cancel",
   diagnose: "panel:diagnose",
   startTrace: "panel:trace-start",
   readTrace: "panel:trace-read",
@@ -119,6 +132,8 @@ let runnerRequestInFlight = false;
 let sourceImportInFlight = false;
 const traceSessionOwners = new Map<string, BrowserWindow>();
 const activeTraceSessions = new Set<string>();
+const verifiedRunSessionOwners = new Map<string, BrowserWindow>();
+const activeVerifiedRunSessions = new Set<string>();
 
 if (process.platform === "win32") {
   app.setAppUserModelId(APP_APPLICATION_ID);
@@ -231,6 +246,16 @@ function installWorkspaceCloseHandshake(mainWindow: BrowserWindow): void {
       traceSessionOwners.delete(sessionId);
       activeTraceSessions.delete(sessionId);
     }
+    for (const [sessionId, owner] of verifiedRunSessionOwners) {
+      if (owner !== mainWindow) continue;
+      try {
+        cancelRun(sessionId);
+      } catch {
+        // Runner shutdown independently kills any remaining native process.
+      }
+      verifiedRunSessionOwners.delete(sessionId);
+      activeVerifiedRunSessions.delete(sessionId);
+    }
     if (quitRequested && BrowserWindow.getAllWindows().length === 0) beginShutdownCleanup();
   });
   mainWindow.webContents.on("render-process-gone", () => {
@@ -313,6 +338,34 @@ function runRequestFailure(code: RunnerErrorCode, message: string): RunResult {
   });
 }
 
+function verifiedRunStartFailure(code: RunnerErrorCode, message: string): VerifiedRunStartResult {
+  return Object.freeze({ ok: false, error: Object.freeze({ code, message }) });
+}
+
+function verifiedRunBatchFailure(
+  sessionId: string,
+  code: RunnerErrorCode,
+  message: string,
+): VerifiedRunBatch {
+  return Object.freeze({
+    ok: false,
+    sessionId,
+    error: Object.freeze({ code, message }),
+  });
+}
+
+function verifiedRunCancelFailure(
+  sessionId: string,
+  code: RunnerErrorCode,
+  message: string,
+): VerifiedRunCancelResult {
+  return Object.freeze({
+    ok: false,
+    sessionId,
+    error: Object.freeze({ code, message }),
+  });
+}
+
 function diagnoseRequestFailure(code: RunnerErrorCode, message: string): DiagnoseResult {
   return Object.freeze({
     ok: false,
@@ -350,7 +403,7 @@ function traceCancelFailure(
 }
 
 function acquireMainRunnerRequest(): (() => void) | null {
-  if (runnerRequestInFlight || activeTraceSessions.size > 0) {
+  if (runnerRequestInFlight || activeTraceSessions.size > 0 || activeVerifiedRunSessions.size > 0) {
     return null;
   }
   runnerRequestInFlight = true;
@@ -685,6 +738,88 @@ function registerIpcHandlers(learningCatalogStore: LearningCatalogFileStore): vo
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.startRun, async (event, request: RunRequest) => {
+    const senderWindow = requireTrustedMainWindow(event);
+    if (isShuttingDown) {
+      return verifiedRunStartFailure(
+        "RUNNER_SHUTTING_DOWN",
+        "应用正在退出，拒绝新的 Verified Run。",
+      );
+    }
+    const releaseRequest = acquireMainRunnerRequest();
+    if (releaseRequest === null) {
+      return verifiedRunStartFailure("RUNNER_BUSY", "运行器正忙；不会启动第二个 Verified Run。");
+    }
+    try {
+      const authorization = await authorizeTrustedFallback("run", request, event, senderWindow);
+      if (authorization.state === "context-closed") {
+        return verifiedRunStartFailure(
+          "RUNNER_SHUTTING_DOWN",
+          "请求窗口已失效，Verified Run 已取消。",
+        );
+      }
+      const result = await startRun(request, authorization.grant);
+      if (!result.ok) return result;
+      if (!isCurrentRequestContext(event, senderWindow)) {
+        cancelRun(result.sessionId);
+        return verifiedRunStartFailure(
+          "RUNNER_SHUTTING_DOWN",
+          "请求窗口已失效，Verified Run 已取消。",
+        );
+      }
+      verifiedRunSessionOwners.set(result.sessionId, senderWindow);
+      activeVerifiedRunSessions.add(result.sessionId);
+      return result;
+    } finally {
+      releaseRequest();
+    }
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.readRun,
+    (event, sessionId: unknown, afterSequence: unknown): VerifiedRunBatch => {
+      const senderWindow = requireTrustedMainWindow(event);
+      if (typeof sessionId !== "string" || typeof afterSequence !== "number") {
+        return verifiedRunBatchFailure(
+          typeof sessionId === "string" ? sessionId : "",
+          "INVALID_REQUEST",
+          "Verified Run read 参数无效。",
+        );
+      }
+      if (verifiedRunSessionOwners.get(sessionId) !== senderWindow) {
+        return verifiedRunBatchFailure(
+          sessionId,
+          "INVALID_REQUEST",
+          "找不到属于当前窗口的 Verified Run session。",
+        );
+      }
+      const batch = readRun(sessionId, afterSequence);
+      if (!batch.ok) return batch;
+      const terminalEvidenceReady = verifiedRunBatchHasTerminalEvidence(batch);
+      if (terminalEvidenceReady) {
+        activeVerifiedRunSessions.delete(sessionId);
+      }
+      if (terminalEvidenceReady && verifiedRunBatchIsFullyDrained(batch)) {
+        verifiedRunSessionOwners.delete(sessionId);
+      }
+      return batch;
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.cancelRun, (event, sessionId: unknown): VerifiedRunCancelResult => {
+    const senderWindow = requireTrustedMainWindow(event);
+    if (typeof sessionId !== "string" || verifiedRunSessionOwners.get(sessionId) !== senderWindow) {
+      return verifiedRunCancelFailure(
+        typeof sessionId === "string" ? sessionId : "",
+        "INVALID_REQUEST",
+        "找不到属于当前窗口的 Verified Run session。",
+      );
+    }
+    const result = cancelRun(sessionId);
+    activeVerifiedRunSessions.delete(sessionId);
+    return result;
+  });
+
   ipcMain.handle(IPC_CHANNELS.diagnose, async (event, request: DiagnoseRequest) => {
     const senderWindow = requireTrustedSenderWindow(event);
     if (isShuttingDown) {
@@ -782,6 +917,7 @@ function registerIpcHandlers(learningCatalogStore: LearningCatalogFileStore): vo
 }
 
 function createMainWindow(): BrowserWindow {
+  const suppressE2eWindowFocus = !app.isPackaged && process.env.PANEL_E2E_HIDE_WINDOW === "1";
   const initialLocale = resolveSystemInterfaceLocale(
     app.getPreferredSystemLanguages()[0],
     app.getLocale(),
@@ -802,7 +938,8 @@ function createMainWindow(): BrowserWindow {
     height: 780,
     minWidth: 860,
     minHeight: 600,
-    show: true,
+    show: !suppressE2eWindowFocus,
+    focusable: !suppressE2eWindowFocus,
     backgroundColor: "#ffffff",
     title: APP_PRODUCT_NAME,
     webPreferences,

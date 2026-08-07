@@ -147,6 +147,7 @@ describe("flow view-state sidecar", () => {
     expect(validation.value.positions[nextTarget.id]).toEqual({ x: 840, y: 460 });
     expect(validation.value.selectedNodeIds).toEqual([nextTarget.id]);
     expect(validation.value.detailNodeId).toBe(nextTarget.id);
+    expect(validation.value.sourceFingerprint).toBe(oldFixture.projection.sourceFingerprint);
     expect(validation.issues.map((entry) => entry.code)).toEqual(["stale-source"]);
   });
 

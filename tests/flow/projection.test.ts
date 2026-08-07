@@ -67,6 +67,27 @@ describe("source-authoritative flow projection", () => {
     }
   });
 
+  it("projects an ordinary non-algorithmic C program without requiring an algorithm label", () => {
+    const source = [
+      "#include <stdio.h>",
+      "int main(void) {",
+      '  puts("hello");',
+      "  return 0;",
+      "}",
+      "",
+    ].join("\n");
+    const { projection } = analyzeFlowFixture(parser, source);
+
+    expect(projection.documentHasError).toBe(false);
+    expect(projection.nodes.some((node) => node.sourceText.includes('puts("hello")'))).toBe(true);
+    expect(
+      projection.nodes
+        .filter((node) => node.functionId !== null)
+        .every((node) => node.kind !== "raw" && !node.locked),
+    ).toBe(true);
+    expect(projection.nodes.some((node) => node.reachable)).toBe(true);
+  });
+
   it("keeps repeated guard returns distinct and places nested branches in readable lanes", () => {
     const { projection } = analyzeFlowFixture(parser, FIRST_ALGORITHM_SOURCE);
     const repeatedReturns = projection.nodes.filter(
@@ -169,6 +190,11 @@ describe("source-authoritative flow projection", () => {
     );
     expect(projection.dataEdges.map((edge) => edge.variableName)).toEqual(
       expect.arrayContaining(["x", "y"]),
+    );
+    expect(projection.functions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ dataFlowAvailable: true, dataFlowDisabledReasons: [] }),
+      ]),
     );
     const nodeIds = new Set(projection.nodes.map((node) => node.id));
     expect(

@@ -17,12 +17,17 @@ import {
   createFlowWireRoute,
   distanceToFlowWire,
   exceedsFlowCanvasDragThreshold,
+  FLOW_CANVAS_MINIMAP_INITIAL_STATE,
+  fitFlowCanvasReadableViewport,
   fitFlowCanvasViewport,
+  flowCanvasClientToWorld,
   flowCanvasPortScreenScale,
   flowCanvasDraftNodeRole,
   flowCanvasProjectedNodeRole,
+  flowCanvasProjectedNodeReachability,
   flowCanvasWireDragPhase,
   flowWireLabelPoint,
+  focusFlowCanvasNodeElement,
   nearestFlowCanvasWireTargetKey,
   normalizeFlowCanvasDraftState,
   normalizeFlowCanvasViewState,
@@ -80,6 +85,44 @@ describe("M6 flow canvas contracts", () => {
       selectedNodeIds: [],
       detailNodeId: null,
     });
+  });
+
+  it("includes a scrolled canvas root when converting client coordinates to world space", () => {
+    const projection = fixtureProjection("sha256:scroll");
+    const state = Object.freeze({
+      ...normalizeFlowCanvasViewState(projection, null),
+      viewport: Object.freeze({ x: 20, y: 30, zoom: 2 }),
+    });
+    const root = {
+      scrollLeft: 40,
+      scrollTop: 60,
+      getBoundingClientRect: () =>
+        ({ left: 100, top: 50, right: 500, bottom: 350, width: 400, height: 300 }) as DOMRect,
+    };
+
+    expect(flowCanvasClientToWorld(root, state, 160, 130)).toEqual({ x: 40, y: 55 });
+  });
+
+  it("keeps the overview collapsed until the learner explicitly opens it", () => {
+    expect(FLOW_CANVAS_MINIMAP_INITIAL_STATE).toEqual({
+      collapsed: true,
+      display: "none",
+      ariaExpanded: "false",
+    });
+    expect(Object.isFrozen(FLOW_CANVAS_MINIMAP_INITIAL_STATE)).toBe(true);
+  });
+
+  it("focuses a projected node without scrolling the canvas root", () => {
+    const focusCalls: (FocusOptions | undefined)[] = [];
+    const element = {
+      focus(options?: FocusOptions) {
+        focusCalls.push(options);
+      },
+    };
+
+    focusFlowCanvasNodeElement(element);
+
+    expect(focusCalls).toEqual([{ preventScroll: true }]);
   });
 
   it("recenters a restored viewport only when every projected node is off screen", () => {
@@ -224,6 +267,30 @@ describe("M6 flow canvas contracts", () => {
     ).toBe("runtime-marker");
   });
 
+  it("keeps projection emphasis independent from algorithm recognition without inventing reachability", () => {
+    const reachable = node("statement", "statement", "普通语句", 0, 0);
+    const unreachable = Object.freeze({ ...reachable, id: "unreachable", reachable: false });
+    const moduleNode = Object.freeze({
+      ...reachable,
+      id: "module",
+      functionId: null,
+      sourceNodeId: null,
+      kind: "module" as const,
+      reachable: false,
+      locked: true,
+    });
+    const rawNode = Object.freeze({
+      ...moduleNode,
+      id: "raw",
+      kind: "raw" as const,
+    });
+
+    expect(flowCanvasProjectedNodeReachability(reachable)).toBe("reachable");
+    expect(flowCanvasProjectedNodeReachability(unreachable)).toBe("unreachable");
+    expect(flowCanvasProjectedNodeReachability(moduleNode)).toBe("not-applicable");
+    expect(flowCanvasProjectedNodeReachability(rawNode)).toBe("not-applicable");
+  });
+
   it("fits all flow items into the viewport around their shared center", () => {
     expect(
       fitFlowCanvasViewport(
@@ -235,6 +302,53 @@ describe("M6 flow canvas contracts", () => {
     expect(() =>
       fitFlowCanvasViewport({ left: 0, top: 0, right: 1, bottom: 1 }, { width: 0, height: 100 }),
     ).toThrow(/正尺寸/u);
+  });
+
+  it("can frame a newly opened projection in a narrow first-view canvas", () => {
+    const bounds = { left: 20, top: 40, right: 400, bottom: 300 };
+    const size = { width: 340, height: 240 };
+    const viewport = fitFlowCanvasViewport(bounds, size, 44, 1.5);
+
+    expect(bounds.left * viewport.zoom + viewport.x).toBeGreaterThanOrEqual(44);
+    expect(bounds.right * viewport.zoom + viewport.x).toBeLessThanOrEqual(size.width - 44);
+    expect(bounds.top * viewport.zoom + viewport.y).toBeGreaterThanOrEqual(44);
+    expect(bounds.bottom * viewport.zoom + viewport.y).toBeLessThanOrEqual(size.height - 44);
+  });
+
+  it("keeps semantic projection labels readable when a tall graph cannot fit at once", () => {
+    const bounds = { left: 48, top: 48, right: 656, bottom: 872 };
+    const size = { width: 340, height: 251 };
+    const viewport = fitFlowCanvasReadableViewport(bounds, size, 20, 0.8, 1.5);
+
+    expect(viewport.zoom).toBe(0.8);
+    expect(bounds.left * viewport.zoom + viewport.x).toBeCloseTo(20);
+    expect(bounds.top * viewport.zoom + viewport.y).toBeCloseTo(20);
+    expect(160 * viewport.zoom).toBeGreaterThanOrEqual(128);
+    expect(bounds.bottom * viewport.zoom + viewport.y).toBeGreaterThan(size.height);
+  });
+
+  it("centres a semantic projection when it fits without crossing the readable zoom floor", () => {
+    expect(
+      fitFlowCanvasReadableViewport(
+        { left: 20, top: 40, right: 220, bottom: 140 },
+        { width: 700, height: 500 },
+        20,
+        0.8,
+        1.5,
+      ),
+    ).toEqual({ x: 170, y: 115, zoom: 1.5 });
+  });
+
+  it("rejects an inverted readable projection zoom range", () => {
+    expect(() =>
+      fitFlowCanvasReadableViewport(
+        { left: 0, top: 0, right: 100, bottom: 100 },
+        { width: 300, height: 200 },
+        20,
+        1.2,
+        0.8,
+      ),
+    ).toThrow(/最小值不得超过最大值/u);
   });
 
   it("canonicalizes control-wire gestures from either endpoint to the same directed edge", () => {

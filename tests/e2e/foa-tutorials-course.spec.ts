@@ -6,11 +6,17 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFoaWorkspaceLaunchContract } from "../../src/tutorials/foa-course-adapter.js";
 import { FOA_LESSONS } from "../../src/tutorials/foa-curriculum.js";
+import { showSourceEditor } from "./support/c-cell-layout.js";
+
+// A dedicated Electron profile: a shared one lets localStorage and window state leak
+// between spec files, which run strictly in sequence under `workers: 1`.
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 let application: ElectronApplication | undefined;
 let page: Page;
@@ -36,7 +42,7 @@ test.beforeAll(async () => {
     ),
   );
   application = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...inheritedEnvironment,
@@ -49,7 +55,6 @@ test.beforeAll(async () => {
   await page.evaluate(() => {
     globalThis.localStorage.clear();
     globalThis.localStorage.setItem("c-block-algorithm-panel.locale", "zh-CN");
-    globalThis.localStorage.setItem("c-block-algorithm-panel:first-run-v6", "direct");
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#startup-loader")).toBeHidden();
@@ -478,6 +483,8 @@ test("keeps previews separate from mastery, exposes fading block stages, and lau
     await workspaceTask.locator("[data-task-lesson-action='open-workspace']").click();
 
     await expect(page.locator("#build-panel")).toBeVisible();
+    // The runtime actions nav is hidden while the centre column shows the C Cell prompt.
+    await showSourceEditor(page);
     await expect(page.locator("#trace-primary-action")).toBeVisible();
     await expect.poll(async () => (await readdir(join(workspaceRoot, "Sandboxes"))).length).toBe(1);
 
@@ -491,7 +498,7 @@ test("keeps previews separate from mastery, exposes fading block stages, and lau
     expect(writtenSource).toBe(workspaceLaunch.initialSource);
     expect(writtenSource).toContain("TODO:");
     expect(writtenSource).not.toBe(workspaceLesson.code.text);
-    await expect(page.locator(".cm-content")).toContainText("TODO:");
+    await expect(page.locator("#code-pane .cm-content")).toContainText("TODO:");
 
     const manualInput = page.locator("#manual-run-input-host .manual-run-input");
     await expect(manualInput).toBeVisible();

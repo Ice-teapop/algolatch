@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated: July 15, 2026
+Last updated: August 7, 2026
 
 AlgoLatch is local-first software. It does not include telemetry,
 behavioral analytics, advertising, user accounts, or cloud synchronization.
@@ -29,6 +29,13 @@ Managed projects are stored in the current user's Documents directory: normally
   API credentials, request headers, absolute paths, or arbitrary endpoints.
 - Custom presets, interface preferences, locale, theme, window geometry, and
   other application settings may be stored locally.
+
+C Cell drafts, temporary wrapper source, streamed output, and cell history are
+kept only in the current renderer session. They are isolated by managed
+workspace and source fingerprint, are not written to `run-history.json`, and
+are not restored after the application closes. A C Cell becomes project source
+only after you choose **Write to main.c**, review the exact diff, and confirm
+the normal source-authoritative write.
 
 AI Project storage is limited to 4 MiB, 64 conversations, 256 messages per
 conversation, and 2,048 messages per project. Individual messages are bounded.
@@ -132,6 +139,12 @@ toolchain on Windows and executes C programs selected by you. The Windows
 installer already contains its compiler; the installed application does not
 download a compiler on first run.
 
+C Cell is an interface to the same local compiler and supervised runner, not a
+persistent C REPL or System Shell. Selected-case input or explicit inline
+`stdin`, bounded streamed output, temporary wrapper source, and compiler
+diagnostics remain on the device. The application does not monitor or retain a
+system terminal session because this release does not provide one.
+
 Those native processes can access data according to the current operating-system
 account and the isolation mode shown by the app. macOS Seatbelt provides the
 documented best-effort profile. Windows Job Object limits the process tree,
@@ -150,5 +163,7 @@ remain on the device unless you copy them into an AI prompt yourself.
 - Uninstalling the macOS application or Windows per-user installation does not
   automatically delete projects stored in Documents.
 - Retiring a custom preset does not delete C already generated into a project.
+- Closing the application removes session-only C Cell drafts, wrappers, output,
+  and history that you did not write into `main.c`.
 
 Back up `main.c` and any project data you want to keep before deleting files.

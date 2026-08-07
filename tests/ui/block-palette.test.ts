@@ -84,6 +84,16 @@ describe("block palette filtering", () => {
       ),
     ).toBe(true);
   });
+
+  it("intersects coarse port compatibility with exact source-placement candidates", () => {
+    const snapshot = createLearningCatalog().snapshot();
+    const compatible = filterLearningTemplates(snapshot, "all", "", "search", {
+      direction: "input",
+      channel: "control",
+      presetIds: ["builtin.c.print-integer"],
+    });
+    expect(compatible.map(({ id }) => id)).toEqual(["builtin.c.print-integer"]);
+  });
 });
 
 describe("block palette trust and accessibility contract", () => {

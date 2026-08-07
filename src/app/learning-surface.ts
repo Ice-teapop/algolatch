@@ -1,4 +1,4 @@
-import type { CAnalysisSnapshot } from "../core/index.js";
+import type { BlockIndexEntry, CAnalysisSnapshot } from "../core/index.js";
 import {
   WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT,
   WORKBENCH_QUICK_OPEN_COLLECT_EVENT,
@@ -13,6 +13,8 @@ import {
   type PresetBlockKind,
   type PresetBlockLifecycle,
   type PresetPortDefinition,
+  type PresetSyntaxAncestorCapability,
+  type PresetSyntaxSlotKind,
 } from "../learning/index.js";
 import {
   createBlockLibraryManager,
@@ -24,7 +26,9 @@ import {
   type BlockPalette,
   type BlockPaletteCategory,
 } from "../ui/block-palette.js";
-import type { AssemblyInsertIntent, BlockTree } from "../ui/block-tree.js";
+import { presentPresetBlock } from "../ui/builtin-preset-presentations.js";
+import type { AssemblyInsertIntent, AssemblyInsertPosition, BlockTree } from "../ui/block-tree.js";
+import type { CanvasEdgeInsertPreset } from "../ui/canvas-structure-actions.js";
 import { createSoftwareLibrary, type SoftwareLibrary } from "../ui/software-library.js";
 import {
   createLibraryTutorialsModule,
@@ -35,9 +39,14 @@ import type { WorkbenchElements } from "../ui/workbench-shell.js";
 import type { FlowCanvasCompatibleBlockSearchRequest } from "../ui/flow-canvas.js";
 import type { FoaLessonDefinition } from "../tutorials/foa-curriculum.js";
 import type { PanelApi } from "../shared/api.js";
+import { fingerprintSource } from "../shared/source-snapshot.js";
 import type { RuntimeLearningObservation } from "./runtime-workspace-controller.js";
 import { searchLibrary } from "../library/index.js";
-import { createAssemblyController, type AssemblyController } from "./assembly-controller.js";
+import {
+  buildAssemblyInsertRequest,
+  createAssemblyController,
+  type AssemblyController,
+} from "./assembly-controller.js";
 import {
   validateLearningTemplateSource,
   type LearningTemplateAnalyzer,
@@ -59,10 +68,22 @@ export interface LearningSurfaceOptions {
 
 export interface LearningSurface {
   insert(intent: AssemblyInsertIntent): Promise<void>;
+  prepareCanvasPresetInsert(target: CanvasPresetInsertTarget): void;
+  listCompatibleCanvasPresets(
+    target: CanvasPresetInsertTarget,
+    locale: "zh-CN" | "en",
+  ): readonly CanvasEdgeInsertPreset[];
+  insertCanvasPreset(target: CanvasPresetInsertTarget, presetId: string): boolean;
   resolvePreset(presetId: string): ResolvedLearningPreset | null;
   setSelectedInsertEnabled(enabled: boolean): void;
   recordRuntimeObservation(observation: RuntimeLearningObservation): void;
   destroy(): void;
+}
+
+export interface CanvasPresetInsertTarget {
+  readonly sourceFingerprint: string;
+  readonly target: BlockIndexEntry;
+  readonly position: AssemblyInsertPosition;
 }
 
 export interface ResolvedLearningPreset {
@@ -73,6 +94,8 @@ export interface ResolvedLearningPreset {
   readonly blockKind: PresetBlockKind;
   readonly lifecycle: PresetBlockLifecycle;
   readonly ports: readonly PresetPortDefinition[];
+  readonly acceptedSyntaxSlots: readonly PresetSyntaxSlotKind[];
+  readonly requiredAnyAncestorCapabilities: readonly PresetSyntaxAncestorCapability[];
 }
 
 export function createLearningSurface(options: LearningSurfaceOptions): LearningSurface {
@@ -85,6 +108,7 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     onError: options.onError,
   });
   let destroyed = false;
+  let canvasPresetInsertTarget: CanvasPresetInsertTarget | null = null;
 
   const palette: BlockPalette = createBlockPalette(options.elements.blockPalette, catalog, {
     onTemplateDragStart: (templateId) => {
@@ -99,7 +123,19 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
     onInsertSelected: (templateId) => {
       const target = options.blockTree.getSelectedEntry();
       if (target !== null) options.elements.showInspector("edit");
-      void assembly.insertAfterSelected(templateId, target);
+      const pending = consumeCanvasPresetInsertTarget(
+        canvasPresetInsertTarget,
+        target,
+        options.getAnalysis(),
+      );
+      canvasPresetInsertTarget = null;
+      void (pending === null
+        ? assembly.insertAfterSelected(templateId, target)
+        : assembly.insert({
+            templateId,
+            target: pending.target,
+            position: pending.position,
+          }));
     },
   });
 
@@ -281,8 +317,92 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
   return Object.freeze({
     insert(intent: AssemblyInsertIntent): Promise<void> {
       if (destroyed) return Promise.resolve();
+      canvasPresetInsertTarget = null;
       options.elements.showInspector("edit");
       return assembly.insert(intent);
+    },
+    prepareCanvasPresetInsert(target: CanvasPresetInsertTarget): void {
+      if (destroyed) return;
+      const analysis = options.getAnalysis();
+      if (
+        analysis === null ||
+        fingerprintSource(analysis.document.source) !== target.sourceFingerprint
+      ) {
+        options.onError(new Error("画布插入位置已经过期，请重新点击连接上的 +。"));
+        return;
+      }
+      canvasPresetInsertTarget = Object.freeze({ ...target });
+      const presetIds = catalog
+        .snapshot()
+        .presets.filter((preset) => {
+          try {
+            buildAssemblyInsertRequest(catalog, analysis, {
+              templateId: preset.id,
+              target: target.target,
+              position: target.position,
+            });
+            return true;
+          } catch {
+            return false;
+          }
+        })
+        .map((preset) => preset.id);
+      palette.setCompatibilityFilter({
+        direction: "input",
+        channel: "control",
+        presetIds,
+      });
+      palette.setInsertEnabled(true);
+      options.elements.focusPanel("presets");
+      palette.focusSearch();
+    },
+    listCompatibleCanvasPresets(
+      target: CanvasPresetInsertTarget,
+      locale: "zh-CN" | "en",
+    ): readonly CanvasEdgeInsertPreset[] {
+      if (destroyed) return Object.freeze([]);
+      const analysis = requireCanvasPresetAnalysis(options.getAnalysis(), target);
+      return Object.freeze(
+        catalog.snapshot().presets.flatMap((preset) => {
+          if (preset.source === null) return [];
+          try {
+            buildAssemblyInsertRequest(catalog, analysis, {
+              templateId: preset.id,
+              target: target.target,
+              position: target.position,
+            });
+          } catch {
+            return [];
+          }
+          const presentation = presentPresetBlock(preset, locale);
+          return [
+            Object.freeze({
+              id: preset.id,
+              label: presentation.label,
+              description: presentation.description,
+              source: preset.source,
+            }),
+          ];
+        }),
+      );
+    },
+    insertCanvasPreset(target: CanvasPresetInsertTarget, presetId: string): boolean {
+      if (destroyed) return false;
+      try {
+        const analysis = requireCanvasPresetAnalysis(options.getAnalysis(), target);
+        const request = buildAssemblyInsertRequest(catalog, analysis, {
+          templateId: presetId,
+          target: target.target,
+          position: target.position,
+        });
+        void options.structureEdits.run(request).catch((error: unknown) => {
+          if (!destroyed) options.onError(asLearningSurfaceError(error));
+        });
+        return true;
+      } catch (error: unknown) {
+        options.onError(asLearningSurfaceError(error));
+        return false;
+      }
     },
     setSelectedInsertEnabled(enabled: boolean): void {
       if (!destroyed) palette.setInsertEnabled(enabled);
@@ -303,11 +423,16 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
             blockKind: preset.blockKind,
             lifecycle: preset.lifecycle,
             ports: Object.freeze(preset.ports.map((port) => Object.freeze({ ...port }))),
+            acceptedSyntaxSlots: Object.freeze([...preset.placement.acceptedSyntaxSlots]),
+            requiredAnyAncestorCapabilities: Object.freeze([
+              ...preset.placement.requiredAnyAncestorCapabilities,
+            ]),
           });
     },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      canvasPresetInsertTarget = null;
       options.elements.shell.removeEventListener("workbench-action", onWorkbenchAction);
       options.elements.shell.removeEventListener(
         "flow-canvas-compatible-block-search",
@@ -329,6 +454,57 @@ export function createLearningSurface(options: LearningSurfaceOptions): Learning
       assembly.destroy();
     },
   });
+}
+
+function requireCanvasPresetAnalysis(
+  analysis: CAnalysisSnapshot | null,
+  target: CanvasPresetInsertTarget,
+): CAnalysisSnapshot {
+  if (
+    analysis === null ||
+    fingerprintSource(analysis.document.source) !== target.sourceFingerprint
+  ) {
+    throw new Error("画布插入位置已经过期，请重新点击连接上的 +。");
+  }
+  return analysis;
+}
+
+function asLearningSurfaceError(error: unknown): Error {
+  return error instanceof Error ? error : new Error("无法从画布插入预设积木");
+}
+
+function consumeCanvasPresetInsertTarget(
+  pending: CanvasPresetInsertTarget | null,
+  selected: BlockIndexEntry | null,
+  analysis: CAnalysisSnapshot | null,
+): CanvasPresetInsertTarget | null {
+  if (
+    pending === null ||
+    selected === null ||
+    analysis === null ||
+    fingerprintSource(analysis.document.source) !== pending.sourceFingerprint ||
+    !sameBlockEntry(selected, pending.target)
+  ) {
+    return null;
+  }
+  return pending;
+}
+
+function sameBlockEntry(left: BlockIndexEntry, right: BlockIndexEntry): boolean {
+  if (!(
+    left.index === right.index &&
+    left.kind === right.kind &&
+    left.range.from === right.range.from &&
+    left.range.to === right.range.to
+  )) {
+    return false;
+  }
+  if (left.block === null || right.block === null) return left.block === right.block;
+  return (
+    left.block.kind === right.block.kind &&
+    (left.block.kind !== "syntax" ||
+      (right.block.kind === "syntax" && left.block.nodeType === right.block.nodeType))
+  );
 }
 
 function isCompatibleBlockSearchRequest(

@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Generated from the exact `package-lock.json` used for AlgoLatch v0.1.1-preview.2.
+Generated from the exact `package-lock.json` used for AlgoLatch v0.1.1-preview.3.
 The table records every locked package and its declared license. License and NOTICE files
 present in the installed dependency tree are reproduced below, with identical texts grouped
 together. Packages unavailable on the generating platform remain listed by SPDX declaration.

@@ -5,6 +5,16 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { showRuntimePanel, showSourceAndBlocks } from "./support/c-cell-layout.js";
+
+// Every launch gets its own workspace root and Electron profile. Without them these specs
+// write into the user's real Documents workspace and share one browser profile, which both
+// pollutes real data and lets state leak between spec files under `workers: 1`.
+const e2eWorkspaceRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-workspace-"));
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 let application: ElectronApplication;
 let page: Page;
@@ -16,9 +26,13 @@ test.beforeAll(async () => {
     ),
   );
   application = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
-    env: { ...inheritedEnvironment, PANEL_RUNNER_MODE: "trusted-only" },
+    env: {
+      ...inheritedEnvironment,
+      PANEL_WORKSPACE_ROOT: e2eWorkspaceRoot,
+      PANEL_RUNNER_MODE: "trusted-only",
+    },
   });
   page = await application.firstWindow();
   await page.evaluate(() =>
@@ -29,6 +43,8 @@ test.beforeAll(async () => {
 test.beforeEach(async () => {
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
+  await showSourceAndBlocks(page);
+  await showRuntimePanel(page);
 });
 
 test.afterAll(async () => {
@@ -60,7 +76,7 @@ test("maps clang byte columns onto the code and matching block after one native 
   expect(await trustDialogCount()).toBe(1);
 
   await page.getByRole("tab", { name: "工作区", exact: true }).click();
-  await page.locator(".cm-content").click();
+  await page.locator("#code-pane .cm-content").click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText("int x;\n");
   await expect(page.locator('[data-code-highlight-kind^="diagnostic-"]')).toHaveCount(0);
@@ -80,7 +96,7 @@ test("injects frozen def-use, memory and finding facts into Explanation v2", asy
   await pasteSource(source);
   await page.getByRole("tab", { name: "工作区", exact: true }).click();
   await page.locator('.block-card[data-node-type="function_definition"]').click();
-  await page.getByRole("tab", { name: "解释", exact: true }).click();
+  await page.getByRole("tab", { name: "Blocks", exact: true }).click();
 
   const analysis = page.locator(".explanation__analysis");
   await expect(analysis).toBeVisible();
@@ -90,11 +106,11 @@ test("injects frozen def-use, memory and finding facts into Explanation v2", asy
   await expect(analysis).toContainText("释放后使用");
 
   await page.getByRole("tab", { name: "工作区", exact: true }).click();
-  await page.locator(".cm-content").click();
+  await page.locator("#code-pane .cm-content").click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText("int main(void) {");
-  await page.getByRole("tab", { name: "解释", exact: true }).click();
-  const recoveryExplanation = page.getByRole("tabpanel", { name: "解释" });
+  await page.getByRole("tab", { name: "Blocks", exact: true }).click();
+  const recoveryExplanation = page.getByRole("tabpanel", { name: "Blocks" });
   await expect(recoveryExplanation).not.toContainText("释放后使用");
   await expect(recoveryExplanation).toContainText("原始 C（解析恢复）");
 });
@@ -117,7 +133,7 @@ test("drops a diagnosis result when the source changes during native authorizati
     .toBe("function");
 
   await page.getByRole("tab", { name: "工作区", exact: true }).click();
-  await page.locator(".cm-content").click();
+  await page.locator("#code-pane .cm-content").click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText("int main(void) { return 1; }\n");
   await application.evaluate(() => {
@@ -161,9 +177,9 @@ test("clears old diagnostics without erasing a structure edit's new explanation"
   await expect(page.locator(".block-card__diagnostic")).toHaveCount(0);
   await page.getByRole("tab", { name: "运行", exact: true }).click();
   await expect(panel.locator(".run-panel__result")).toBeHidden();
-  await page.getByRole("tab", { name: "解释", exact: true }).click();
+  await page.getByRole("tab", { name: "Blocks", exact: true }).click();
   await expect(
-    page.getByRole("tabpanel", { name: "解释" }).locator(".explanation__title"),
+    page.getByRole("tabpanel", { name: "Blocks" }).locator(".explanation__title"),
   ).toBeVisible();
   expect(await trustDialogCount()).toBe(1);
 });
@@ -277,7 +293,7 @@ async function trustDialogCount(): Promise<number> {
 }
 
 async function clickCodeOccurrence(needle: string, occurrence: number): Promise<void> {
-  const point = await page.locator(".cm-content").evaluate(
+  const point = await page.locator("#code-pane .cm-content").evaluate(
     (content, target) => {
       const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
       let remaining = target.occurrence;

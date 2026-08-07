@@ -35,7 +35,7 @@ describe("M6 workbench shell contract", () => {
     expect(source).not.toContain("dock-tab");
   });
 
-  it("keeps a free canvas larger than code and embeds non-modal inspection", () => {
+  it("keeps the C Cell workspace and embeds non-modal semantic inspection", () => {
     for (const id of [
       "build-layout",
       "left-pane",
@@ -54,11 +54,15 @@ describe("M6 workbench shell contract", () => {
     expect(source).toContain('showFullPage("build")');
     expect(source).toContain("currentPageId = pageId");
     expect(source.match(/data-primary-action="run"/gu)).toHaveLength(1);
-    expect(source).toContain("拖入积木 · 拖空白平移 · 滚轮缩放");
-    expect(source).toContain("Drag in blocks · drag blank canvas to pan · wheel to zoom");
+    expect(source).toContain("拖积木到高亮连线 · 拖节点只调布局 · 拖空白平移 · 滚轮缩放");
+    expect(source).toContain(
+      "Drop blocks on highlighted wires · drag nodes for layout only · drag blank canvas to pan · wheel to zoom",
+    );
     expect(source).not.toContain("任一端发起连线");
     expect(source).toContain('id="mentor-tab"');
-    expect(source).toContain('id="ai-assistant-button" class="runtime-ai-action"');
+    expect(source).toContain(
+      'id="ai-assistant-button" class="runtime-ai-action semantic-monitor__ai-action"',
+    );
     expect(source).toContain(">打开 AI 助手</button>");
     expect(source).not.toContain('id="ai-assistant-button" class="workspace-switcher__button"');
     expect(source).toContain(">本地检查</button>");

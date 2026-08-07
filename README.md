@@ -6,28 +6,36 @@
 > one workbench.
 
 **AlgoLatch** is a local desktop workbench for undergraduate C, data
-structures, and algorithms. It projects a real `main.c` file onto a draggable,
-connectable flow canvas, so you can build algorithms, edit source code, run
-real programs, trace execution, analyze performance, and complete interactive
-lessons in one place.
+structures, and algorithms. Its central **C Cell** lets you enter a complete C
+program, statement, or control block, compile it, and inspect the result in
+place. A read-only semantic monitor keeps Flow, Blocks, Diagnostics, AI, and
+Edit evidence beside the code, while `main.c` remains the project source of
+truth.
 
-- **See the structure:** Control flow, data relationships, and execution paths
-  are no longer hidden only in code.
-- **Build by doing:** Drag blocks, connect compatible ports, or edit C source
-  directly.
+- **Run immediately:** Each C Cell accepts its own `stdin`, streams `stdout`
+  and `stderr`, and can be cancelled while it runs.
+- **See the structure:** Control flow, data relationships, diagnostics, and
+  execution evidence remain visible beside the code.
+- **Edit deliberately:** A generated run wrapper stays temporary. Writing a
+  cell into `main.c` requires an exact diff and explicit confirmation.
 - **Verify with evidence:** Every connection change must be reparsed and pass
   CFG validation. Time, memory, output, and path data come from real runs, not
   animated guesses.
 
 AlgoLatch is not a C-language clone of Scratch, and it does not maintain a
 hidden graph model that competes with the source code. `main.c` is always the
-single executable source of truth; the canvas and lessons make it easier to
-understand, design, and validate.
+single persistent project source of truth. The Flow canvas is a secondary projection
+for understanding and controlled structural work, not the primary source
+editor.
 
 ## Download
 
 Current installer version: `v0.1.1-preview.2`. The Universal macOS build
 supports both Apple Silicon and Intel.
+
+`v0.1.1-preview.3` is being published from the current source revision. Until
+its DMG, EXE, and checksum manifest finish the release workflow, the verified
+installer links below remain on `v0.1.1-preview.2`.
 
 | Platform            | Status           | Download                        |
 | ------------------- | ---------------- | ------------------------------- |
@@ -40,7 +48,7 @@ supports both Apple Silicon and Intel.
 
 [Downloads and package status](./DOWNLOADS.md) ·
 [All releases](https://github.com/Ice-teapop/algolatch/releases) ·
-[v0.1.1-preview.2 notes](./docs/releases/v0.1.1-preview.2.md) ·
+[v0.1.1-preview.3 notes](./docs/releases/v0.1.1-preview.3.md) ·
 [Current architecture](./docs/architecture/README.md) ·
 [Privacy](./PRIVACY.md) · [Security](./SECURITY.md) ·
 [Licensing](./LICENSING.md) ·
@@ -78,17 +86,34 @@ what evidence supports a claim that something is “faster.”
 This project puts all four into one workflow:
 
 1. Create a project or import a UTF-8, single-file C program.
-2. Drag in preset blocks or edit the C source directly.
-3. Inspect the structure, move nodes, and connect compatible ports on a freeform
-   canvas.
-4. A semantic connection is written back to `main.c` only if the candidate
-   source reparses completely and satisfies the CFG postconditions.
-5. Run, trace, diagnose, and benchmark with real inputs, then improve the
+2. Enter a complete program, statement, or control block in the central C Cell.
+3. Compile with explicit input and read streaming output, diagnostics, time,
+   and memory beside the submitted cell.
+4. Inspect the read-only Flow or Blocks projection, then open `main.c` or the
+   secondary canvas when you need persistent or structural editing.
+5. Write a candidate into `main.c` only after reviewing the exact diff and
+   passing the source-authority gates.
+6. Run, trace, diagnose, and benchmark with real inputs, then improve the
    algorithm using traceable evidence.
 
 ## Core Capabilities
 
-### A Source-Authoritative Freeform Canvas
+### C Cell and Source-Authoritative Editing
+
+- The central C Cell accepts a complete C program or a C statement/control
+  block. Each submission compiles independently and does not inherit variables
+  or process state from an earlier cell.
+- A cell can use a selected case or explicit inline `stdin`. Output streams in
+  place, and **Cancel** stops the active verified run.
+- Statement and control-block submissions use a generated temporary wrapper.
+  The wrapper is labeled, collapsible, and never becomes project source
+  without review.
+- Writing a cell into `main.c` shows the candidate source and exact diff before
+  the normal reparse, lossless-round-trip, and CFG validation path runs.
+- The right semantic monitor provides Flow, Blocks, Diagnostics, AI, and Edit
+  views without replacing the central coding surface.
+
+### Secondary Flow Canvas
 
 - Import single-file C source within the 512 KiB, UTF-8, and local-file safety
   boundaries while preserving BOMs, CRLF line endings, comments, and raw text
@@ -100,6 +125,8 @@ This project puts all four into one workflow:
   normalized to `output → input`.
 - `raw` regions, macro boundaries, and partial CFGs remain viewable,
   compilable, and runnable, but unsafe topology edits fail closed.
+- The full canvas remains available as a secondary workbench. The compact
+  C Cell Flow view is read-only and does not expose structural edit controls.
 
 ### Real Execution and Evidence
 
@@ -107,6 +134,8 @@ This project puts all four into one workflow:
   digest-pinned llvm-mingw toolchain. Both platforms report compiler
   diagnostics, stdout, stderr, termination reason, elapsed time, peak RSS,
   output bytes, process count, and related data.
+- Verified C Cell runs stream bounded `stdout` and `stderr`, support
+  cancellation, and map wrapper diagnostics back to the submitted cell.
 - Trace uses temporary shadow-source instrumentation and never modifies project
   source. Events are bound to the source fingerprint, current window, and a
   one-time execution authorization.
@@ -160,16 +189,20 @@ only to the selected provider's allowlisted official host.
 
 1. From the Dashboard, choose “Start the First Lesson” or create a Project,
    Sandbox, or Test.
-2. In the workspace, drag blocks from the preset area on the left or edit the C
-   source directly on the right.
-3. Drag nodes on the canvas. Release when a port lights up to submit a candidate
-   connection.
-4. Choose an input at the top of the canvas and select “Run.” Read and
-   confirm the trust prompt before the first native-code execution.
-5. Use Run, Metrics, and Local Checks at the bottom. Open “Analysis” in the
-   top navigation when you need a complete comparison.
-6. Double-click a node to inspect its plain-language explanation, ports,
-   diagnostics, and runtime evidence.
+2. Enter a complete C program, statement, or control block in **C Cell**.
+3. Optional: select a case on the left or enter this submission's `stdin`
+   directly below the cell.
+4. Press **Cmd/Ctrl+Enter** or select **Run cell**. Read and confirm the trust
+   prompt before the first native-code execution.
+5. Read streaming output and final evidence under the submitted cell. Select
+   **Cancel run** or press **Esc** to stop an active run.
+6. Inspect Flow, Blocks, or Diagnostics on the right. Open **main.c** when you
+   need the complete project source.
+7. Select **Write to main.c** only when you want to review and commit the cell
+   through the exact-diff source-authority path.
+
+Each C Cell is an independent compile-and-run unit, not a persistent C REPL.
+The current release does not include a general-purpose System Shell.
 
 Managed projects are saved automatically under the user's Documents folder:
 
@@ -255,8 +288,8 @@ The project is a local, modular Electron monolith:
   analysis.
 - `src/flow/` describes only flow projections, view state, and connection
   intent.
-- `src/app/` coordinates source, canvas, analysis, lessons, and runtime
-  evidence.
+- `src/app/` coordinates source, C Cell execution, semantic projection, canvas,
+  analysis, lessons, and runtime evidence.
 - `electron/preload/` exposes narrow, named, validated IPC operations.
 - `electron/main/` exclusively owns file-system access, platform toolchains,
   native processes, Trace, AI networking, and credentials. Windows native
@@ -303,15 +336,17 @@ and filenames.
 
 ## Versions and Boundaries
 
-The current source version is `0.1.1-preview.2`, provided synchronously for
-macOS and Windows under the same unsigned preview. Production `v0.1.1` has not
-been released. A platform becomes a production asset only after its own signing
-and installed-state gates pass.
+The current release target is `0.1.1-preview.3` for macOS Universal and Windows
+10/11 x64. Both packages are unsigned prerelease artifacts. The verified
+installer links at the top remain on `v0.1.1-preview.2` until the new assets and
+checksum manifest finish publishing. Production `v0.1.1` has not been
+released. A platform becomes a production asset only after its own signing and
+installed-state gates pass.
 
 `v0.0.1` was the first public production Release after the version-line reset.
 Historical `v0.1.0-beta.1–12` builds are development snapshots; `v0.0.1` was
 not a downgrade from a higher version. See the [CHANGELOG](./CHANGELOG.md),
-[v0.1.1-preview.2 notes](./docs/releases/v0.1.1-preview.2.md), and
+[v0.1.1-preview.3 notes](./docs/releases/v0.1.1-preview.3.md), and
 [historical v0.0.1 release notes](./docs/releases/v0.0.1.md) for complete
 changes, migrations, and known limitations.
 
@@ -322,6 +357,9 @@ Current limitations include:
   supported.
 - Trace proves executed lines and branch paths; it does not sample arbitrary
   runtime variable values.
+- C Cell history and temporary wrapper source are session-only. A cell does not
+  inherit variables from a previous submission, and there is no System Shell
+  in this release.
 - Macros, `goto`, parse recovery, and partial CFGs may reduce structured-editing
   capabilities.
 - Seatbelt is best-effort isolation. If a critical isolation capability is
@@ -329,7 +367,7 @@ Current limitations include:
   for that one trusted request.
 - A Windows Job Object constrains only the process tree, memory, and CPU; it
   provides no file-system or network isolation.
-- The current macOS and Windows `v0.1.1-preview.2` builds do not use a trusted
+- The target macOS and Windows `v0.1.1-preview.3` builds do not use a trusted
   publisher signature; no stable package has been released.
 
 The current source is licensed under the

@@ -52,6 +52,11 @@ import type {
 } from "./ai-project.js";
 import type { AppInfoSnapshot } from "./app-info.js";
 import type { AiWindowHostApi } from "./ai-window.js";
+import type {
+  VerifiedRunBatch,
+  VerifiedRunCancelResult,
+  VerifiedRunStartResult,
+} from "./verified-run.js";
 
 export type RunnerMode = "seatbelt-best-effort" | "trusted-only" | "disabled";
 
@@ -313,6 +318,9 @@ export interface PanelApi extends AiWindowHostApi {
   capabilities(): Promise<Capabilities>;
   compile(request: CompileRequest): Promise<CompileResult>;
   run(request: RunRequest): Promise<RunResult>;
+  startRun(request: RunRequest): Promise<VerifiedRunStartResult>;
+  readRun(sessionId: string, afterSequence: number): Promise<VerifiedRunBatch>;
+  cancelRun(sessionId: string): Promise<VerifiedRunCancelResult>;
   diagnose(request: DiagnoseRequest): Promise<DiagnoseResult>;
   startTrace(request: TraceRequest): Promise<TraceStartResult>;
   readTrace(sessionId: string, afterSequence: number): Promise<TraceBatch>;

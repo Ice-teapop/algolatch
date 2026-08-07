@@ -21,6 +21,21 @@ import {
   type FlowWireObstacle,
 } from "./flow-wire-router.js";
 import { installCodeTextareaIndentation } from "./code-textarea-keymap.js";
+import {
+  canvasEdgeInsertionAvailability,
+  canvasStructureAvailability,
+  createCanvasEdgeInsertControls,
+  createCanvasEdgeInsertRequest,
+  createCanvasStructureControls,
+  createCanvasStructureAction,
+  type CanvasEdgeInsertPreset,
+  type CanvasEdgeInsertMode,
+  type CanvasEdgeInsertRequest,
+  type CanvasStructureAction,
+  type CanvasStructureAvailability,
+  type CanvasStructureActionKind,
+  type CanvasStructureActionOrigin,
+} from "./canvas-structure-actions.js";
 
 export {
   createFlowWirePath,
@@ -188,6 +203,26 @@ export interface FlowCanvasDetailContext {
   readonly body: HTMLElement;
 }
 
+/** World-space rectangle for one source-authoritative syntax insertion slot. */
+export interface FlowCanvasSlotRect {
+  readonly slotId: string;
+  readonly anchorNodeId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export const FLOW_CANVAS_MINIMAP_INITIAL_STATE = Object.freeze({
+  collapsed: true,
+  display: "none",
+  ariaExpanded: "false",
+});
+
+export function focusFlowCanvasNodeElement(element: Pick<HTMLElement, "focus">): void {
+  element.focus({ preventScroll: true });
+}
+
 export interface FlowCanvasInteractionContext {
   readonly mode: "idle" | "node" | "draft" | "multi" | "edge" | "wiring";
   readonly selectedCount: number;
@@ -208,6 +243,20 @@ export type FlowCanvasNodeRole =
   | "detached-code"
   | "runtime-marker";
 
+/**
+ * Reachability is meaningful only for a node that came from a concrete CFG node.
+ * Translation-unit and raw-source projections are intentionally read-only, but calling them
+ * "unreachable" would turn an analysis boundary into a false execution conclusion.
+ */
+export type FlowCanvasNodeExecutionReachability = "reachable" | "unreachable" | "not-applicable";
+
+export function flowCanvasProjectedNodeReachability(
+  node: FlowNode,
+): FlowCanvasNodeExecutionReachability {
+  if (node.functionId === null || node.sourceNodeId === null) return "not-applicable";
+  return node.reachable ? "reachable" : "unreachable";
+}
+
 export function flowCanvasProjectedNodeRole(node: FlowNode): FlowCanvasNodeRole {
   if (node.kind === "start" || node.kind === "end") return "cfg-boundary";
   if (node.kind === "raw") return "raw";
@@ -226,6 +275,40 @@ export function flowCanvasProjectedNodeRole(node: FlowNode): FlowCanvasNodeRole 
 
 export function flowCanvasDraftNodeRole(node: FlowCanvasDraftNode): FlowCanvasNodeRole {
   return node.blockKind === "virtual" ? "runtime-marker" : "detached-code";
+}
+
+function renderEdgeInsertPreset(
+  ownerDocument: Document,
+  preset: CanvasEdgeInsertPreset,
+  english: boolean,
+): HTMLButtonElement {
+  const accessibleId = String(nextEdgeInsertPresetControlId++);
+  const button = ownerDocument.createElement("button");
+  button.type = "button";
+  button.className = "flow-canvas__edge-insert-preset";
+  button.dataset.flowEdgeInsertPresetId = preset.id;
+  button.setAttribute("aria-label", english ? `Insert ${preset.label}` : `插入${preset.label}`);
+  const label = ownerDocument.createElement("strong");
+  label.textContent = preset.label;
+  const source = ownerDocument.createElement("code");
+  source.id = `flow-edge-insert-preset-source-${accessibleId}`;
+  source.textContent = compactEdgeInsertSource(preset.source);
+  const description = ownerDocument.createElement("span");
+  description.className = "visually-hidden";
+  description.id = `flow-edge-insert-preset-description-${accessibleId}`;
+  description.textContent = preset.description.trim();
+  const describedBy = [source.id];
+  if (description.textContent.length > 0) describedBy.push(description.id);
+  button.setAttribute("aria-describedby", describedBy.join(" "));
+  button.append(label, source, description);
+  return button;
+}
+
+let nextEdgeInsertPresetControlId = 1;
+
+function compactEdgeInsertSource(source: string): string {
+  const normalized = source.replace(/\s+/gu, " ").trim();
+  return normalized.length <= 62 ? normalized : `${normalized.slice(0, 59)}…`;
 }
 
 export interface FlowCanvasOptions {
@@ -257,6 +340,15 @@ export interface FlowCanvasOptions {
     ((message: string, state: "ready" | "warning" | "error") => void) | undefined;
   readonly onInteractionContextChange?:
     ((context: FlowCanvasInteractionContext) => void) | undefined;
+  readonly onStructureAction?: ((action: CanvasStructureAction) => boolean | void) | undefined;
+  readonly onEdgeInsertRequest?: ((request: CanvasEdgeInsertRequest) => boolean | void) | undefined;
+  readonly getEdgeInsertPresets?:
+    ((request: CanvasEdgeInsertRequest) => readonly CanvasEdgeInsertPreset[]) | undefined;
+  readonly onEdgePresetInsert?:
+    ((request: CanvasEdgeInsertRequest, presetId: string) => boolean | void) | undefined;
+  readonly inspectStructureNode?:
+    ((node: FlowNode) => CanvasStructureAvailability | undefined) | undefined;
+  readonly canInsertOnEdge?: ((edge: FlowEdge) => boolean) | undefined;
   readonly renderNodeDetail?: ((context: FlowCanvasDetailContext) => void) | undefined;
 }
 
@@ -273,7 +365,20 @@ export interface FlowCanvasController {
     clientY: number,
     tolerancePx?: number,
   ): FlowEdge | null;
+  findInsertableControlEdgeAtClientPoint(
+    clientX: number,
+    clientY: number,
+    tolerancePx?: number,
+  ): FlowEdge | null;
+  getInsertableControlEdgeCount(): number;
+  setPresetDragActive(active: boolean): void;
+  setSlots(rects: readonly FlowCanvasSlotRect[]): void;
+  setSlotCompatibility(slotIds: ReadonlySet<string> | null): void;
+  setSlotDropPreview(slotId: string | null): void;
   setEdgeInsertionPreview(edgeId: string | null): void;
+  fitAllNodes(): void;
+  fitReadableNodes(): void;
+  setResponsiveFit(active: boolean): void;
   focusNode(nodeId: string): void;
   refreshDetail(): void;
   alignSelection(mode: "left" | "distribute-y"): void;
@@ -380,6 +485,8 @@ const NODE_WIDTH = 160;
 const NODE_HEIGHT = 32;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2.5;
+const READABLE_PROJECTION_MIN_ZOOM = 0.8;
+const READABLE_PROJECTION_PADDING = 20;
 const KEYBOARD_MOVE = 2;
 const DETAIL_MIN_WIDTH = 280;
 const DETAIL_MIN_HEIGHT = 180;
@@ -438,11 +545,15 @@ export function createFlowCanvas(
   viewport.className = "flow-canvas__viewport";
   const surface = ownerDocument.createElement("div");
   surface.className = "flow-canvas__surface";
+  const slotLayer = ownerDocument.createElement("div");
+  slotLayer.className = "flow-canvas__slot-layer";
+  const edgeInsertLayer = ownerDocument.createElement("div");
+  edgeInsertLayer.className = "flow-canvas__edge-insert-layer";
   const nodeLayer = ownerDocument.createElement("div");
   nodeLayer.className = "flow-canvas__node-layer";
   const draftLayer = ownerDocument.createElement("div");
   draftLayer.className = "flow-canvas__draft-layer";
-  surface.append(nodeLayer, draftLayer);
+  surface.append(slotLayer, edgeInsertLayer, nodeLayer, draftLayer);
   viewport.append(surface);
 
   const marquee = ownerDocument.createElement("div");
@@ -464,8 +575,19 @@ export function createFlowCanvas(
   wireStatus.dataset.flowWireStatus = "true";
 
   const detail = createDetailWindow(ownerDocument, english());
+  const structureActions = createCanvasStructureControls(ownerDocument);
+  const edgeInsertMenu = createCanvasEdgeInsertControls(ownerDocument);
   const minimap = createMinimap(ownerDocument, english());
-  root.append(wires, viewport, marquee, emptyState, wireStatus, detail.window);
+  root.append(
+    wires,
+    viewport,
+    marquee,
+    emptyState,
+    wireStatus,
+    structureActions.root,
+    edgeInsertMenu.root,
+    detail.window,
+  );
   host.replaceChildren(root, minimap.root);
 
   let projection: FlowProjection | null = null;
@@ -490,12 +612,25 @@ export function createFlowCanvas(
   let wireStatusTimer: ReturnType<typeof setTimeout> | null = null;
   let lastInteractionContextKey = "";
   let restoredViewportRecoveryPending = false;
+  let responsiveFit = false;
+  let responsiveFitSize: FlowCanvasSize | null = null;
+  let structureActionNodeId: string | null = null;
+  let structureActionOrigin: CanvasStructureActionOrigin = "toolbar";
+  let structureActionClientAnchor: FlowPoint | null = null;
+  let pendingStructureInsertKind: "insert-before" | "insert-after" | null = null;
+  let edgeInsertMenuEdgeId: string | null = null;
+  let edgeInsertMode: CanvasEdgeInsertMode | null = null;
+  let edgeInsertPresets: readonly CanvasEdgeInsertPreset[] = Object.freeze([]);
+  let edgeInsertReturnFocus: HTMLElement | null = null;
   const nodeElements = new Map<string, HTMLElement>();
   const edgeElements = new Map<string, SVGPathElement>();
   const edgeLabelElements = new Map<string, SVGTextElement>();
   const edgeHitElements = new Map<string, SVGPathElement>();
+  const edgeInsertElements = new Map<string, HTMLButtonElement>();
+  const edgeInsertWorldPoints = new Map<string, FlowPoint>();
   const virtualEdgeElements = new Map<string, SVGPathElement>();
   const draftNodeElements = new Map<string, HTMLElement>();
+  const slotElements = new Map<string, HTMLElement>();
   let minimapWorldBounds: Bounds | null = null;
   let minimapAnimationFrame: number | null = null;
   let controlWireRouteSignature = "";
@@ -590,9 +725,14 @@ export function createFlowCanvas(
     edgeElements.clear();
     edgeLabelElements.clear();
     edgeHitElements.clear();
+    edgeInsertElements.clear();
+    edgeInsertWorldPoints.clear();
     virtualEdgeElements.clear();
+    slotElements.clear();
     nodeLayer.replaceChildren();
     edgeLayer.replaceChildren();
+    slotLayer.replaceChildren();
+    edgeInsertLayer.replaceChildren();
     emptyState.hidden = projection !== null && projection.nodes.length > 0;
     if (projection === null) {
       renderDetail();
@@ -610,14 +750,20 @@ export function createFlowCanvas(
       path.dataset.toNodeId = edge.to.nodeId;
       path.dataset.edgeKind = edge.kind;
       path.dataset.editable = String(edge.editable);
+      const insertable =
+        canvasEdgeInsertionAvailability(edge).available &&
+        (options.canInsertOnEdge?.(edge) ?? true);
+      path.dataset.insertable = String(insertable);
       if (edge.id === edgeInsertionPreviewId) path.classList.add("is-insertion-preview");
-      if (edge.editable) {
+      // Insertable boundary edges also need a hit path so hovering the cable can reveal the
+      // compact "+" affordance. They remain non-editable and therefore cannot enter rewiring.
+      if (edge.editable || insertable) {
         const hit = ownerDocument.createElementNS(SVG_NAMESPACE, "path");
         hit.classList.add("flow-canvas__wire-hit");
         hit.dataset.flowEdgeHitId = edge.id;
         hit.dataset.fromNodeId = edge.from.nodeId;
         hit.dataset.toNodeId = edge.to.nodeId;
-        hit.dataset.editable = "true";
+        hit.dataset.editable = String(edge.editable);
         group.append(hit);
         edgeHitElements.set(edge.id, hit);
       }
@@ -634,6 +780,20 @@ export function createFlowCanvas(
       }
       edgeLayer.append(group);
       edgeElements.set(edge.id, path);
+      if (insertable) {
+        const insert = ownerDocument.createElement("button");
+        insert.type = "button";
+        insert.className = "flow-canvas__edge-insert";
+        insert.dataset.flowEdgeInsertId = edge.id;
+        insert.textContent = "+";
+        insert.setAttribute(
+          "aria-label",
+          text("在这条顺序连接中插入积木", "Insert a block into this sequential connection"),
+        );
+        insert.title = text("在这里插入", "Insert here");
+        edgeInsertLayer.append(insert);
+        edgeInsertElements.set(edge.id, insert);
+      }
     }
     for (const edge of projection.dataEdges) {
       const path = ownerDocument.createElementNS(SVG_NAMESPACE, "path");
@@ -656,6 +816,8 @@ export function createFlowCanvas(
     renderActivePath();
     renderDraft();
     renderDetail();
+    renderStructureActions();
+    renderEdgeInsertMenu();
   }
 
   function renderViewport(): void {
@@ -679,6 +841,8 @@ export function createFlowCanvas(
     renderWires();
     renderGestureWire();
     renderMinimap();
+    positionStructureActions();
+    positionEdgeInsertMenu();
   }
 
   function renderMinimap(): void {
@@ -789,6 +953,13 @@ export function createFlowCanvas(
       const wirePath = createFlowWirePathFromRoute(route);
       path.setAttribute("d", wirePath);
       edgeHitElements.get(edge.id)?.setAttribute("d", wirePath);
+      const insert = edgeInsertElements.get(edge.id);
+      if (insert !== undefined) {
+        const insertionPoint = flowWireLabelPointFromRoute(route);
+        edgeInsertWorldPoints.set(edge.id, insertionPoint);
+        insert.style.left = `${formatCoordinate(insertionPoint.x)}px`;
+        insert.style.top = `${formatCoordinate(insertionPoint.y)}px`;
+      }
       const label = edgeLabelElements.get(edge.id);
       if (label !== undefined) {
         const labelPoint = flowWireLabelPointFromRoute(route);
@@ -929,6 +1100,183 @@ export function createFlowCanvas(
     publishInteractionContext();
   }
 
+  function renderStructureActions(): void {
+    const selectedNodeId =
+      selectedEdgeId === null &&
+      viewState.selectedNodeIds.length === 1 &&
+      (draftState?.selectedNodeIds?.length ?? 0) === 0
+        ? viewState.selectedNodeIds[0]!
+        : null;
+    const node = selectedNodeId === null ? undefined : nodeForId(selectedNodeId);
+    if (node === undefined) {
+      structureActionNodeId = null;
+      structureActionClientAnchor = null;
+      pendingStructureInsertKind = null;
+      structureActions.root.hidden = true;
+      return;
+    }
+    if (structureActionNodeId !== node.id) {
+      structureActionNodeId = node.id;
+      structureActionClientAnchor = null;
+      structureActionOrigin = "toolbar";
+      pendingStructureInsertKind = null;
+      structureActions.textarea.value = "";
+    }
+    const locale = english() ? "en" : "zh-CN";
+    const availability =
+      options.inspectStructureNode?.(node) ?? canvasStructureAvailability(node, locale);
+    structureActions.root.hidden = false;
+    structureActions.root.dataset.locked = String(!availability.editable);
+    structureActions.root.dataset.origin = structureActionOrigin;
+    structureActions.root.setAttribute(
+      "aria-label",
+      text(`${node.label} 的结构操作`, `Structure actions for ${node.label}`),
+    );
+    structureActions.note.textContent = availability.reason ?? "";
+    structureActions.note.hidden = availability.reason === null;
+    structureActions.insertBefore.disabled = !availability.insertBefore;
+    structureActions.insertAfter.disabled = !availability.insertAfter;
+    structureActions.movePrevious.disabled = !availability.movePrevious;
+    structureActions.moveNext.disabled = !availability.moveNext;
+    structureActions.edit.disabled = !availability.edit;
+    structureActions.insertBefore.textContent = text("上方插入", "Insert above");
+    structureActions.insertAfter.textContent = text("下方插入", "Insert below");
+    structureActions.movePrevious.textContent = text("上移", "Move up");
+    structureActions.moveNext.textContent = text("下移", "Move down");
+    structureActions.edit.textContent = text("编辑", "Edit");
+    structureActions.editor.hidden = pendingStructureInsertKind === null;
+    structureActions.editorLabel.textContent =
+      pendingStructureInsertKind === "insert-before"
+        ? text("在上方插入 C 语句或控制块", "Insert a C statement or control block above")
+        : text("在下方插入 C 语句或控制块", "Insert a C statement or control block below");
+    structureActions.textarea.placeholder = text(
+      "例如：total += i;\n或粘贴多行 for / if 控制块",
+      "Example: total += i;\nor paste a multiline for / if block",
+    );
+    structureActions.submit.textContent = text("预览修改", "Preview change");
+    structureActions.cancel.textContent = text("取消", "Cancel");
+    positionStructureActions();
+  }
+
+  function positionStructureActions(): void {
+    if (structureActions.root.hidden || structureActionNodeId === null) return;
+    const node = nodeForId(structureActionNodeId);
+    if (node === undefined) return;
+    const rootBounds = root.getBoundingClientRect();
+    const anchor =
+      structureActionClientAnchor ??
+      point(
+        viewState.viewport.x + (positionFor(node).x + NODE_WIDTH / 2) * viewState.viewport.zoom,
+        viewState.viewport.y + (positionFor(node).y + NODE_HEIGHT) * viewState.viewport.zoom + 10,
+      );
+    const width = structureActions.root.offsetWidth;
+    const height = structureActions.root.offsetHeight;
+    const desiredLeft =
+      structureActionClientAnchor === null ? anchor.x - width / 2 : anchor.x - rootBounds.left;
+    const desiredTop =
+      structureActionClientAnchor === null ? anchor.y : anchor.y - rootBounds.top + 6;
+    const maximumLeft = Math.max(8, root.clientWidth - width - 8);
+    const belowTop = clamp(desiredTop, 8, Math.max(8, root.clientHeight - height - 8));
+    const nodeScreenTop =
+      viewState.viewport.y + positionFor(node).y * viewState.viewport.zoom - height - 10;
+    const top =
+      structureActionClientAnchor === null &&
+      desiredTop + height > root.clientHeight - 8 &&
+      nodeScreenTop >= 8
+        ? nodeScreenTop
+        : belowTop;
+    structureActions.root.style.left = `${String(clamp(desiredLeft, 8, maximumLeft))}px`;
+    structureActions.root.style.top = `${String(top)}px`;
+  }
+
+  function renderEdgeInsertMenu(): void {
+    const edge =
+      edgeInsertMenuEdgeId === null
+        ? undefined
+        : projection?.edges.find((candidate) => candidate.id === edgeInsertMenuEdgeId);
+    if (edge === undefined || !canvasEdgeInsertionAvailability(edge).available) {
+      edgeInsertMenuEdgeId = null;
+      edgeInsertMode = null;
+      edgeInsertPresets = Object.freeze([]);
+      edgeInsertMenu.root.hidden = true;
+      return;
+    }
+    edgeInsertMenu.root.hidden = false;
+    edgeInsertMenu.root.dataset.mode = edgeInsertMode ?? "presets";
+    edgeInsertMenu.root.setAttribute(
+      "aria-label",
+      text("在顺序连接中插入", "Insert into sequential connection"),
+    );
+    edgeInsertMenu.title.textContent = text("插入到这里", "Insert here");
+    edgeInsertMenu.presetList.replaceChildren(
+      ...edgeInsertPresets.map((preset) =>
+        renderEdgeInsertPreset(ownerDocument, preset, english()),
+      ),
+    );
+    edgeInsertMenu.empty.hidden = edgeInsertPresets.length > 0;
+    edgeInsertMenu.empty.textContent = text(
+      "此位置没有兼容预设，可输入自定义 C。",
+      "No preset fits this position. Enter custom C instead.",
+    );
+    edgeInsertMenu.custom.textContent = text("自定义代码", "Custom code");
+    edgeInsertMenu.editor.hidden = edgeInsertMode !== "custom";
+    edgeInsertMenu.editorLabel.textContent = text(
+      "插入 C 语句或控制块",
+      "Insert a C statement or control block",
+    );
+    edgeInsertMenu.textarea.placeholder = text(
+      "输入 C 语句，或粘贴多行控制块",
+      "Enter a C statement or paste a multiline control block",
+    );
+    edgeInsertMenu.submit.textContent = text("预览修改", "Preview change");
+    edgeInsertMenu.cancel.textContent = text("取消", "Cancel");
+    positionEdgeInsertMenu();
+  }
+
+  function positionEdgeInsertMenu(): void {
+    if (edgeInsertMenu.root.hidden || edgeInsertMenuEdgeId === null) return;
+    const world = edgeInsertWorldPoints.get(edgeInsertMenuEdgeId);
+    if (world === undefined) return;
+    const left = viewState.viewport.x + world.x * viewState.viewport.zoom;
+    const top = viewState.viewport.y + world.y * viewState.viewport.zoom + 14;
+    const width = edgeInsertMenu.root.offsetWidth;
+    const height = edgeInsertMenu.root.offsetHeight;
+    edgeInsertMenu.root.style.left = `${String(
+      clamp(left - width / 2, 8, Math.max(8, root.clientWidth - width - 8)),
+    )}px`;
+    edgeInsertMenu.root.style.top = `${String(
+      clamp(top, 8, Math.max(8, root.clientHeight - height - 8)),
+    )}px`;
+  }
+
+  function renderSlots(rects: readonly FlowCanvasSlotRect[]): void {
+    slotElements.clear();
+    slotLayer.replaceChildren();
+    for (const rect of rects) {
+      const element = ownerDocument.createElement("div");
+      element.className = "flow-canvas__slot";
+      element.dataset.flowSlotId = rect.slotId;
+      element.dataset.anchorNodeId = rect.anchorNodeId;
+      element.setAttribute("aria-hidden", "true");
+      element.style.transform = `translate(${String(rect.x)}px, ${String(rect.y)}px)`;
+      element.style.width = `${String(rect.width)}px`;
+      element.style.height = `${String(rect.height)}px`;
+      slotLayer.append(element);
+      slotElements.set(rect.slotId, element);
+    }
+  }
+
+  function setSlotCompatibilityInternal(slotIds: ReadonlySet<string> | null): void {
+    for (const [id, element] of slotElements) {
+      if (slotIds === null) {
+        delete element.dataset.slotCompatible;
+        element.classList.remove("is-drop-target");
+      } else {
+        element.dataset.slotCompatible = String(slotIds.has(id));
+      }
+    }
+  }
+
   function renderSelection(): void {
     const selected = new Set(viewState.selectedNodeIds);
     for (const [nodeId, element] of nodeElements) {
@@ -953,6 +1301,7 @@ export function createFlowCanvas(
         );
     }
     renderEdgeSelection();
+    renderStructureActions();
     publishInteractionContext();
   }
 
@@ -1020,6 +1369,14 @@ export function createFlowCanvas(
 
   function selectEdge(edgeId: string | null): void {
     selectedEdgeId = edgeId;
+    structureActionNodeId = null;
+    structureActionClientAnchor = null;
+    pendingStructureInsertKind = null;
+    if (edgeId === null || edgeInsertMenuEdgeId !== edgeId) {
+      edgeInsertMenuEdgeId = null;
+      edgeInsertMode = null;
+      edgeInsertMenu.textarea.value = "";
+    }
     if (edgeId !== null) {
       clearNodeSelectionForEdge();
       const edge = projection?.edges.find((candidate) => candidate.id === edgeId);
@@ -1035,6 +1392,7 @@ export function createFlowCanvas(
       }
     }
     renderSelection();
+    renderEdgeInsertMenu();
   }
 
   function clearNodeSelectionForEdge(): void {
@@ -1226,6 +1584,9 @@ export function createFlowCanvas(
 
   function selectNode(node: FlowNode, additive: boolean): void {
     if (selectedEdgeId !== null) selectedEdgeId = null;
+    edgeInsertMenuEdgeId = null;
+    edgeInsertMode = null;
+    edgeInsertMenu.textarea.value = "";
     detailDraftNodeId = null;
     if ((draftState?.selectedNodeIds?.length ?? 0) > 0 && draftState !== null) {
       draftState = freezeDraftState({ ...draftState, selectedNodeIds: [] });
@@ -1240,11 +1601,18 @@ export function createFlowCanvas(
     renderSelection();
     renderDetail();
     publishViewState("selection");
+    renderEdgeInsertMenu();
     options.onNodeClick?.(node, viewState.selectedNodeIds);
   }
 
   function selectDraftNode(node: FlowCanvasDraftNode, additive: boolean): void {
     if (selectedEdgeId !== null) selectedEdgeId = null;
+    structureActionNodeId = null;
+    structureActionClientAnchor = null;
+    pendingStructureInsertKind = null;
+    edgeInsertMenuEdgeId = null;
+    edgeInsertMode = null;
+    edgeInsertMenu.textarea.value = "";
     if (draftState === null) return;
     const selected = new Set(additive ? (draftState.selectedNodeIds ?? []) : []);
     if (additive && selected.has(node.id)) selected.delete(node.id);
@@ -1257,6 +1625,7 @@ export function createFlowCanvas(
     renderSelection();
     renderDetail();
     publishDraftState("selection");
+    renderEdgeInsertMenu();
     options.onDraftNodeClick?.(node, draftState.selectedNodeIds ?? []);
   }
 
@@ -1275,6 +1644,309 @@ export function createFlowCanvas(
     renderDetail();
     publishViewState("detail");
   }
+
+  function requestStructureAction(
+    kind: CanvasStructureActionKind,
+    statementText: string | null,
+  ): boolean {
+    const current = projection;
+    const node = structureActionNodeId === null ? undefined : nodeForId(structureActionNodeId);
+    if (current === null || node === undefined) return false;
+    try {
+      const action = createCanvasStructureAction(
+        current.sourceFingerprint,
+        node,
+        kind,
+        statementText,
+        structureActionOrigin,
+      );
+      if (options.onStructureAction === undefined) {
+        announceWire(
+          text(
+            "结构入口尚未连接到源码编辑流程；main.c 未修改。",
+            "The structure entry point is not connected to source editing; main.c is unchanged.",
+          ),
+          "warning",
+        );
+        return false;
+      }
+      const accepted = options.onStructureAction(action) !== false;
+      if (accepted) {
+        pendingStructureInsertKind = null;
+        structureActions.textarea.value = "";
+        if (structureActionOrigin === "context-menu") {
+          structureActionClientAnchor = null;
+          structureActionOrigin = "toolbar";
+        }
+        renderStructureActions();
+      }
+      return accepted;
+    } catch (error: unknown) {
+      announceWire(
+        text(
+          `结构操作不可用：${error instanceof Error ? error.message : String(error)}`,
+          `Structure action unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+        "error",
+      );
+      return false;
+    }
+  }
+
+  function requestEdgeInsert(mode: CanvasEdgeInsertMode, statementText: string | null): boolean {
+    const current = projection;
+    const edge =
+      edgeInsertMenuEdgeId === null
+        ? undefined
+        : current?.edges.find((candidate) => candidate.id === edgeInsertMenuEdgeId);
+    const world =
+      edgeInsertMenuEdgeId === null ? undefined : edgeInsertWorldPoints.get(edgeInsertMenuEdgeId);
+    if (current === null || edge === undefined || world === undefined) return false;
+    try {
+      const request = createCanvasEdgeInsertRequest(
+        current.sourceFingerprint,
+        edge,
+        world,
+        mode,
+        statementText,
+      );
+      if (options.onEdgeInsertRequest === undefined) {
+        announceWire(
+          text(
+            "边插入入口尚未连接到积木目录；main.c 未修改。",
+            "The edge insertion entry point is not connected to the block catalog; main.c is unchanged.",
+          ),
+          "warning",
+        );
+        return false;
+      }
+      const accepted = options.onEdgeInsertRequest(request) !== false;
+      if (accepted) {
+        edgeInsertMenuEdgeId = null;
+        edgeInsertMode = null;
+        edgeInsertMenu.textarea.value = "";
+        renderEdgeInsertMenu();
+      }
+      return accepted;
+    } catch (error: unknown) {
+      announceWire(
+        text(
+          `无法在此处插入：${error instanceof Error ? error.message : String(error)}`,
+          `Cannot insert here: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+        "error",
+      );
+      return false;
+    }
+  }
+
+  const onStructureActionsClick = (event: MouseEvent): void => {
+    const target = closestElement(event.target);
+    if (target === null) return;
+    const action = target.closest<HTMLButtonElement>("[data-flow-structure-action]");
+    if (action !== null && !action.disabled) {
+      event.preventDefault();
+      event.stopPropagation();
+      const kind = action.dataset.flowStructureAction as CanvasStructureActionKind | undefined;
+      if (kind === "insert-before" || kind === "insert-after") {
+        pendingStructureInsertKind = kind;
+        renderStructureActions();
+        structureActions.textarea.focus();
+      } else if (kind !== undefined) {
+        requestStructureAction(kind, null);
+      }
+      return;
+    }
+    if (target.closest("[data-flow-structure-submit]") !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (pendingStructureInsertKind !== null) {
+        requestStructureAction(pendingStructureInsertKind, structureActions.textarea.value);
+      }
+      return;
+    }
+    if (target.closest("[data-flow-structure-cancel]") !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      pendingStructureInsertKind = null;
+      structureActions.textarea.value = "";
+      if (structureActionOrigin === "context-menu") {
+        structureActionOrigin = "toolbar";
+        structureActionClientAnchor = null;
+      }
+      renderStructureActions();
+    }
+  };
+
+  const onEdgeInsertLayerClick = (event: MouseEvent): void => {
+    const target = closestElement(event.target);
+    const trigger = target?.closest<HTMLButtonElement>("[data-flow-edge-insert-id]");
+    if (trigger === null || trigger === undefined) return;
+    const edgeId = trigger.dataset.flowEdgeInsertId;
+    if (edgeId === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    edgeInsertMenuEdgeId = edgeId;
+    edgeInsertReturnFocus = trigger;
+    edgeInsertMode = null;
+    edgeInsertPresets = Object.freeze([]);
+    edgeInsertMenu.textarea.value = "";
+    selectEdge(edgeId);
+    const current = projection;
+    const edge = current?.edges.find((candidate) => candidate.id === edgeId);
+    const world = edgeInsertWorldPoints.get(edgeId);
+    if (current !== null && current !== undefined && edge !== undefined && world !== undefined) {
+      try {
+        const request = createCanvasEdgeInsertRequest(
+          current.sourceFingerprint,
+          edge,
+          world,
+          "presets",
+          null,
+        );
+        edgeInsertPresets = Object.freeze([
+          ...(options.getEdgeInsertPresets?.(request) ?? Object.freeze([])),
+        ]);
+      } catch (error: unknown) {
+        announceWire(
+          text(
+            `无法读取兼容预设：${error instanceof Error ? error.message : String(error)}`,
+            `Cannot load compatible presets: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+          "error",
+        );
+      }
+    }
+    renderEdgeInsertMenu();
+    (
+      edgeInsertMenu.presetList.querySelector<HTMLButtonElement>(
+        "[data-flow-edge-insert-preset-id]",
+      ) ?? edgeInsertMenu.custom
+    ).focus();
+  };
+
+  const onEdgeInsertMenuClick = (event: MouseEvent): void => {
+    const target = closestElement(event.target);
+    if (target === null) return;
+    const preset = target.closest<HTMLButtonElement>("[data-flow-edge-insert-preset-id]");
+    if (preset !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      const presetId = preset.dataset.flowEdgeInsertPresetId;
+      const current = projection;
+      const edge =
+        edgeInsertMenuEdgeId === null
+          ? undefined
+          : current?.edges.find((candidate) => candidate.id === edgeInsertMenuEdgeId);
+      const world =
+        edgeInsertMenuEdgeId === null ? undefined : edgeInsertWorldPoints.get(edgeInsertMenuEdgeId);
+      if (presetId !== undefined && current !== null && edge !== undefined && world !== undefined) {
+        try {
+          const request = createCanvasEdgeInsertRequest(
+            current.sourceFingerprint,
+            edge,
+            world,
+            "presets",
+            null,
+          );
+          if (options.onEdgePresetInsert?.(request, presetId) !== false) {
+            edgeInsertMenuEdgeId = null;
+            edgeInsertMode = null;
+            edgeInsertPresets = Object.freeze([]);
+            renderEdgeInsertMenu();
+          }
+        } catch (error: unknown) {
+          announceWire(error instanceof Error ? error.message : String(error), "error");
+        }
+      }
+      return;
+    }
+    if (target.closest("[data-flow-edge-insert-custom]") !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      edgeInsertMode = "custom";
+      renderEdgeInsertMenu();
+      edgeInsertMenu.textarea.focus();
+      return;
+    }
+    if (target.closest("[data-flow-edge-insert-submit]") !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      requestEdgeInsert("custom", edgeInsertMenu.textarea.value);
+      return;
+    }
+    if (target.closest("[data-flow-edge-insert-cancel]") !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      edgeInsertMenuEdgeId = null;
+      edgeInsertMode = null;
+      edgeInsertPresets = Object.freeze([]);
+      edgeInsertMenu.textarea.value = "";
+      renderEdgeInsertMenu();
+      (edgeInsertReturnFocus ?? root).focus({ preventScroll: true });
+      edgeInsertReturnFocus = null;
+    }
+  };
+
+  const onCanvasContextMenu = (event: MouseEvent): void => {
+    const target = closestElement(event.target);
+    if (
+      target === null ||
+      target.closest(
+        "[data-flow-structure-actions], [data-flow-edge-insert-menu], [data-flow-detail-window], [data-flow-minimap]",
+      ) !== null
+    ) {
+      return;
+    }
+    const element = target.closest<HTMLElement>("[data-flow-node-id]");
+    if (element === null) return;
+    const node = nodeForId(element.dataset.flowNodeId ?? "");
+    if (node === undefined) return;
+    event.preventDefault();
+    if (!viewState.selectedNodeIds.includes(node.id) || viewState.selectedNodeIds.length !== 1) {
+      selectNode(node, false);
+    }
+    structureActionNodeId = node.id;
+    structureActionOrigin = "context-menu";
+    structureActionClientAnchor = point(event.clientX, event.clientY);
+    pendingStructureInsertKind = null;
+    renderStructureActions();
+    const firstEnabled = structureActions.root.querySelector<HTMLButtonElement>(
+      "button[data-flow-structure-action]:not(:disabled)",
+    );
+    firstEnabled?.focus();
+  };
+
+  const onOverlayKeydown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      pendingStructureInsertKind = null;
+      structureActions.textarea.value = "";
+      structureActionOrigin = "toolbar";
+      structureActionClientAnchor = null;
+      edgeInsertMenuEdgeId = null;
+      edgeInsertMode = null;
+      edgeInsertMenu.textarea.value = "";
+      renderStructureActions();
+      renderEdgeInsertMenu();
+      root.focus({ preventScroll: true });
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      if (event.target === structureActions.textarea && pendingStructureInsertKind !== null) {
+        event.preventDefault();
+        requestStructureAction(pendingStructureInsertKind, structureActions.textarea.value);
+      } else if (event.target === edgeInsertMenu.textarea && edgeInsertMode === "custom") {
+        event.preventDefault();
+        requestEdgeInsert("custom", edgeInsertMenu.textarea.value);
+      }
+    }
+  };
+
+  const onOverlayPointerDown = (event: PointerEvent): void => {
+    event.stopPropagation();
+  };
 
   function clearSelection(): void {
     const hadEdgeSelection = selectedEdgeId !== null;
@@ -1385,7 +2057,7 @@ export function createFlowCanvas(
       replaceEdgeId: wireStart.replaceEdgeId,
       startClient: point(event.clientX, event.clientY),
       start,
-      current: clientToWorld(root, viewState, event.clientX, event.clientY),
+      current: flowCanvasClientToWorld(root, viewState, event.clientX, event.clientY),
       activated: false,
       nearestTargetKey: null,
     };
@@ -1426,7 +2098,7 @@ export function createFlowCanvas(
       replaceEdgeId: null,
       startClient: point(event.clientX, event.clientY),
       start: draftPortPoint(node, port),
-      current: clientToWorld(root, viewState, event.clientX, event.clientY),
+      current: flowCanvasClientToWorld(root, viewState, event.clientX, event.clientY),
       activated: false,
       nearestTargetKey: null,
     };
@@ -1932,7 +2604,7 @@ export function createFlowCanvas(
         return;
       }
       activateWireGesture(gesture, client);
-      gesture.current = clientToWorld(root, viewState, event.clientX, event.clientY);
+      gesture.current = flowCanvasClientToWorld(root, viewState, event.clientX, event.clientY);
       updateNearestWireTarget(gesture, event.clientX, event.clientY);
       renderGestureWire();
     } else if (gesture.kind === "minimap-pan") {
@@ -2053,8 +2725,18 @@ export function createFlowCanvas(
   }
 
   function finishMarquee(current: MarqueeGesture): void {
-    const start = clientToWorld(root, viewState, current.startClient.x, current.startClient.y);
-    const end = clientToWorld(root, viewState, current.currentClient.x, current.currentClient.y);
+    const start = flowCanvasClientToWorld(
+      root,
+      viewState,
+      current.startClient.x,
+      current.startClient.y,
+    );
+    const end = flowCanvasClientToWorld(
+      root,
+      viewState,
+      current.currentClient.x,
+      current.currentClient.y,
+    );
     const bounds = normalizedBounds(start, end);
     const selected = new Set(current.additive ? viewState.selectedNodeIds : []);
     for (const node of projection?.nodes ?? []) {
@@ -2108,7 +2790,7 @@ export function createFlowCanvas(
       ) {
         requestCompatibleBlockSearch(
           started,
-          clientToWorld(root, viewState, event.clientX, event.clientY),
+          flowCanvasClientToWorld(root, viewState, event.clientX, event.clientY),
         );
       }
       beginWireSnapBack(
@@ -2431,10 +3113,11 @@ export function createFlowCanvas(
         );
   }
 
-  function nearestEditableControlEdgeAtClientPoint(
+  function nearestControlEdgeAtClientPoint(
     clientX: number,
     clientY: number,
     tolerancePx: number,
+    predicate: (edge: FlowEdge) => boolean,
     kind: FlowEdge["kind"] | null = null,
   ): FlowEdge | undefined {
     if (
@@ -2446,12 +3129,12 @@ export function createFlowCanvas(
     ) {
       return undefined;
     }
-    const world = clientToWorld(root, viewState, clientX, clientY);
+    const world = flowCanvasClientToWorld(root, viewState, clientX, clientY);
     const nodes = new Map(projection.nodes.map((node) => [node.id, node]));
     refreshControlWireRouteCache();
     let nearest: { readonly edge: FlowEdge; readonly distance: number } | undefined;
     for (const edge of projection.edges) {
-      if (!edge.editable || (kind !== null && edge.kind !== kind)) continue;
+      if (!predicate(edge) || (kind !== null && edge.kind !== kind)) continue;
       const fromNode = nodes.get(edge.from.nodeId);
       const toNode = nodes.get(edge.to.nodeId);
       const fromPort = fromNode?.ports.find((port) => port.id === edge.from.portId);
@@ -2483,6 +3166,21 @@ export function createFlowCanvas(
     return nearest?.edge;
   }
 
+  function nearestEditableControlEdgeAtClientPoint(
+    clientX: number,
+    clientY: number,
+    tolerancePx: number,
+    kind: FlowEdge["kind"] | null = null,
+  ): FlowEdge | undefined {
+    return nearestControlEdgeAtClientPoint(
+      clientX,
+      clientY,
+      tolerancePx,
+      (edge) => edge.editable,
+      kind,
+    );
+  }
+
   const onWheel = (event: WheelEvent): void => {
     if (destroyed || projection === null) return;
     const target = closestElement(event.target);
@@ -2499,8 +3197,8 @@ export function createFlowCanvas(
         MIN_ZOOM,
         MAX_ZOOM,
       );
-      const cursorX = event.clientX - bounds.left;
-      const cursorY = event.clientY - bounds.top;
+      const cursorX = event.clientX - bounds.left + root.scrollLeft;
+      const cursorY = event.clientY - bounds.top + root.scrollTop;
       const worldX = (cursorX - viewState.viewport.x) / viewState.viewport.zoom;
       const worldY = (cursorY - viewState.viewport.y) / viewState.viewport.zoom;
       viewState = cloneViewState(viewState, {
@@ -2523,11 +3221,27 @@ export function createFlowCanvas(
     publishViewState("viewport");
   };
 
-  function fitAllNodes(): void {
+  function fitAllNodesInternal(): void {
     const bounds = flowItemBounds(projection, viewState, draftState);
     if (bounds === null) return;
     viewState = cloneViewState(viewState, {
       viewport: fitFlowCanvasViewport(bounds, canvasPixelSize(root), VIEWPORT_FIT_PADDING, 1.5),
+    });
+    renderViewport();
+    publishViewState("viewport");
+  }
+
+  function fitReadableNodesInternal(): void {
+    const bounds = flowItemBounds(projection, viewState, draftState);
+    if (bounds === null) return;
+    viewState = cloneViewState(viewState, {
+      viewport: fitFlowCanvasReadableViewport(
+        bounds,
+        canvasPixelSize(root),
+        READABLE_PROJECTION_PADDING,
+        READABLE_PROJECTION_MIN_ZOOM,
+        1.5,
+      ),
     });
     renderViewport();
     publishViewState("viewport");
@@ -2627,7 +3341,7 @@ export function createFlowCanvas(
     }
     if (!command && event.key === "Home") {
       event.preventDefault();
-      fitAllNodes();
+      fitAllNodesInternal();
       return;
     }
     if (!command && event.key.toLowerCase() === "f") {
@@ -2911,8 +3625,17 @@ export function createFlowCanvas(
   root.addEventListener("keydown", onKeydown);
   root.addEventListener("keyup", onKeyup);
   root.addEventListener("dblclick", onDoubleClick);
+  root.addEventListener("contextmenu", onCanvasContextMenu);
   root.addEventListener("blur", onBlur);
   ownerDocument.defaultView?.addEventListener("blur", onWindowBlur);
+  structureActions.root.addEventListener("pointerdown", onOverlayPointerDown);
+  structureActions.root.addEventListener("click", onStructureActionsClick);
+  structureActions.root.addEventListener("keydown", onOverlayKeydown);
+  edgeInsertLayer.addEventListener("pointerdown", onOverlayPointerDown);
+  edgeInsertLayer.addEventListener("click", onEdgeInsertLayerClick);
+  edgeInsertMenu.root.addEventListener("pointerdown", onOverlayPointerDown);
+  edgeInsertMenu.root.addEventListener("click", onEdgeInsertMenuClick);
+  edgeInsertMenu.root.addEventListener("keydown", onOverlayKeydown);
   detail.window.addEventListener("click", onDetailClick);
   minimap.root.addEventListener("pointerdown", onPointerDown);
   minimap.root.addEventListener("pointermove", onPointerMove);
@@ -2926,10 +3649,20 @@ export function createFlowCanvas(
     typeof ResizeObserver === "undefined"
       ? null
       : new ResizeObserver(() => {
-          const recovered = recoverRestoredViewportIfReady();
-          if (recovered) {
-            renderViewport();
-            publishViewState("restore");
+          const size = canvasPixelSize(root);
+          const responsiveSizeChanged =
+            responsiveFitSize === null ||
+            Math.abs(size.width - responsiveFitSize.width) >= 1 ||
+            Math.abs(size.height - responsiveFitSize.height) >= 1;
+          if (responsiveFit && size.width >= 64 && size.height >= 64 && responsiveSizeChanged) {
+            responsiveFitSize = size;
+            fitReadableNodesInternal();
+          } else {
+            const recovered = recoverRestoredViewportIfReady();
+            if (recovered) {
+              renderViewport();
+              publishViewState("restore");
+            }
           }
           renderMinimap();
           clampDetailGeometry();
@@ -2996,15 +3729,74 @@ export function createFlowCanvas(
       assertActive(destroyed);
       return nearestEditableControlEdgeAtClientPoint(clientX, clientY, tolerancePx, "next") ?? null;
     },
+    findInsertableControlEdgeAtClientPoint(
+      clientX: number,
+      clientY: number,
+      tolerancePx = 11,
+    ): FlowEdge | null {
+      assertActive(destroyed);
+      return (
+        nearestControlEdgeAtClientPoint(clientX, clientY, tolerancePx, (edge) =>
+          edgeInsertElements.has(edge.id),
+        ) ?? null
+      );
+    },
+    getInsertableControlEdgeCount(): number {
+      assertActive(destroyed);
+      return edgeInsertElements.size;
+    },
+    setPresetDragActive(active: boolean): void {
+      assertActive(destroyed);
+      root.classList.toggle("is-preset-drag", active);
+      if (!active) {
+        if (edgeInsertionPreviewId !== null) {
+          edgeElements.get(edgeInsertionPreviewId)?.classList.remove("is-insertion-preview");
+        }
+        edgeInsertionPreviewId = null;
+        setSlotCompatibilityInternal(null);
+      }
+    },
+    setSlots(rects: readonly FlowCanvasSlotRect[]): void {
+      assertActive(destroyed);
+      renderSlots(rects);
+    },
+    setSlotCompatibility(slotIds: ReadonlySet<string> | null): void {
+      assertActive(destroyed);
+      setSlotCompatibilityInternal(slotIds);
+    },
+    setSlotDropPreview(slotId: string | null): void {
+      assertActive(destroyed);
+      for (const [id, element] of slotElements) {
+        element.classList.toggle("is-drop-target", id === slotId);
+      }
+    },
     setEdgeInsertionPreview(edgeId: string | null): void {
       assertActive(destroyed);
-      if (edgeId !== null && !edgeElements.has(edgeId)) return;
+      if (edgeId !== null && !edgeInsertElements.has(edgeId)) return;
       if (edgeInsertionPreviewId === edgeId) return;
       if (edgeInsertionPreviewId !== null) {
         edgeElements.get(edgeInsertionPreviewId)?.classList.remove("is-insertion-preview");
       }
       edgeInsertionPreviewId = edgeId;
       if (edgeId !== null) edgeElements.get(edgeId)?.classList.add("is-insertion-preview");
+    },
+    fitAllNodes(): void {
+      assertActive(destroyed);
+      fitAllNodesInternal();
+    },
+    fitReadableNodes(): void {
+      assertActive(destroyed);
+      fitReadableNodesInternal();
+    },
+    setResponsiveFit(active: boolean): void {
+      assertActive(destroyed);
+      responsiveFit = active;
+      responsiveFitSize = null;
+      if (!active) return;
+      const size = canvasPixelSize(root);
+      if (size.width < 64 || size.height < 64) return;
+      responsiveFitSize = size;
+      fitReadableNodesInternal();
     },
     focusNode(nodeId: string): void {
       assertActive(destroyed);
@@ -3018,7 +3810,7 @@ export function createFlowCanvas(
       });
       renderSelection();
       renderDetail();
-      element.focus();
+      focusFlowCanvasNodeElement(element);
       publishViewState("selection");
     },
     refreshDetail(): void {
@@ -3080,8 +3872,17 @@ export function createFlowCanvas(
       root.removeEventListener("keydown", onKeydown);
       root.removeEventListener("keyup", onKeyup);
       root.removeEventListener("dblclick", onDoubleClick);
+      root.removeEventListener("contextmenu", onCanvasContextMenu);
       root.removeEventListener("blur", onBlur);
       ownerDocument.defaultView?.removeEventListener("blur", onWindowBlur);
+      structureActions.root.removeEventListener("pointerdown", onOverlayPointerDown);
+      structureActions.root.removeEventListener("click", onStructureActionsClick);
+      structureActions.root.removeEventListener("keydown", onOverlayKeydown);
+      edgeInsertLayer.removeEventListener("pointerdown", onOverlayPointerDown);
+      edgeInsertLayer.removeEventListener("click", onEdgeInsertLayerClick);
+      edgeInsertMenu.root.removeEventListener("pointerdown", onOverlayPointerDown);
+      edgeInsertMenu.root.removeEventListener("click", onEdgeInsertMenuClick);
+      edgeInsertMenu.root.removeEventListener("keydown", onOverlayKeydown);
       detail.window.removeEventListener("click", onDetailClick);
       minimap.root.removeEventListener("pointerdown", onPointerDown);
       minimap.root.removeEventListener("pointermove", onPointerMove);
@@ -3103,6 +3904,7 @@ export function createFlowCanvas(
       edgeHitElements.clear();
       virtualEdgeElements.clear();
       draftNodeElements.clear();
+      slotElements.clear();
       detailDraftNodeId = null;
     },
   });
@@ -3396,16 +4198,24 @@ function renderNode(
   element.dataset.nodeKind = node.kind;
   element.dataset.nodeRole = flowCanvasProjectedNodeRole(node);
   element.dataset.reachable = String(node.reachable);
+  const executionReachability = flowCanvasProjectedNodeReachability(node);
+  element.dataset.executionReachability = executionReachability;
   element.dataset.locked = String(node.locked);
   element.setAttribute("role", "button");
   const presentation = flowCanvasNodePresentation(node, english ? "en" : "zh-CN");
   const nodeLabel = presentation.label;
+  const ariaStates = [
+    node.locked ? (english ? "locked" : "已锁定") : null,
+    executionReachability === "unreachable" ? (english ? "unreachable" : "不可达") : null,
+  ].filter((state): state is string => state !== null);
   element.setAttribute(
     "aria-label",
-    `${nodeLabel}${node.locked ? (english ? ", locked" : "，已锁定") : ""}${node.reachable ? "" : english ? ", unreachable" : "，不可达"}`,
+    `${nodeLabel}${ariaStates.length === 0 ? "" : `${english ? ", " : "，"}${ariaStates.join(english ? ", " : "，")}`}`,
   );
   element.setAttribute("aria-selected", "false");
-  element.setAttribute("aria-disabled", String(node.locked));
+  // A locked projection is read-only, not disabled: it remains selectable for source inspection.
+  // data-locked and the accessible label carry the editability boundary without dimming it as an
+  // unavailable control.
   element.tabIndex = -1;
   element.style.width = `${String(NODE_WIDTH)}px`;
   element.style.minHeight = `${String(NODE_HEIGHT)}px`;
@@ -3422,7 +4232,7 @@ function renderNode(
     ? english
       ? "LOCK"
       : "锁"
-    : node.reachable
+    : executionReachability !== "unreachable"
       ? ""
       : english
         ? "UNREACHABLE"
@@ -3512,9 +4322,22 @@ function renderDefaultDetail(
   english = false,
 ): void {
   const presentation = flowCanvasNodePresentation(node, english ? "en" : "zh-CN");
+  const executionReachability = flowCanvasProjectedNodeReachability(node);
   const meta = ownerDocument.createElement("div");
   meta.className = "flow-detail__meta";
-  meta.textContent = `${presentation.kind} · ${node.reachable ? (english ? "reachable" : "可达") : english ? "unreachable" : "不可达"}`;
+  meta.textContent = `${presentation.kind} · ${
+    executionReachability === "reachable"
+      ? english
+        ? "reachable"
+        : "可达"
+      : executionReachability === "unreachable"
+        ? english
+          ? "unreachable"
+          : "不可达"
+        : english
+          ? "source projection"
+          : "源码投影"
+  }`;
   const code = ownerDocument.createElement("pre");
   code.className = "flow-detail__code";
   const codeValue = ownerDocument.createElement("code");
@@ -3638,15 +4461,15 @@ function createMinimap(ownerDocument: Document, english = false) {
   const root = ownerDocument.createElement("aside");
   root.className = "flow-minimap";
   root.dataset.flowMinimap = "true";
-  root.dataset.collapsed = "false";
+  root.dataset.collapsed = String(FLOW_CANVAS_MINIMAP_INITIAL_STATE.collapsed);
   root.setAttribute("aria-label", english ? "Canvas overview" : "画布概览");
   const toggle = ownerDocument.createElement("button");
   toggle.className = "flow-minimap__toggle";
   toggle.type = "button";
   toggle.dataset.flowMinimapToggle = "true";
   toggle.textContent = english ? "Overview" : "概览";
-  toggle.setAttribute("aria-expanded", "true");
-  toggle.setAttribute("aria-label", english ? "Collapse canvas overview" : "收起画布概览");
+  toggle.setAttribute("aria-expanded", FLOW_CANVAS_MINIMAP_INITIAL_STATE.ariaExpanded);
+  toggle.setAttribute("aria-label", english ? "Expand canvas overview" : "展开画布概览");
   const svg = ownerDocument.createElementNS(SVG_NAMESPACE, "svg");
   svg.classList.add("flow-minimap__map");
   svg.setAttribute("role", "img");
@@ -3655,6 +4478,7 @@ function createMinimap(ownerDocument: Document, english = false) {
     english ? "Nodes, runtime path, and current viewport" : "节点、运行路径与当前视口",
   );
   svg.setAttribute("preserveAspectRatio", "none");
+  svg.style.display = FLOW_CANVAS_MINIMAP_INITIAL_STATE.display;
   const edges = ownerDocument.createElementNS(SVG_NAMESPACE, "g");
   edges.classList.add("flow-minimap__edges");
   const nodes = ownerDocument.createElementNS(SVG_NAMESPACE, "g");
@@ -3971,6 +4795,37 @@ export function fitFlowCanvasViewport(
   });
 }
 
+/**
+ * Frames a semantic projection without shrinking its labels into an unreadable overview. When the
+ * complete graph cannot fit above the readable zoom floor, the viewport starts at the graph's
+ * entry-side corner; the minimap and normal pan/zoom controls still expose the remaining graph.
+ */
+export function fitFlowCanvasReadableViewport(
+  bounds: FlowCanvasBounds,
+  canvas: FlowCanvasSize,
+  padding = READABLE_PROJECTION_PADDING,
+  minimumZoom = READABLE_PROJECTION_MIN_ZOOM,
+  maximumZoom = 1.5,
+): FlowViewState["viewport"] {
+  if (
+    !Number.isFinite(minimumZoom) ||
+    minimumZoom <= 0 ||
+    !Number.isFinite(maximumZoom) ||
+    maximumZoom <= 0 ||
+    minimumZoom > maximumZoom
+  ) {
+    throw new TypeError("可读画布适配需要正缩放范围，且最小值不得超过最大值");
+  }
+  const fitted = fitFlowCanvasViewport(bounds, canvas, padding, maximumZoom);
+  if (fitted.zoom >= minimumZoom) return fitted;
+  const zoom = clamp(minimumZoom, MIN_ZOOM, Math.min(MAX_ZOOM, maximumZoom));
+  return Object.freeze({
+    x: padding - bounds.left * zoom,
+    y: padding - bounds.top * zoom,
+    zoom,
+  });
+}
+
 function canvasPixelSize(element: HTMLElement): FlowCanvasSize {
   const bounds = element.getBoundingClientRect();
   return {
@@ -4057,16 +4912,16 @@ function isFiniteBounds(bounds: Bounds): boolean {
   );
 }
 
-function clientToWorld(
-  root: HTMLElement,
+export function flowCanvasClientToWorld(
+  root: Pick<HTMLElement, "getBoundingClientRect" | "scrollLeft" | "scrollTop">,
   state: FlowViewState,
   clientX: number,
   clientY: number,
 ): FlowPoint {
   const bounds = root.getBoundingClientRect();
   return point(
-    (clientX - bounds.left - state.viewport.x) / state.viewport.zoom,
-    (clientY - bounds.top - state.viewport.y) / state.viewport.zoom,
+    (clientX - bounds.left + root.scrollLeft - state.viewport.x) / state.viewport.zoom,
+    (clientY - bounds.top + root.scrollTop - state.viewport.y) / state.viewport.zoom,
   );
 }
 

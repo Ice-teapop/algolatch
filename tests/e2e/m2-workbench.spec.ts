@@ -5,9 +5,24 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  showBlockPalette,
+  showBlockTree,
+  showFlowCanvas,
+  showRuntimePanel,
+  showSourceAndBlocks,
+  showSourceEditor,
+} from "./support/c-cell-layout.js";
+
+// Every launch gets its own workspace root and Electron profile. Without them these specs
+// write into the user's real Documents workspace and share one browser profile, which both
+// pollutes real data and lets state leak between spec files under `workers: 1`.
+const e2eWorkspaceRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-workspace-"));
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 const FIXTURE_NAME = "m2-workbench.c";
 const FIXTURE_SOURCE = `${[
@@ -49,10 +64,11 @@ test.beforeAll(async () => {
     ),
   );
   electronApplication = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...inheritedEnvironment,
+      PANEL_WORKSPACE_ROOT: e2eWorkspaceRoot,
       PANEL_RUNNER_MODE: "trusted-only",
     },
   });
@@ -96,6 +112,7 @@ test.beforeEach(async () => {
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.getByRole("button", { name: "打开 C 文件" })).toBeEnabled();
+  await showSourceAndBlocks(page);
 });
 
 test("opens a BOM + CRLF C file through the visible native-dialog action", async () => {
@@ -111,7 +128,7 @@ test("opens a BOM + CRLF C file through the visible native-dialog action", async
     `${Buffer.byteLength(FIXTURE_SOURCE, "utf8")} B`,
   );
   expect(await editorText()).toBe(FIXTURE_EDITOR_TEXT);
-  await expect(page.locator(".cm-specialChar")).toHaveAttribute(
+  await expect(page.locator("#code-pane .cm-specialChar")).toHaveAttribute(
     "title",
     /zero width no-break space/u,
   );
@@ -208,6 +225,7 @@ test("selects nested for and return blocks and paints the primary CodeMirror ran
   await expect(primary.first()).toBeVisible();
   expect((await primary.allTextContents()).join(" ")).toContain("for (int i = 0");
 
+  await showBlockTree(page);
   const returnBlock = page.locator('.block-card[data-node-type="return_statement"]').first();
   await returnBlock.click();
   await expect(returnBlock).toHaveAttribute("aria-selected", "true");
@@ -239,6 +257,8 @@ test("clicks a CodeMirror variable and links declaration, uses, and the selected
 
 test("compiles and runs from the UI after exactly two accepted native trust prompts", async () => {
   await loadFixtureThroughOpenButton();
+  await showSourceEditor(page);
+  await showRuntimePanel(page);
   await page.getByRole("tab", { name: "运行" }).click();
   await getElectronApplication().evaluate(({ dialog }) => {
     const state = globalThis as typeof globalThis & { __m2TrustDialogCount?: number };
@@ -276,7 +296,7 @@ test("compiles and runs from the UI after exactly two accepted native trust prom
 
 test("keeps CodeMirror editable and injects nonce-bearing styles without CSP violations", async () => {
   await loadFixtureThroughOpenButton();
-  const content = page.locator(".cm-content");
+  const content = page.locator("#code-pane .cm-content");
   await expect(content).toHaveAttribute("contenteditable", "true");
   await expect(content).toHaveAttribute("aria-readonly", "false");
   await expect(content).toHaveAttribute("aria-label", "C 源码编辑器");
@@ -321,26 +341,45 @@ test("keeps the resizable free-canvas workbench usable at the minimum window siz
     await expect(page.locator("#import-status")).toHaveAttribute("aria-live", "assertive");
     await expect(page.locator("#import-status")).toBeHidden();
     await expect(page.locator(".status-bar")).toHaveCount(0);
+    await showSourceAndBlocks(page);
     await expect(page.locator("#block-tree")).toBeVisible();
     await expect(page.locator("#code-pane")).toBeVisible();
 
-    await page.getByRole("tab", { name: "解释", exact: true }).click();
+    await page.getByRole("tab", { name: "Blocks", exact: true }).click();
     await expect(page.locator("#explanation-host")).toBeVisible();
     await expect(page.locator("#explanation-panel")).toBeVisible();
 
+    await page.keyboard.press("Escape");
     await page.getByRole("tab", { name: "工作区", exact: true }).click();
+    await showSourceAndBlocks(page);
     await expect(page.locator("#block-tree")).toBeVisible();
     await expect(page.locator("#code-pane")).toBeVisible();
 
+    await showRuntimePanel(page);
     await page.getByRole("tab", { name: "运行", exact: true }).click();
     await expect(page.locator("#run-panel")).toBeVisible();
     await expect(page.locator("#trace-primary-action")).toBeVisible();
 
     await page.getByRole("tab", { name: "工作区", exact: true }).click();
+    // At the minimum size every region collapses behind its own control and the block tree
+    // and canvas share one column, so usability here means each region stays reachable —
+    // not that all four hold the screen at once.
+    await showBlockPalette(page);
     await expect(page.locator("#block-palette")).toBeVisible();
+    await showBlockTree(page);
     await expect(page.locator("#block-tree")).toBeVisible();
+    await showFlowCanvas(page);
     await expect(page.locator("#flow-canvas")).toBeVisible();
+    await showSourceEditor(page);
     await expect(page.locator("#code-pane")).toBeVisible();
+
+    // The tiled three-column geometry below only exists at or above the 1100px breakpoint;
+    // narrower windows deliberately turn both side columns into overlays and hide their
+    // splitters, so the docked-region assertions are measured at the narrowest tiled size.
+    await getElectronApplication().evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setSize(1100, 600);
+    });
+    await showSourceAndBlocks(page);
     const viewport = await page.evaluate(() => {
       const codePane = document.querySelector("#code-pane")?.getBoundingClientRect();
       const pages = document.querySelector("#workbench-pages")?.getBoundingClientRect();
@@ -561,7 +600,7 @@ async function loadFixtureThroughOpenButton(): Promise<void> {
 
 async function editorText(): Promise<string> {
   return page
-    .locator(".cm-line")
+    .locator("#code-pane .cm-line")
     .evaluateAll((lines) => lines.map((line) => line.textContent ?? "").join("\n"));
 }
 
@@ -578,7 +617,7 @@ async function openMenuBranch(rootName: string, branchName: string): Promise<voi
 }
 
 async function clickCodeOccurrence(needle: string, occurrence: number): Promise<void> {
-  const point = await page.locator(".cm-content").evaluate(
+  const point = await page.locator("#code-pane .cm-content").evaluate(
     (content, target) => {
       const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
       let remaining = target.occurrence;

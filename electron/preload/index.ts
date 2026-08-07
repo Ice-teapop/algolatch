@@ -23,6 +23,11 @@ import type {
   TraceStartResult,
 } from "../../src/shared/trace.js";
 import type {
+  VerifiedRunBatch,
+  VerifiedRunCancelResult,
+  VerifiedRunStartResult,
+} from "../../src/shared/verified-run.js";
+import type {
   CreateWorkspaceDocumentRequest,
   OpenWorkspaceDocumentRequest,
   SaveWorkspaceDocumentRequest,
@@ -101,6 +106,9 @@ const IPC_CHANNELS = Object.freeze({
   capabilities: "panel:capabilities",
   compile: "panel:compile",
   run: "panel:run",
+  startRun: "panel:run-start",
+  readRun: "panel:run-read",
+  cancelRun: "panel:run-cancel",
   diagnose: "panel:diagnose",
   startTrace: "panel:trace-start",
   readTrace: "panel:trace-read",
@@ -340,6 +348,12 @@ const panelApi: PanelApi = Object.freeze({
     (await ipcRenderer.invoke(IPC_CHANNELS.compile, request)) as CompileResult,
   run: async (request: RunRequest): Promise<RunResult> =>
     (await ipcRenderer.invoke(IPC_CHANNELS.run, request)) as RunResult,
+  startRun: async (request: RunRequest): Promise<VerifiedRunStartResult> =>
+    (await ipcRenderer.invoke(IPC_CHANNELS.startRun, request)) as VerifiedRunStartResult,
+  readRun: async (sessionId: string, afterSequence: number): Promise<VerifiedRunBatch> =>
+    (await ipcRenderer.invoke(IPC_CHANNELS.readRun, sessionId, afterSequence)) as VerifiedRunBatch,
+  cancelRun: async (sessionId: string): Promise<VerifiedRunCancelResult> =>
+    (await ipcRenderer.invoke(IPC_CHANNELS.cancelRun, sessionId)) as VerifiedRunCancelResult,
   diagnose: async (request: DiagnoseRequest): Promise<DiagnoseResult> =>
     (await ipcRenderer.invoke(IPC_CHANNELS.diagnose, request)) as DiagnoseResult,
   startTrace: async (request: TraceRequest): Promise<TraceStartResult> =>

@@ -13,7 +13,7 @@
   overflow: hidden;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: var(--text-control);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -26,13 +26,13 @@
 .workspace-dashboard__search {
   width: 100%;
   min-width: 0;
-  height: 26px;
+  min-height: var(--interaction-target-compact);
   padding: 3px 7px;
   border: 1px solid var(--line-strong);
   border-radius: 0;
   color: var(--ink);
   background: var(--input-surface);
-  font-size: 10px;
+  font-size: var(--text-control);
 }
 
 .workspace-dashboard__status {
@@ -43,7 +43,7 @@
   overflow: hidden;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -70,12 +70,12 @@
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 10px;
+  font-size: var(--text-body);
 }
 
 .workspace-dashboard__table th,
 .workspace-dashboard__table td {
-  height: 34px;
+  height: 40px;
   padding: 0 10px;
   overflow: hidden;
   border-bottom: 1px solid var(--line);
@@ -88,10 +88,10 @@
   position: sticky;
   z-index: 1;
   top: 0;
-  height: 28px;
+  height: 32px;
   color: var(--muted-subtle);
   background: var(--surface-soft);
-  font-size: 8px;
+  font-size: var(--text-caption);
   font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -147,7 +147,7 @@
   justify-items: center;
   gap: 10px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-body);
 }
 
 .workspace-dashboard__empty p {
@@ -183,7 +183,7 @@
   display: grid;
   gap: 4px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -191,13 +191,13 @@
 
 .workspace-create-dialog__surface input,
 .workspace-create-dialog__surface select {
-  min-height: 30px;
+  min-height: var(--interaction-target-compact);
   padding: 4px 6px;
   border: 1px solid var(--line-strong);
   border-radius: 0;
   color: var(--ink);
   background: var(--input-surface);
-  font-size: 11px;
+  font-size: var(--text-control);
   text-transform: none;
 }
 

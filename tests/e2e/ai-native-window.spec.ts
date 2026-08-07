@@ -5,9 +5,15 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { showAiAssistant } from "./support/c-cell-layout.js";
+
+// A dedicated Electron profile: a shared one lets localStorage and window state leak
+// between spec files, which run strictly in sequence under `workers: 1`.
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 let application: ElectronApplication | undefined;
 let mainPage: Page;
@@ -17,7 +23,7 @@ test.beforeAll(async () => {
   workspaceRoot = await mkdtemp(join(tmpdir(), "c-block-ai-window-e2e-"));
   const port = process.env.PANEL_E2E_PORT ?? "5173";
   application = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...Object.fromEntries(
@@ -51,11 +57,13 @@ test("opens AI in a native child window and synchronizes interface preferences",
 
   await mainPage.locator("#build-tab").click();
   await expect(mainPage.locator(".app-bar #ai-assistant-button")).toHaveCount(0);
+  await showAiAssistant(mainPage);
   await expect(
-    mainPage.locator("#bottom-pane .runtime-panel-bar #ai-assistant-button"),
+    mainPage.locator("#semantic-ai-panel .semantic-monitor__ai-entry #ai-assistant-button"),
   ).toBeVisible();
 
   const childWindow = application.waitForEvent("window");
+  await showAiAssistant(mainPage);
   await mainPage.locator("#ai-assistant-button").click();
   const aiPage = await childWindow;
   await aiPage.waitForLoadState("domcontentloaded");
@@ -143,6 +151,7 @@ test("opens AI in a native child window and synchronizes interface preferences",
     child?.minimize();
   });
   await expect.poll(() => nativeAiWindowState(application!)).toMatchObject({ minimized: true });
+  await showAiAssistant(mainPage);
   await mainPage.locator("#ai-assistant-button").click();
   await expect
     .poll(() => nativeAiWindowState(application!))
@@ -153,6 +162,7 @@ test("opens AI in a native child window and synchronizes interface preferences",
   await expect.poll(() => application?.windows().length ?? 0).toBe(1);
 
   const reopenedWindow = application.waitForEvent("window");
+  await showAiAssistant(mainPage);
   await mainPage.locator("#ai-assistant-button").click();
   const reopenedAiPage = await reopenedWindow;
   await reopenedAiPage.waitForLoadState("domcontentloaded");
@@ -281,7 +291,7 @@ test("keeps the native AI layout in the built file renderer", async () => {
     await expect(productionMainPage.locator("#startup-loader")).toBeHidden();
     await selectInterfaceLanguage(productionMainPage, "en");
     await productionMainPage.locator("#build-tab").click();
-    await expect(productionMainPage.locator("#ai-assistant-button")).toBeVisible();
+    await showAiAssistant(productionMainPage);
     await productionMainPage.evaluate(() => {
       const background = document.querySelector<HTMLSelectElement>("#interface-background");
       if (background === null) throw new Error("Interface background control is unavailable");
@@ -290,6 +300,7 @@ test("keeps the native AI layout in the built file renderer", async () => {
     });
 
     const childWindow = productionApplication.waitForEvent("window");
+    await showAiAssistant(productionMainPage);
     await productionMainPage.locator("#ai-assistant-button").click();
     const productionAiPage = await childWindow;
     await productionAiPage.waitForLoadState("domcontentloaded");

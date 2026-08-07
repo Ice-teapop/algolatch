@@ -14,9 +14,25 @@ import type {
   PresetBlockKind,
   PresetBlockLifecycle,
   PresetPortDefinition,
+  PresetSyntaxAncestorCapability,
+  PresetSyntaxSlotKind,
 } from "../learning/index.js";
+import type { CAnalysisSnapshot } from "../core/index.js";
+import {
+  canvasSlotInsertRequest,
+  canvasSlotInventory,
+  slotAcceptsPlacement,
+  type CanvasSlot,
+  type CanvasSlotInsertRequest,
+} from "./canvas-slot-inventory.js";
+import {
+  canvasSlotRectAtPoint,
+  canvasSlotRects,
+  type CanvasSlotRect,
+} from "./canvas-slot-geometry.js";
 import {
   createFlowCanvas,
+  flowCanvasClientToWorld,
   type FlowCanvasConnectionGesture,
   type FlowCanvasController,
   type FlowCanvasActivePath,
@@ -44,6 +60,7 @@ import {
 } from "./flow-sidecar-state.js";
 import {
   createWorkspaceSidecarPersistence,
+  type SidecarAdoption,
   type WorkspaceSidecarPersistence,
 } from "./workspace-sidecar-persistence.js";
 import {
@@ -52,7 +69,7 @@ import {
   decoratePathWithVirtualOverlay,
   reconcileVirtualFlowOverlay,
 } from "./virtual-flow-overlay.js";
-import type { ProgramAnalysisSnapshot } from "../analysis/index.js";
+import type { DefUseDisabledReasonCode, ProgramAnalysisSnapshot } from "../analysis/index.js";
 import {
   WORKBENCH_QUICK_OPEN_ACTIVATE_EVENT,
   WORKBENCH_QUICK_OPEN_COLLECT_EVENT,
@@ -68,6 +85,18 @@ import {
 } from "./flow-node-evidence.js";
 import { FlowSourceCommitError } from "./flow-source-editor.js";
 import { installCodeTextareaIndentation } from "../ui/code-textarea-keymap.js";
+import {
+  createCanvasEdgeInsertRequest,
+  type CanvasEdgeInsertionAvailability,
+  type CanvasEdgeInsertPreset,
+  type CanvasEdgeInsertRequest,
+  type CanvasStructureAction,
+  type CanvasStructureAvailability,
+} from "../ui/canvas-structure-actions.js";
+import {
+  CURRENT_WORKBENCH_LAYOUT_PROFILE,
+  planWorkbenchLayoutRestore,
+} from "./workbench-layout-profile.js";
 
 export interface FlowWorkbenchControllerOptions {
   readonly elements: WorkbenchElements;
@@ -78,6 +107,10 @@ export interface FlowWorkbenchControllerOptions {
   readonly onConnectionPreflight: (intent: ConnectionIntent) => { readonly accepted: boolean };
   readonly onConnectionIntent: (intent: ConnectionIntent) => boolean;
   readonly resolvePreset: (presetId: string) => ResolvedFlowPreset | null;
+  /** Statement targets for the current source; the drop strips are derived from these. */
+  readonly getStatementAnalysis?: (() => CAnalysisSnapshot | null) | undefined;
+  readonly onCanvasSlotInsertRequest?:
+    ((request: CanvasSlotInsertRequest) => boolean | void) | undefined;
   readonly onDraftConnectionIntent: (intent: FlowCanvasDraftConnectionIntent) => boolean;
   readonly onDraftPresentationChange: (nodes: readonly FlowCanvasDraftNode[]) => void;
   readonly onLearningObservation?: ((observation: FlowLearningObservation) => void) | undefined;
@@ -85,6 +118,27 @@ export interface FlowWorkbenchControllerOptions {
   readonly onSourceRedo?: (() => void) | undefined;
   readonly onVirtualPlaybackNode?:
     ((node: FlowCanvasDraftNode, mode: FlowCanvasActivePath["mode"]) => void) | undefined;
+  readonly onCanvasStructureAction?:
+    ((action: CanvasStructureAction) => boolean | void) | undefined;
+  readonly onCanvasEdgeInsertRequest?:
+    ((request: CanvasEdgeInsertRequest) => boolean | void) | undefined;
+  readonly getCanvasEdgeInsertPresets?:
+    | ((
+        request: CanvasEdgeInsertRequest,
+        locale: "zh-CN" | "en",
+      ) => readonly CanvasEdgeInsertPreset[])
+    | undefined;
+  readonly onCanvasEdgePresetInsert?:
+    ((request: CanvasEdgeInsertRequest, presetId: string) => boolean | void) | undefined;
+  readonly inspectCanvasNode?:
+    | ((node: FlowNode, locale: "zh-CN" | "en") => CanvasStructureAvailability | undefined)
+    | undefined;
+  readonly inspectCanvasEdge?:
+    | ((
+        edge: FlowProjection["edges"][number],
+        locale: "zh-CN" | "en",
+      ) => CanvasEdgeInsertionAvailability | undefined)
+    | undefined;
   readonly onStatus: (message: string, state: "ready" | "warning" | "error") => void;
 }
 
@@ -128,6 +182,8 @@ interface ResolvedFlowPreset {
   readonly blockKind: PresetBlockKind;
   readonly lifecycle: PresetBlockLifecycle;
   readonly ports: readonly PresetPortDefinition[];
+  readonly acceptedSyntaxSlots?: readonly PresetSyntaxSlotKind[] | undefined;
+  readonly requiredAnyAncestorCapabilities?: readonly PresetSyntaxAncestorCapability[] | undefined;
 }
 
 interface FlowWorkbenchHistorySnapshot {
@@ -143,6 +199,12 @@ export interface FlowWorkbenchController {
   readonly hasPendingChanges: boolean;
   adoptProjection(projection: FlowProjection): void;
   setAnalysis(analysis: ProgramAnalysisSnapshot | null): void;
+  /**
+   * Shows a temporary, read-only projection for C Cell input. The project projection remains the
+   * authoritative source-backed model and no preview state is written to flow-view.json.
+   */
+  previewProjection(projection: FlowProjection, analysis?: ProgramAnalysisSnapshot | null): void;
+  clearProjectionPreview(): void;
   setActivePath(path: FlowCanvasActivePath, evidence?: FlowNodeRuntimeSnapshot | null): void;
   focusNode(nodeId: string): void;
   setWorkspaceEntry(entryId: string | null): Promise<void>;
@@ -153,6 +215,7 @@ export interface FlowWorkbenchController {
 
 export interface FlowWorkbenchSidecar {
   readonly schemaVersion: 1 | 2;
+  readonly layoutProfile?: string | undefined;
   readonly sourceFingerprint: string;
   readonly viewState: unknown;
   readonly layoutPreset: string;
@@ -220,6 +283,32 @@ export function restoreFlowProjectionSidecarState(
   });
 }
 
+export interface FlowWorkspaceAdoptionPresentation {
+  readonly restoreSidecar: (serialized: string, matchesSource: boolean) => void;
+  readonly resetPresentation: () => void;
+  readonly fitFirstProjection: () => void;
+}
+
+/**
+ * Applies the view part of workspace adoption. A missing sidecar is the one first-view case that
+ * must frame the new projection; an existing sidecar owns its viewport and must never be followed
+ * by an automatic fit that would silently overwrite the restored learner layout.
+ *
+ * Returns true when the caller should persist the newly-created default view.
+ */
+export function applyFlowWorkspaceAdoptionPresentation(
+  adoption: SidecarAdoption,
+  presentation: FlowWorkspaceAdoptionPresentation,
+): boolean {
+  if (adoption.document !== null) {
+    presentation.restoreSidecar(adoption.document.serialized, adoption.matchesSource);
+    return false;
+  }
+  presentation.resetPresentation();
+  presentation.fitFirstProjection();
+  return true;
+}
+
 export function createFlowWorkbenchController(
   options: FlowWorkbenchControllerOptions,
 ): FlowWorkbenchController {
@@ -239,17 +328,63 @@ export function createFlowWorkbenchController(
   } | null = null;
   let activeVirtualNodeIds = new Set<string>();
   let analysis: ProgramAnalysisSnapshot | null = null;
+  let projectionPreview: {
+    readonly projection: FlowProjection;
+    readonly analysis: ProgramAnalysisSnapshot | null;
+    viewState: FlowViewState;
+  } | null = null;
   let runtimeEvidence: FlowNodeRuntimeSnapshot | null = null;
+  let activePresetDragId: string | null = null;
+  let activePresetDropHandled = false;
+  let slots: readonly CanvasSlot[] = [];
+  let slotRects: readonly CanvasSlotRect[] = [];
+
+  function refreshSlots(): void {
+    const analysis = options.getStatementAnalysis?.() ?? null;
+    slots = canvasSlotInventory(analysis);
+    slotRects =
+      projection === null ? [] : canvasSlotRects(slots, projection.nodes, positionForSlotAnchor);
+    canvas.setSlots(projectionPreview === null ? slotRects : []);
+  }
+
+  function positionForSlotAnchor(node: FlowNode): { readonly x: number; readonly y: number } {
+    return currentViewState?.positions[node.id] ?? node.defaultPosition;
+  }
+
+  function compatibleSlotIds(presetId: string | null): ReadonlySet<string> {
+    const preset = presetId === null ? null : options.resolvePreset(presetId);
+    if (preset === null || preset.source === null || preset.blockKind === "virtual") {
+      return new Set();
+    }
+    const placement = {
+      acceptedSyntaxSlots: preset.acceptedSyntaxSlots ?? [],
+      requiredAnyAncestorCapabilities: preset.requiredAnyAncestorCapabilities ?? [],
+    };
+    return new Set(
+      slots.filter((slot) => slotAcceptsPlacement(slot, placement)).map((slot) => slot.id),
+    );
+  }
+
+  function slotAtClientPoint(clientX: number, clientY: number): CanvasSlot | null {
+    if (slotRects.length === 0) return null;
+    const view = canvas.getViewState();
+    const world = flowCanvasClientToWorld(canvas.element, view, clientX, clientY);
+    const rect = canvasSlotRectAtPoint(slotRects, world.x, world.y, 6);
+    if (rect === null) return null;
+    return slots.find((slot) => slot.id === rect.slotId) ?? null;
+  }
   const undoHistory: FlowWorkbenchHistorySnapshot[] = [];
   const redoHistory: FlowWorkbenchHistorySnapshot[] = [];
-  const canvasToolbar = required(options.elements.shell, ".canvas-toolbar__actions");
+  const canvasToolbar = required(options.elements.shell, ".canvas-toolbar");
+  const canvasToolbarActions = required(canvasToolbar, ".canvas-toolbar__actions");
   const canvasHint = required(options.elements.shell, ".canvas-toolbar__hint");
+  const canvasSourceBadge = required(canvasToolbar, ".canvas-toolbar__source-badge");
   const alignLeftButton = required(
-    canvasToolbar,
+    canvasToolbarActions,
     "button[data-flow-command='align-left']",
   ) as HTMLButtonElement;
   const distributeButton = required(
-    canvasToolbar,
+    canvasToolbarActions,
     "button[data-flow-command='distribute-y']",
   ) as HTMLButtonElement;
   let canvasInteractionContext: FlowCanvasInteractionContext = Object.freeze({
@@ -274,6 +409,18 @@ export function createFlowWorkbenchController(
   const renderCanvasInteractionContext = (): void => {
     const english = options.elements.shell.dataset.locale === "en";
     const { mode, selectedCount } = canvasInteractionContext;
+    if (projectionPreview !== null) {
+      canvasToolbar.dataset.presentation = "preview";
+      canvasSourceBadge.textContent = english ? "C Cell · Read only" : "C Cell · 只读";
+      canvasHint.textContent = english
+        ? "Read-only C Cell projection · runtime evidence opens from Runtime Panel"
+        : "C Cell 只读投影 · 运行证据从“运行面板”打开";
+      alignLeftButton.hidden = true;
+      distributeButton.hidden = true;
+      return;
+    }
+    delete canvasToolbar.dataset.presentation;
+    canvasSourceBadge.textContent = "main.c";
     canvasHint.textContent =
       mode === "wiring"
         ? english
@@ -293,11 +440,11 @@ export function createFlowWorkbenchController(
                 : "拖动草稿 · 从右侧端口接入 · 双击编辑"
               : mode === "node"
                 ? english
-                  ? "Drag node · drag a port to wire · double-click for details"
-                  : "拖动积木 · 拖端口接线 · 双击打开详情"
+                  ? "Use the node toolbar to edit C · dragging only changes layout · ports rewire"
+                  : "用节点操作条编辑 C · 拖动只调整布局 · 端口用于改接"
                 : english
-                  ? "Drag in blocks · drag blank canvas to pan · wheel to zoom"
-                  : "拖入积木 · 拖空白平移 · 滚轮缩放";
+                  ? "Drop blocks on highlighted wires · drag nodes for layout only · select a node for structure actions"
+                  : "拖积木到高亮连线 · 拖节点只调布局 · 选择节点用操作条改结构";
     alignLeftButton.hidden = mode !== "multi" || selectedCount < 2;
     distributeButton.hidden = mode !== "multi" || selectedCount < 3;
   };
@@ -320,9 +467,14 @@ export function createFlowWorkbenchController(
 
   const canvas: FlowCanvasController = createFlowCanvas(options.elements.flowCanvas, {
     onNodeClick(node) {
+      if (projectionPreview !== null) return;
       options.onNodeSelect(node);
     },
     onViewStateChange(state, reason) {
+      if (projectionPreview !== null) {
+        projectionPreview.viewState = state;
+        return;
+      }
       currentViewState = state;
       if (!restoring && reason !== "projection" && reason !== "restore") {
         pendingSidecarRestore = null;
@@ -330,9 +482,11 @@ export function createFlowWorkbenchController(
       }
     },
     onConnectionIntent(gesture) {
+      if (projectionPreview !== null) return false;
       return handleConnectionIntent(gesture);
     },
     onConnectionPreflight(gesture) {
+      if (projectionPreview !== null) return Object.freeze({ accepted: false });
       if (gesture.edgeKind === null) return Object.freeze({ accepted: false });
       return options.onConnectionPreflight(
         Object.freeze({
@@ -347,6 +501,7 @@ export function createFlowWorkbenchController(
       );
     },
     onDraftConnectionIntent(intent) {
+      if (projectionPreview !== null) return false;
       const beforeProjection = projection;
       const historyDepth = undoHistory.length;
       checkpoint(true, "接入草稿积木");
@@ -391,6 +546,7 @@ export function createFlowWorkbenchController(
       }
     },
     onVirtualConnectionIntent(intent) {
+      if (projectionPreview !== null) return false;
       return handleVirtualConnectionIntent(intent);
     },
     onWireStatus(message, state) {
@@ -400,10 +556,35 @@ export function createFlowWorkbenchController(
       canvasInteractionContext = context;
       renderCanvasInteractionContext();
     },
+    onStructureAction(action) {
+      if (projectionPreview !== null) return false;
+      return options.onCanvasStructureAction?.(action) ?? false;
+    },
+    onEdgeInsertRequest(request) {
+      if (projectionPreview !== null) return false;
+      return options.onCanvasEdgeInsertRequest?.(request) ?? false;
+    },
+    getEdgeInsertPresets(request) {
+      const locale = options.elements.shell.dataset.locale === "en" ? "en" : "zh-CN";
+      return options.getCanvasEdgeInsertPresets?.(request, locale) ?? Object.freeze([]);
+    },
+    onEdgePresetInsert(request, presetId) {
+      if (projectionPreview !== null) return false;
+      return options.onCanvasEdgePresetInsert?.(request, presetId) ?? false;
+    },
+    inspectStructureNode(node) {
+      const locale = options.elements.shell.dataset.locale === "en" ? "en" : "zh-CN";
+      return options.inspectCanvasNode?.(node, locale);
+    },
+    canInsertOnEdge(edge) {
+      const locale = options.elements.shell.dataset.locale === "en" ? "en" : "zh-CN";
+      return options.inspectCanvasEdge?.(edge, locale)?.available ?? true;
+    },
     onHistoryCheckpoint: () => checkpoint(false, "调整画布"),
     onUndo: undo,
     onRedo: redo,
     onDraftStateChange(state, reason) {
+      if (projectionPreview !== null) return;
       currentDraftState = state;
       publishDraftPresentation();
       if (!restoring && reason !== "restore") {
@@ -412,6 +593,7 @@ export function createFlowWorkbenchController(
       }
     },
     onDeleteNodes(nodeIds) {
+      if (projectionPreview !== null) return;
       const current = projection;
       if (current === null) return;
       const nodes = nodeIds.flatMap((nodeId) => {
@@ -428,6 +610,7 @@ export function createFlowWorkbenchController(
       }
     },
     onCopyNodes(nodeIds) {
+      if (projectionPreview !== null) return;
       const current = projection;
       if (current === null) return;
       const copied = nodeIds.flatMap((nodeId, index) => {
@@ -463,13 +646,20 @@ export function createFlowWorkbenchController(
       );
     },
     renderNodeDetail(context) {
+      const effectiveProjection = projectionPreview?.projection ?? projection;
+      const effectiveAnalysis = projectionPreview?.analysis ?? analysis;
       renderWorkbenchNodeDetail(
         context,
         options.onReplaceNodeSource,
         options.onStatus,
-        projection === null
+        effectiveProjection === null
           ? Object.freeze({ diagnostics: Object.freeze([]), runtime: null })
-          : evidenceForFlowNode(context.node, projection, analysis, runtimeEvidence),
+          : evidenceForFlowNode(
+              context.node,
+              effectiveProjection,
+              effectiveAnalysis,
+              projectionPreview === null ? runtimeEvidence : null,
+            ),
         options.elements.shell.dataset.locale === "en",
       );
     },
@@ -480,6 +670,29 @@ export function createFlowWorkbenchController(
 
   function presentDraftState(): void {
     canvas.setDraftVisualState(currentDraftState);
+  }
+
+  function renderDataFlowAvailability(current: FlowProjection | null): void {
+    const host = options.elements.dataFlowStatusHost;
+    const unavailable = current?.functions.filter((item) => !item.dataFlowAvailable) ?? [];
+    if (current === null || unavailable.length === 0) {
+      host.hidden = true;
+      host.replaceChildren();
+      return;
+    }
+    const english = options.elements.shell.dataset.locale === "en";
+    const reasonCodes = [...new Set(unavailable.flatMap((item) => item.dataFlowDisabledReasons))];
+    const message = host.ownerDocument.createElement("p");
+    message.textContent =
+      reasonCodes.length === 0
+        ? english
+          ? "Data relationships are still being analyzed. The control-flow projection remains available."
+          : "数据关系仍在分析；控制流投影可以继续使用。"
+        : english
+          ? `Data relationships are unavailable for ${functionList(unavailable.map((item) => item.name))}: ${reasonCodes.map((reason) => defUseReasonLabel(reason, true)).join("; ")}.`
+          : `${functionList(unavailable.map((item) => item.name))} 暂无可靠数据关系：${reasonCodes.map((reason) => defUseReasonLabel(reason, false)).join("；")}。`;
+    host.hidden = false;
+    host.replaceChildren(message);
   }
 
   function markDraftInvalid(nodeId: string): void {
@@ -500,6 +713,7 @@ export function createFlowWorkbenchController(
   publishDraftPresentation();
   const onCanvasLocaleChange = (): void => {
     renderCanvasInteractionContext();
+    renderDataFlowAvailability(projectionPreview?.projection ?? projection);
     if (lastLocalizedStatus !== null) {
       const current = lastLocalizedStatus;
       options.onStatus(
@@ -515,20 +729,23 @@ export function createFlowWorkbenchController(
       "button[data-flow-command]",
     );
     const command = target?.dataset.flowCommand;
-    if (command === "undo") undo();
+    if (command === "undo" && projectionPreview === null) undo();
     else if (command === "align-left") canvas.alignSelection("left");
     else if (command === "distribute-y") canvas.alignSelection("distribute-y");
   };
-  canvasToolbar.addEventListener("click", onCanvasToolbarClick);
+  canvasToolbarActions.addEventListener("click", onCanvasToolbarClick);
   const onRevealFlowDetail = (): void => {
+    const visibleProjection = projectionPreview?.projection ?? projection;
     const node =
-      projection?.nodes.find(
+      visibleProjection?.nodes.find(
         (candidate) =>
           candidate.kind !== "start" &&
           candidate.kind !== "end" &&
           candidate.sourceText.trim().length > 0,
       ) ??
-      projection?.nodes.find((candidate) => candidate.kind !== "start" && candidate.kind !== "end");
+      visibleProjection?.nodes.find(
+        (candidate) => candidate.kind !== "start" && candidate.kind !== "end",
+      );
     if (node !== undefined) canvas.focusNode(node.id);
   };
   options.elements.shell.addEventListener(WORKBENCH_REVEAL_FLOW_DETAIL_EVENT, onRevealFlowDetail);
@@ -627,7 +844,7 @@ export function createFlowWorkbenchController(
   }
 
   function checkpoint(sourceMutation: boolean, action: string): void {
-    if (restoring || currentViewState === null) return;
+    if (projectionPreview !== null || restoring || currentViewState === null) return;
     undoHistory.push(
       Object.freeze({
         view: currentViewState,
@@ -757,20 +974,34 @@ export function createFlowWorkbenchController(
 
   function persist(): void {
     const current = projection;
-    const viewState = currentViewState;
     if (
       destroyed ||
       current === null ||
-      viewState === null ||
+      currentViewState === null ||
       activeEntryId === null ||
       sidecarLoading ||
       pendingSidecarRestore !== null
     ) {
       return;
     }
-    const serializedView = JSON.parse(serializeFlowViewState(viewState, current)) as unknown;
+    let serializedView: unknown;
+    try {
+      serializedView = JSON.parse(serializeFlowViewState(currentViewState, current)) as unknown;
+    } catch {
+      // A transient preview callback must never make project persistence fail. If view coordinates
+      // no longer belong to the authoritative main.c projection, discard only that view state and
+      // persist a source-derived default; source, drafts and project files remain untouched.
+      currentViewState = createDefaultFlowViewState(current);
+      serializedView = JSON.parse(serializeFlowViewState(currentViewState, current)) as unknown;
+      presentLocalizedStatus(
+        "画布视图与当前源码失配，已仅重置节点位置；main.c 未修改。",
+        "The canvas view no longer matched the current source. Node positions were reset; main.c was not changed.",
+        "warning",
+      );
+    }
     const sidecar: FlowWorkbenchSidecar = Object.freeze({
       schemaVersion: FLOW_WORKBENCH_SIDECAR_SCHEMA_VERSION,
+      layoutProfile: CURRENT_WORKBENCH_LAYOUT_PROFILE,
       sourceFingerprint: current.sourceFingerprint,
       viewState: serializedView,
       layoutPreset,
@@ -785,9 +1016,26 @@ export function createFlowWorkbenchController(
     restoring = true;
     try {
       currentViewState = createDefaultFlowViewState(current);
-      canvas.setProjection(current);
-      canvas.setViewState(currentViewState);
-      presentDraftState();
+      if (projectionPreview === null) {
+        canvas.setProjection(current);
+        canvas.setViewState(currentViewState);
+        presentDraftState();
+      }
+    } finally {
+      restoring = false;
+    }
+  }
+
+  function resetWorkspacePresentation(): void {
+    restoring = true;
+    try {
+      resetLayouts(
+        layouts.map((layout) => layout.id),
+        layouts,
+        layoutSnapshots,
+      );
+      layoutPreset = "build";
+      options.elements.applyLayoutPreset(layoutPreset, { activateWorkspace: false });
     } finally {
       restoring = false;
     }
@@ -795,11 +1043,16 @@ export function createFlowWorkbenchController(
 
   function applyProjectionSidecarRestore(
     restored: Extract<FlowProjectionSidecarRestore, { readonly ok: true }>,
+    readableViewportMigration = false,
   ): void {
     currentDraftState = restored.draftState;
     presentDraftState();
     currentViewState = restored.viewState;
     canvas.setViewState(currentViewState);
+    if (readableViewportMigration) {
+      canvas.fitReadableNodes();
+      currentViewState = canvas.getViewState();
+    }
   }
 
   function retryPendingSidecarRestore(finalize: boolean): void {
@@ -819,7 +1072,11 @@ export function createFlowWorkbenchController(
       );
       return;
     }
-    applyProjectionSidecarRestore(restored);
+    applyProjectionSidecarRestore(
+      restored,
+      pending.sidecar.schemaVersion === 1 ||
+        pending.sidecar.layoutProfile !== CURRENT_WORKBENCH_LAYOUT_PROFILE,
+    );
     if (finalize || !restored.retryable) pendingSidecarRestore = null;
     if (finalize && restored.issues.length > 0) {
       options.onStatus(
@@ -846,7 +1103,9 @@ export function createFlowWorkbenchController(
     }
     restoring = true;
     try {
-      restoreLayouts(sidecar.layouts, layouts, layoutSnapshots);
+      const layoutRestore = planWorkbenchLayoutRestore(sidecar.layoutProfile, sidecar.layouts);
+      resetLayouts(layoutRestore.resetLayoutIds, layouts, layoutSnapshots);
+      restoreLayouts(layoutRestore.snapshots, layouts, layoutSnapshots);
       // Sidecar I/O completes asynchronously. Restore the underlying workspace layout without
       // navigating: otherwise a late read can overwrite a Library/Analysis page the user opened
       // while the project was loading.
@@ -863,7 +1122,10 @@ export function createFlowWorkbenchController(
         );
         return;
       }
-      applyProjectionSidecarRestore(restored);
+      applyProjectionSidecarRestore(
+        restored,
+        sidecar.schemaVersion === 1 || sidecar.layoutProfile !== CURRENT_WORKBENCH_LAYOUT_PROFILE,
+      );
       pendingSidecarRestore = restored.retryable ? Object.freeze({ sidecar, sourceMatches }) : null;
       if (restored.retryable) {
         presentLocalizedStatus(
@@ -919,22 +1181,53 @@ export function createFlowWorkbenchController(
   const onCanvasDragOver = (event: DragEvent): void => {
     if (!event.dataTransfer?.types.includes("application/x-c-block-preset")) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-    const edge = canvas.findEditableControlEdgeAtClientPoint(event.clientX, event.clientY);
+    const preset = activePresetDragId === null ? null : options.resolvePreset(activePresetDragId);
+    const slot =
+      preset?.blockKind === "virtual" ? null : slotAtClientPoint(event.clientX, event.clientY);
+    const compatible =
+      slot !== null && compatibleSlotIds(activePresetDragId).has(slot.id) ? slot : null;
+    const edge =
+      preset?.blockKind === "virtual" || compatible !== null
+        ? null
+        : canvas.findInsertableControlEdgeAtClientPoint(event.clientX, event.clientY);
+    event.dataTransfer.dropEffect =
+      preset?.blockKind === "virtual" || compatible !== null || edge !== null ? "copy" : "none";
+    canvas.setSlotDropPreview(compatible?.id ?? null);
     canvas.setEdgeInsertionPreview(edge?.id ?? null);
   };
   const onCanvasDragLeave = (event: DragEvent): void => {
     const related = event.relatedTarget;
     if (related !== null && options.elements.flowCanvas.contains(related as Node)) return;
+    canvas.setSlotDropPreview(null);
     canvas.setEdgeInsertionPreview(null);
   };
   const onCanvasDrop = (event: DragEvent): void => {
     const presetId = event.dataTransfer?.getData("application/x-c-block-preset") ?? "";
     if (presetId.length === 0) return;
     event.preventDefault();
-    const insertionEdge = canvas.findEditableControlEdgeAtClientPoint(event.clientX, event.clientY);
+    activePresetDropHandled = true;
+    const droppedSlot = slotAtClientPoint(event.clientX, event.clientY);
+    const insertionEdge =
+      droppedSlot === null
+        ? canvas.findInsertableControlEdgeAtClientPoint(event.clientX, event.clientY)
+        : null;
+    canvas.setSlotDropPreview(null);
     canvas.setEdgeInsertionPreview(null);
+    canvas.setPresetDragActive(false);
     const preset = options.resolvePreset(presetId);
+    if (
+      droppedSlot !== null &&
+      preset !== null &&
+      preset.source !== null &&
+      preset.blockKind !== "virtual" &&
+      compatibleSlotIds(presetId).has(droppedSlot.id)
+    ) {
+      const analysis = options.getStatementAnalysis?.() ?? null;
+      const request =
+        analysis === null ? null : canvasSlotInsertRequest(analysis, droppedSlot, preset.source);
+      const handled = request === null ? undefined : options.onCanvasSlotInsertRequest?.(request);
+      if (request !== null && handled !== false) return;
+    }
     if (preset === null) {
       options.onStatus("拖入的预设已经失效；未创建草稿。", "error");
       return;
@@ -961,6 +1254,39 @@ export function createFlowWorkbenchController(
       x: (event.clientX - rect.left - view.viewport.x) / view.viewport.zoom,
       y: (event.clientY - rect.top - view.viewport.y) / view.viewport.zoom,
     });
+    if (insertionEdge !== null && preset.source !== null && preset.blockKind !== "virtual") {
+      try {
+        const accepted =
+          options.onCanvasEdgeInsertRequest?.(
+            createCanvasEdgeInsertRequest(
+              projection?.sourceFingerprint ?? "",
+              insertionEdge,
+              position,
+              "custom",
+              preset.source,
+            ),
+          ) === true;
+        options.onStatus(
+          accepted
+            ? `已为“${preset.label}”打开源码差异确认；确认前 main.c 不会改变。`
+            : "当前连线不能精确映射到安全的 C 语句插槽；main.c 未修改。",
+          accepted ? "ready" : "warning",
+        );
+      } catch (error: unknown) {
+        const detail = error instanceof Error ? error.message : String(error);
+        options.onStatus(`连线插入被拒绝：${detail}。main.c 未修改。`, "error");
+      }
+      return;
+    }
+    if (preset.source !== null && preset.blockKind !== "virtual") {
+      options.onStatus(
+        canvas.getInsertableControlEdgeCount() === 0
+          ? "当前源码没有可精确映射的插入连线；请选择节点后使用上方或下方插入。"
+          : "请把积木放到已高亮的连线上；空白画布只用于布局，不会创建源码草稿。",
+        "warning",
+      );
+      return;
+    }
     const next = draftNode(
       `preset-${String(Date.now())}-${String(currentDraftState.nodes.length)}`,
       preset.label,
@@ -968,72 +1294,6 @@ export function createFlowWorkbenchController(
       position,
       preset,
     );
-    const retainRejectedInsertionDraft = (): void => {
-      checkpoint(false, "保留未接入积木");
-      currentDraftState = Object.freeze({
-        ...currentDraftState,
-        nodes: Object.freeze([
-          ...currentDraftState.nodes,
-          Object.freeze({ ...next, status: "invalid" as const }),
-        ]),
-        selectedNodeIds: Object.freeze([next.id]),
-        connection: null,
-      });
-      presentDraftState();
-      persist();
-    };
-    if (insertionEdge !== null && preset.source !== null && preset.blockKind !== "virtual") {
-      const historyDepth = undoHistory.length;
-      checkpoint(true, "插入预设积木");
-      const intent: FlowCanvasDraftConnectionIntent = Object.freeze({
-        sourceFingerprint: projection?.sourceFingerprint ?? "",
-        draftNodeId: next.id,
-        draftPortId: `${next.id}:next`,
-        presetId: preset.id,
-        sourceText: preset.source,
-        toNodeId: insertionEdge.to.nodeId,
-        toPortId: insertionEdge.to.portId,
-        edgeKind: insertionEdge.kind,
-        insertOnEdge: Object.freeze({
-          edgeId: insertionEdge.id,
-          fromNodeId: insertionEdge.from.nodeId,
-          fromPortId: insertionEdge.from.portId,
-          toNodeId: insertionEdge.to.nodeId,
-          toPortId: insertionEdge.to.portId,
-          edgeKind: insertionEdge.kind,
-        }),
-      });
-      try {
-        const beforeProjection = projection;
-        const committed = options.onDraftConnectionIntent(intent);
-        if (!committed) {
-          undoHistory.splice(historyDepth);
-          retainRejectedInsertionDraft();
-          options.onStatus("插入未提交；积木已保留为未接入草稿，main.c 未修改。", "warning");
-          return;
-        }
-        emitLearningObservations({
-          workspaceId: activeEntryId,
-          beforeProjection,
-          intent,
-          resultingSourceFingerprint: projection?.sourceFingerprint ?? "",
-          committed,
-          roundtripAccepted: true,
-          cfgAccepted: true,
-        });
-        persist();
-        options.onStatus(`已把“${preset.label}”插入所选连线并通过 CFG 后置验证。`, "ready");
-      } catch (error: unknown) {
-        undoHistory.splice(historyDepth);
-        retainRejectedInsertionDraft();
-        const detail = error instanceof Error ? error.message : String(error);
-        options.onStatus(
-          `连线插入被拒绝：${detail}。积木已保留为无效草稿，main.c 未修改。`,
-          "error",
-        );
-      }
-      return;
-    }
     checkpoint(false, "放置积木");
     currentDraftState = Object.freeze({
       nodes: Object.freeze([...currentDraftState.nodes, next]),
@@ -1043,16 +1303,66 @@ export function createFlowWorkbenchController(
     });
     presentDraftState();
     persist();
-    options.onStatus(
-      preset.source === null
-        ? `已放置虚拟节点“${preset.label}”；它只控制回放，不改变 C 语义。`
-        : `已放置未接入草稿“${preset.label}”；连接并验证前 main.c 不会改变。`,
-      "ready",
-    );
+    options.onStatus(`已放置虚拟节点“${preset.label}”；它只控制回放，不改变 C 语义。`, "ready");
   };
   options.elements.flowCanvas.addEventListener("dragover", onCanvasDragOver);
   options.elements.flowCanvas.addEventListener("dragleave", onCanvasDragLeave);
   options.elements.flowCanvas.addEventListener("drop", onCanvasDrop);
+  const onPresetDragStart = (event: DragEvent): void => {
+    const presetId = event.dataTransfer?.getData("application/x-c-block-preset") ?? "";
+    if (presetId.length === 0) return;
+    activePresetDragId = presetId;
+    activePresetDropHandled = false;
+    canvas.setPresetDragActive(true);
+    canvas.setSlotCompatibility(compatibleSlotIds(presetId));
+    const preset = options.resolvePreset(presetId);
+    if (preset?.blockKind === "virtual") {
+      presentLocalizedStatus(
+        "虚拟节点可放在画布空白处；它只控制回放，不修改 C。",
+        "Virtual nodes may be placed on blank canvas; they control playback without changing C.",
+        "ready",
+      );
+      return;
+    }
+    const count = canvas.getInsertableControlEdgeCount();
+    const locale = options.elements.shell.dataset.locale === "en" ? "en" : "zh-CN";
+    const exactReason =
+      count === 0
+        ? projection?.edges
+            .filter(
+              (edge) => edge.kind === "entry" || edge.kind === "next" || edge.kind === "return",
+            )
+            .map((edge) => options.inspectCanvasEdge?.(edge, locale))
+            .find((result) => result?.available === false && result.reason !== null)?.reason
+        : null;
+    presentLocalizedStatus(
+      count === 0
+        ? (exactReason ?? "当前源码没有安全插入连线；请选择节点，用操作条在上方或下方插入。")
+        : `已高亮 ${String(count)} 个安全插入位置；请把积木放到其中一条连线上。`,
+      count === 0
+        ? (exactReason ??
+            "This source has no safe insertion wire. Select a node and insert above or below.")
+        : `${String(count)} safe insertion positions are highlighted. Drop the block on one of them.`,
+      count === 0 ? "warning" : "ready",
+    );
+  };
+  const onPresetDragEnd = (): void => {
+    if (activePresetDragId === null) return;
+    const preset = options.resolvePreset(activePresetDragId);
+    if (!activePresetDropHandled && preset?.source !== null && preset?.blockKind !== "virtual") {
+      presentLocalizedStatus(
+        "积木没有落到安全插入位置；main.c 未修改。",
+        "The block was not dropped on a safe insertion position; main.c is unchanged.",
+        "warning",
+      );
+    }
+    activePresetDragId = null;
+    activePresetDropHandled = false;
+    canvas.setPresetDragActive(false);
+    renderCanvasInteractionContext();
+  };
+  options.elements.shell.addEventListener("dragstart", onPresetDragStart);
+  options.elements.shell.addEventListener("dragend", onPresetDragEnd);
 
   function emitLearningObservations(candidate: FlowLearningDraftCommitCandidate): void {
     const observer = options.onLearningObservation;
@@ -1095,9 +1405,11 @@ export function createFlowWorkbenchController(
       if (sameSource && currentViewState !== null) {
         restoring = true;
         try {
-          canvas.setProjection(nextProjection);
-          currentViewState = canvas.getViewState();
-          presentDraftState();
+          if (projectionPreview === null) {
+            canvas.setProjection(nextProjection);
+            currentViewState = canvas.getViewState();
+            presentDraftState();
+          }
           retryPendingSidecarRestore(false);
         } finally {
           restoring = false;
@@ -1105,6 +1417,8 @@ export function createFlowWorkbenchController(
       } else {
         adoptDefaultView(nextProjection);
       }
+      refreshSlots();
+      renderDataFlowAvailability(projectionPreview?.projection ?? nextProjection);
       persist();
     },
     setAnalysis(nextAnalysis: ProgramAnalysisSnapshot | null): void {
@@ -1113,7 +1427,64 @@ export function createFlowWorkbenchController(
         nextAnalysis !== null && nextAnalysis.sourceFingerprint === projection?.sourceFingerprint
           ? nextAnalysis
           : null;
-      canvas.refreshDetail();
+      refreshSlots();
+      if (projectionPreview === null) canvas.refreshDetail();
+    },
+    previewProjection(
+      nextProjection: FlowProjection,
+      nextAnalysis: ProgramAnalysisSnapshot | null = null,
+    ): void {
+      assertActive(destroyed);
+      const preview = readOnlyPreviewProjection(nextProjection);
+      const previewAnalysis =
+        nextAnalysis !== null && nextAnalysis.sourceFingerprint === preview.sourceFingerprint
+          ? nextAnalysis
+          : null;
+      const viewState = createDefaultFlowViewState(preview);
+      projectionPreview = { projection: preview, analysis: previewAnalysis, viewState };
+      renderCanvasInteractionContext();
+      restoring = true;
+      try {
+        canvas.setProjection(preview);
+        canvas.setViewState(viewState);
+        canvas.setDraftVisualState(null);
+        canvas.setSlots([]);
+        canvas.setResponsiveFit(true);
+        projectionPreview.viewState = canvas.getViewState();
+        canvas.refreshDetail();
+        renderDataFlowAvailability(preview);
+      } finally {
+        restoring = false;
+      }
+    },
+    clearProjectionPreview(): void {
+      assertActive(destroyed);
+      if (projectionPreview === null) return;
+      const authoritativeViewState = currentViewState;
+      restoring = true;
+      try {
+        canvas.setResponsiveFit(false);
+        // Keep preview mode active while the canvas swaps projections. setProjection() emits a
+        // view-state callback synchronously; clearing the preview first would let that transient
+        // preview state overwrite the authoritative main.c view and later poison flow-view.json.
+        if (projection === null || authoritativeViewState === null) {
+          canvas.setProjection(null);
+          canvas.setDraftVisualState(null);
+          canvas.setSlots([]);
+        } else {
+          canvas.setProjection(projection);
+          canvas.setViewState(authoritativeViewState);
+          presentDraftState();
+          canvas.setSlots(slotRects);
+        }
+        currentViewState = authoritativeViewState;
+        projectionPreview = null;
+        renderCanvasInteractionContext();
+        canvas.refreshDetail();
+        renderDataFlowAvailability(projection);
+      } finally {
+        restoring = false;
+      }
     },
     setActivePath(path: FlowCanvasActivePath, nextEvidence?: FlowNodeRuntimeSnapshot | null): void {
       assertActive(destroyed);
@@ -1165,11 +1536,16 @@ export function createFlowWorkbenchController(
       try {
         const adoption = await persistence.adopt(entryId, current.sourceFingerprint);
         if (destroyed || generation !== adoptionGeneration || activeEntryId !== entryId) return;
-        if (adoption.document !== null) {
-          restoreSidecar(adoption.document.serialized, adoption.matchesSource);
-        }
+        const shouldPersistFirstView = applyFlowWorkspaceAdoptionPresentation(adoption, {
+          restoreSidecar,
+          // Layout controllers live for the lifetime of the window. A new workspace has no
+          // sidecar to overwrite their current sizes, so reset before its first persistence;
+          // otherwise the project silently inherits the entry we just left.
+          resetPresentation: resetWorkspacePresentation,
+          fitFirstProjection: canvas.fitReadableNodes,
+        });
         sidecarLoading = false;
-        if (adoption.document === null) persist();
+        if (shouldPersistFirstView) persist();
       } catch (error: unknown) {
         if (destroyed || generation !== adoptionGeneration) return;
         sidecarLoading = false;
@@ -1209,13 +1585,17 @@ export function createFlowWorkbenchController(
       options.elements.flowCanvas.removeEventListener("dragover", onCanvasDragOver);
       options.elements.flowCanvas.removeEventListener("dragleave", onCanvasDragLeave);
       options.elements.flowCanvas.removeEventListener("drop", onCanvasDrop);
+      options.elements.shell.removeEventListener("dragstart", onPresetDragStart);
+      options.elements.shell.removeEventListener("dragend", onPresetDragEnd);
       options.elements.shell.removeEventListener("workbench-locale-change", onCanvasLocaleChange);
-      canvasToolbar.removeEventListener("click", onCanvasToolbarClick);
+      canvasToolbarActions.removeEventListener("click", onCanvasToolbarClick);
       persistence.destroy();
       canvas.destroy();
       for (const layout of [...layouts].reverse()) layout.controller.destroy();
       layoutSnapshots.clear();
       projection = null;
+      projectionPreview = null;
+      renderDataFlowAvailability(null);
       currentViewState = null;
       currentDraftState = emptyDraftState();
       activeEntryId = null;
@@ -1224,6 +1604,8 @@ export function createFlowWorkbenchController(
       activeVirtualNodeIds = new Set();
       analysis = null;
       runtimeEvidence = null;
+      activePresetDragId = null;
+      activePresetDropHandled = false;
       undoHistory.length = 0;
       redoHistory.length = 0;
     },
@@ -1444,10 +1826,17 @@ function createWorkbenchLayouts(
   const tracePanel = required(owner, "#trace-workbench-host");
   const executionPanel = required(owner, ".runtime-advanced");
   return Object.freeze([
-    layout("main", elements.buildLayout, "horizontal", [
-      pane("left", elements.leftPane, 240, 150, 420),
-      pane("work", elements.workArea, 980, 640, 2400),
-    ]),
+    layout(
+      "main",
+      elements.buildLayout,
+      "horizontal",
+      [
+        pane("left", elements.leftPane, 240, 150, 420),
+        pane("work", elements.workArea, 980, 640, 2400),
+      ],
+      undefined,
+      [elements.narrowPanelScrim],
+    ),
     layout(
       "work",
       elements.workArea,
@@ -1483,11 +1872,13 @@ function createWorkbenchLayouts(
     axis: "horizontal" | "vertical",
     panes: readonly ReturnType<typeof pane>[],
     overflowFillPaneId?: string,
+    overlays?: readonly HTMLElement[],
   ) {
     const controller = createResizableLayout(host, {
       axis,
       panes,
       overflowFillPaneId,
+      overlays,
       localeHost: elements.shell,
       onPersist(value) {
         onPersist(Object.freeze({ id, value }));
@@ -1520,11 +1911,25 @@ function restoreLayouts(
   }
 }
 
+function resetLayouts(
+  layoutIds: readonly string[],
+  layouts: readonly { readonly id: string; readonly controller: ResizableLayoutController }[],
+  target: Map<string, ResizableLayoutSnapshot>,
+): void {
+  const requested = new Set(layoutIds);
+  for (const layout of layouts) {
+    if (!requested.has(layout.id)) continue;
+    layout.controller.reset();
+    target.set(layout.id, layout.controller.getSnapshot());
+  }
+}
+
 export function readFlowWorkbenchSidecar(value: unknown): FlowWorkbenchSidecar | null {
   if (!isRecord(value)) return null;
   if (
     (value.schemaVersion !== 1 && value.schemaVersion !== FLOW_WORKBENCH_SIDECAR_SCHEMA_VERSION) ||
     typeof value.sourceFingerprint !== "string" ||
+    (value.layoutProfile !== undefined && typeof value.layoutProfile !== "string") ||
     typeof value.layoutPreset !== "string" ||
     !VALID_LAYOUT_PRESETS.has(value.layoutPreset) ||
     !isRecord(value.layouts) ||
@@ -1539,6 +1944,7 @@ export function readFlowWorkbenchSidecar(value: unknown): FlowWorkbenchSidecar |
   }
   return Object.freeze({
     schemaVersion: value.schemaVersion,
+    ...(value.layoutProfile === undefined ? {} : { layoutProfile: value.layoutProfile }),
     sourceFingerprint: value.sourceFingerprint,
     viewState: value.viewState,
     layoutPreset: value.layoutPreset,
@@ -1641,6 +2047,65 @@ function compactQuickOpenNodeSource(source: string, fallback: string): string {
   const compact = source.replaceAll(/\s+/gu, " ").trim();
   if (compact.length === 0) return fallback;
   return compact.length <= 52 ? compact : `${compact.slice(0, 49)}…`;
+}
+
+function readOnlyPreviewProjection(projection: FlowProjection): FlowProjection {
+  return Object.freeze({
+    ...projection,
+    nodes: Object.freeze(
+      projection.nodes.map((node) =>
+        Object.freeze({
+          ...node,
+          locked: true,
+          ports: Object.freeze(
+            node.ports.map((port) => Object.freeze({ ...port, editable: false })),
+          ),
+        }),
+      ),
+    ),
+    edges: Object.freeze(
+      projection.edges.map((edge) => Object.freeze({ ...edge, editable: false })),
+    ),
+  });
+}
+
+function functionList(names: readonly string[]): string {
+  const visible = names.slice(0, 3).join(", ");
+  return names.length <= 3 ? visible : `${visible} +${String(names.length - 3)}`;
+}
+
+function defUseReasonLabel(reason: DefUseDisabledReasonCode, english: boolean): string {
+  const labels: Readonly<Record<DefUseDisabledReasonCode, Readonly<{ zh: string; en: string }>>> = {
+    "cfg-partial": { zh: "控制流图不完整", en: "partial control-flow graph" },
+    "invalid-function-cst": { zh: "函数语法树无效", en: "invalid function syntax tree" },
+    "parse-error": { zh: "源码存在解析错误", en: "source parse error" },
+    preprocessor: { zh: "预处理边界影响分析", en: "preprocessor boundary" },
+    "projection-issue": { zh: "源码投影不完整", en: "incomplete source projection" },
+    "parse-concern": { zh: "解析结果存在歧义", en: "ambiguous parse result" },
+    "raw-block": { zh: "包含无法结构化的源码", en: "unstructured source region" },
+    "missing-function-projection": {
+      zh: "函数投影尚未建立",
+      en: "function projection unavailable",
+    },
+    "unsequenced-conflict": {
+      zh: "表达式求值顺序存在冲突",
+      en: "unsequenced expression conflict",
+    },
+    "unsupported-effect-order": {
+      zh: "当前分析器无法可靠确定副作用顺序",
+      en: "effect order cannot yet be proven reliably",
+    },
+    "effect-cst-mismatch": {
+      zh: "副作用与语法树无法可靠对应",
+      en: "effect and syntax-tree mismatch",
+    },
+    "opaque-alias-effect": {
+      zh: "指针别名副作用不透明",
+      en: "opaque pointer-alias effect",
+    },
+  };
+  const label = labels[reason];
+  return english ? `${label.en} (${reason})` : `${label.zh}（${reason}）`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

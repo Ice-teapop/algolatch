@@ -9,6 +9,20 @@
   background-color: var(--input-surface);
 }
 
+.flow-canvas-host:focus-visible {
+  outline: var(--interaction-focus-width) solid var(--focus);
+  outline-offset: var(--interaction-focus-offset);
+}
+
+.flow-canvas-host:focus-visible::after {
+  position: absolute;
+  z-index: 40;
+  inset: 3px;
+  border: 1px solid color-mix(in srgb, var(--focus) 42%, transparent);
+  content: "";
+  pointer-events: none;
+}
+
 .flow-canvas {
   position: relative;
   container-type: size;
@@ -37,6 +51,8 @@
 .flow-canvas__wires,
 .flow-canvas__viewport,
 .flow-canvas__surface,
+.flow-canvas__slot-layer,
+.flow-canvas__edge-insert-layer,
 .flow-canvas__node-layer,
 .flow-canvas__draft-layer {
   position: absolute;
@@ -50,6 +66,8 @@
 }
 
 .flow-canvas__surface,
+.flow-canvas__slot-layer,
+.flow-canvas__edge-insert-layer,
 .flow-canvas__node-layer,
 .flow-canvas__draft-layer {
   width: 4096px;
@@ -59,6 +77,42 @@
 .flow-canvas__node-layer,
 .flow-canvas__draft-layer {
   pointer-events: none;
+}
+
+.flow-canvas__slot-layer,
+.flow-canvas__edge-insert-layer {
+  pointer-events: none;
+}
+
+.flow-canvas__slot,
+.flow-canvas__edge-insert {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.flow-canvas__edge-insert {
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+/* A source preset is dropped into a syntax gap, not onto the overlapping node socket. */
+.flow-canvas.is-preset-drag .flow-canvas__slot-layer {
+  z-index: 8;
+}
+
+.flow-canvas.is-preset-drag .flow-canvas__edge-insert-layer {
+  z-index: 9;
+}
+
+.flow-canvas.is-preset-drag .flow-canvas__slot[data-slot-compatible="true"] {
+  border: 1px dashed color-mix(in srgb, var(--focus) 62%, transparent);
+  background: color-mix(in srgb, var(--focus) 8%, transparent);
+  pointer-events: auto;
+}
+
+.flow-canvas.is-preset-drag .flow-canvas__slot[data-slot-compatible="true"].is-drop-target {
+  border-style: solid;
+  background: color-mix(in srgb, var(--focus) 16%, transparent);
 }
 
 .flow-canvas__wires {
@@ -186,7 +240,7 @@
   stroke-width: 3px;
   paint-order: stroke fill;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--text-caption);
   font-weight: 700;
   letter-spacing: 0.02em;
   opacity: 0.48;
@@ -274,7 +328,8 @@
 .flow-node[data-node-kind="raw"],
 .flow-node[data-locked="true"] {
   border-left-color: var(--raw);
-  background: var(--surface-soft);
+  color: var(--ink);
+  background: var(--surface-raised);
 }
 
 .flow-node[data-reachable="true"] {
@@ -283,18 +338,21 @@
   opacity: 1;
 }
 
-.flow-node[data-reachable="false"] {
-  border-color: var(--muted-subtle);
-  border-left-color: var(--muted-subtle);
+.flow-node[data-execution-reachability="unreachable"] {
+  border-color: var(--line-strong);
+  border-left-color: var(--warning);
   border-style: dashed;
-  color: var(--ink-secondary);
-  background: var(--surface-soft);
-  box-shadow: none;
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
-.flow-node[data-reachable="false"] .flow-node__kind,
-.flow-node[data-reachable="false"] .flow-node__status {
-  color: var(--muted);
+.flow-node[data-execution-reachability="unreachable"] .flow-node__kind {
+  color: var(--ink-secondary);
+}
+
+.flow-node[data-execution-reachability="unreachable"] .flow-node__status {
+  color: var(--warning);
 }
 
 .flow-node:hover,
@@ -308,7 +366,9 @@
 
 .flow-canvas.has-active-path .flow-node:not(.is-active-path),
 .flow-canvas.has-active-path .flow-canvas__draft-node:not(.is-active-path) {
-  opacity: 0.32;
+  /* The accent identifies the proven path. Keep the source projection fully legible instead of
+     making unvisited or non-algorithmic code look disabled. */
+  opacity: 1;
 }
 
 .flow-node.is-active-path[data-execution-mode="real"] {
@@ -357,7 +417,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--muted-subtle);
-  font-size: 8px;
+  font-size: var(--text-caption);
   font-weight: 650;
   letter-spacing: 0.04em;
   text-overflow: ellipsis;
@@ -368,12 +428,14 @@
 .flow-node__label {
   overflow: hidden;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--text-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .flow-node__port {
+  --flow-port-dot-size: 6px;
+
   position: absolute;
   width: 24px;
   height: 24px;
@@ -388,14 +450,15 @@
 
 .flow-node__port::after {
   position: absolute;
-  top: 7px;
-  left: 7px;
-  width: 8px;
-  height: 8px;
+  top: 50%;
+  left: 50%;
+  width: var(--flow-port-dot-size);
+  height: var(--flow-port-dot-size);
+  transform: translate(-50%, -50%);
   border: 1px solid var(--ink-secondary);
   border-radius: 50%;
   background: var(--surface-raised);
-  box-shadow: inset 0 0 0 2px var(--surface-raised);
+  box-shadow: none;
   content: "";
 }
 
@@ -427,24 +490,24 @@
   border-color: var(--ink-secondary);
   background: var(--ink-secondary);
   box-shadow:
-    0 0 0 2px var(--surface-raised),
-    0 0 0 3px var(--ink-secondary);
+    0 0 0 1px var(--surface-raised),
+    0 0 0 2px var(--ink-secondary);
 }
 
 .flow-node__port[data-selected-cable-end="true"]::after {
   border-color: var(--accent);
   background: var(--accent);
   box-shadow:
-    0 0 0 2px var(--surface-raised),
-    0 0 0 4px var(--accent-line);
+    0 0 0 1px var(--surface-raised),
+    0 0 0 3px var(--accent-line);
 }
 
 .flow-node__port[data-wire-pressed="true"]::after {
   border-color: var(--accent);
   background: var(--accent);
   box-shadow:
-    0 0 0 2px var(--surface-raised),
-    0 0 0 4px color-mix(in srgb, var(--accent) 34%, transparent);
+    0 0 0 1px var(--surface-raised),
+    0 0 0 3px color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .flow-node__port[data-selected-cable-end="true"][data-cable-label]::before,
@@ -457,7 +520,7 @@
   padding: 0 2px;
   color: var(--ink-secondary);
   background: var(--input-surface);
-  font-size: 8px;
+  font-size: var(--text-caption);
   font-weight: 650;
   line-height: 12px;
   letter-spacing: 0.01em;
@@ -511,8 +574,8 @@
 .flow-node__port:focus-visible::after {
   border-color: var(--accent);
   box-shadow:
-    0 0 0 2px var(--surface-raised),
-    0 0 0 3px var(--accent);
+    0 0 0 1px var(--surface-raised),
+    0 0 0 2px var(--accent);
 }
 
 .flow-canvas__wire-status {
@@ -524,7 +587,7 @@
   padding: 4px 7px;
   color: var(--ink-secondary);
   background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.35;
   pointer-events: none;
 }
@@ -557,28 +620,28 @@
   border-color: var(--accent);
   background: var(--accent);
   box-shadow:
-    0 0 0 2px var(--surface-raised),
-    0 0 0 4px color-mix(in srgb, var(--accent) 32%, transparent);
+    0 0 0 1px var(--surface-raised),
+    0 0 0 3px color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 .flow-canvas.is-wiring .flow-node__port[data-wire-nearest="true"]::after {
   box-shadow:
-    0 0 0 2px var(--surface-raised),
-    0 0 0 5px color-mix(in srgb, var(--accent) 42%, transparent);
+    0 0 0 1px var(--surface-raised),
+    0 0 0 4px color-mix(in srgb, var(--accent) 42%, transparent);
 }
 
 .flow-canvas.is-wiring .flow-node__port[data-wire-target="source"]::after {
   background: var(--surface-raised);
   box-shadow:
-    inset 0 0 0 2px var(--accent),
-    0 0 0 2px var(--surface-raised),
-    0 0 0 3px var(--accent);
+    inset 0 0 0 1px var(--accent),
+    0 0 0 1px var(--surface-raised),
+    0 0 0 2px var(--accent);
 }
 
 .flow-canvas.is-wiring .flow-node__port[data-wire-target="detached"]::after {
-  border: 2px solid var(--accent);
+  border: 1px solid var(--accent);
   background: var(--surface-raised);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -615,7 +678,7 @@
   padding: 7px 9px;
   border: 1px dashed var(--line-strong);
   background: var(--surface-raised);
-  font-size: 9px;
+  font-size: var(--text-caption);
   pointer-events: auto;
 }
 
@@ -732,7 +795,7 @@
   border-radius: 0;
   color: var(--ink-secondary);
   background: var(--surface-soft);
-  font-size: 9px;
+  font-size: var(--text-caption);
   text-align: left;
   cursor: pointer;
   pointer-events: auto;

@@ -8,6 +8,7 @@ import {
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { showSourceEditor } from "./support/c-cell-layout.js";
 
 let application: ElectronApplication | undefined;
 let page: Page;
@@ -56,7 +57,7 @@ test("starts on an empty, dense Dashboard instead of silently loading a demo", a
   await expect(page.locator(".workspace-dashboard__content")).toHaveCSS("overflow", "hidden");
   await expect(page.locator(".workspace-dashboard__table-region")).toHaveCSS("overflow-y", "auto");
   await expect(page.getByText("这里还没有本地条目。")).toBeVisible();
-  await expect(page.locator(".cm-line")).toHaveText([""]);
+  await expect(page.locator("#code-pane .cm-line")).toHaveText([""]);
   await expect(page.locator(".workspace-dashboard__sidebar")).toHaveCSS("width", "188px");
   await expect(page.getByRole("button", { name: "项目", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "沙箱", exact: true })).toBeVisible();
@@ -75,7 +76,12 @@ test("creates a real project folder, enters the workbench and reopens it after r
     "true",
   );
   await expect(page.locator("#file-name")).toHaveText("二分搜索.c");
-  await expect(page.locator(".cm-line")).toHaveText(["int main(void) {", "  return 0;", "}", ""]);
+  await expect(page.locator("#code-pane .cm-line")).toHaveText([
+    "int main(void) {",
+    "  return 0;",
+    "}",
+    "",
+  ]);
 
   const projectIds = await readdir(join(workspaceRoot, "Projects"));
   expect(projectIds).toHaveLength(1);
@@ -86,7 +92,8 @@ test("creates a real project folder, enters the workbench and reopens it after r
   );
 
   const editedSource = "int main(void) {\n  return 42;\n}\n";
-  await page.locator(".cm-content").click();
+  await showSourceEditor(page);
+  await page.locator("#code-pane .cm-content").click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText(editedSource);
   await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "saved");
@@ -97,13 +104,23 @@ test("creates a real project folder, enters the workbench and reopens it after r
   await reloadThroughApplicationLifecycle();
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.locator("#startup-loader")).toBeHidden();
-  await expect(page.getByRole("tab", { name: "项目" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "工作区", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.locator("#file-name")).toHaveText("二分搜索.c");
+  await page.getByRole("tab", { name: "项目" }).click();
   const projectRow = page.getByRole("link", { name: /打开\s*项目\s*“二分搜索”/u });
   await projectRow.focus();
   await expect(projectRow).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.locator("#file-name")).toHaveText("二分搜索.c");
-  await expect(page.locator(".cm-line")).toHaveText(["int main(void) {", "  return 42;", "}", ""]);
+  await expect(page.locator("#code-pane .cm-line")).toHaveText([
+    "int main(void) {",
+    "  return 42;",
+    "}",
+    "",
+  ]);
   await expect(page.getByRole("tab", { name: "工作区", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",
@@ -111,6 +128,11 @@ test("creates a real project folder, enters the workbench and reopens it after r
 
   await reloadThroughApplicationLifecycle();
   await expect(page.locator("#startup-loader")).toBeHidden();
+  await expect(page.getByRole("tab", { name: "工作区", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.getByRole("tab", { name: "项目" }).click();
   const rowAfterReload = page.getByRole("link", { name: /打开\s*项目\s*“二分搜索”/u });
   const kindCell = rowAfterReload.locator("td").nth(1);
   await kindCell.click();
@@ -141,7 +163,8 @@ test("offers an explicit disk reload when optimistic save detects a conflict", a
     "utf8",
   );
 
-  await page.locator(".cm-content").click();
+  await showSourceEditor(page);
+  await page.locator("#code-pane .cm-content").click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText("int main(void) {\n  return 43;\n}\n");
   await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "error");
@@ -150,14 +173,20 @@ test("offers an explicit disk reload when optimistic save detects a conflict", a
   page.once("dialog", async (dialog) => dialog.accept());
   await recovery.click();
 
-  await expect(page.locator(".cm-line")).toHaveText(["int main(void) {", "  return 99;", "}", ""]);
+  await expect(page.locator("#code-pane .cm-line")).toHaveText([
+    "int main(void) {",
+    "  return 99;",
+    "}",
+    "",
+  ]);
   await expect(recovery).toBeHidden();
   await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "saved");
 });
 
 test("flushes the final debounced edit before the desktop window closes", async () => {
   const closingSource = "int main(void) {\n  return 7;\n}\n";
-  await page.locator(".cm-content").click();
+  await showSourceEditor(page);
+  await page.locator("#code-pane .cm-content").click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText(closingSource);
   await expect(page.locator("#workspace-save-status")).toHaveAttribute("data-state", "pending");

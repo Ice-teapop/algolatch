@@ -103,7 +103,7 @@
 
 h2 {
   margin-bottom: 0;
-  font-size: 11px;
+  font-size: var(--text-heading);
   font-weight: 650;
   letter-spacing: 0.025em;
 }
@@ -115,7 +115,7 @@ h2 {
   overflow: hidden;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--text-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -134,15 +134,14 @@ h2 {
 
 .button {
   display: inline-flex;
-  min-height: 28px;
+  min-height: var(--interaction-target-compact);
   align-items: center;
   justify-content: center;
   padding: 4px 9px;
   border-radius: 0;
-  font-size: 11px;
+  font-size: var(--text-control);
   font-weight: 600;
   line-height: 1;
-  transition: none;
 }
 
 .button:disabled {

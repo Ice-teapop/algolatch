@@ -12,6 +12,7 @@ vi.mock("../../src/ui/workspace-dashboard.js", () => ({
       element: {} as HTMLElement,
       filter: "recent" as const,
       setSnapshot: vi.fn(),
+      setSnapshotUnconfirmed: vi.fn(),
       setBusy: vi.fn(),
       setStatus: vi.fn(),
       openCreate: vi.fn(),
@@ -21,7 +22,9 @@ vi.mock("../../src/ui/workspace-dashboard.js", () => ({
 }));
 
 import { createWorkspaceController } from "../../src/app/workspace-controller.js";
+import type { WorkspaceControllerOptions } from "../../src/app/workspace-controller.js";
 import type { WorkspaceDocument } from "../../src/shared/workspace.js";
+import { INSERTION_SORT_SAMPLE_SOURCE } from "../../src/samples/insertion-sort-sandbox.js";
 
 class FakeOutputElement extends EventTarget {
   readonly dataset: Record<string, string> = {};
@@ -103,6 +106,69 @@ describe("workspace active-entry adoption", () => {
     expect(controller.activeEntry?.id).toBe("second");
     controller.destroy();
   });
+
+  it("detaches the old sidecar consumer before loading the next entry source", async () => {
+    let consumerEntryId: string | null = null;
+    const detach = deferred<void>();
+    const order: string[] = [];
+    const writesObservedDuringLoad: string[] = [];
+    const controller = createHarness({
+      load(document) {
+        order.push(`load:${document.displayName}`);
+        if (consumerEntryId !== null) {
+          writesObservedDuringLoad.push(`${consumerEntryId}:${document.displayName}`);
+        }
+      },
+      async onActiveEntryChange(entry) {
+        if (entry === null && consumerEntryId === "first") {
+          order.push("unbind:first");
+          await detach.promise;
+        }
+        consumerEntryId = entry?.id ?? null;
+        if (entry !== null) order.push(`bind:${entry.id}`);
+      },
+    });
+    const callbacks = dashboardMock.callbacks;
+    if (callbacks === null) throw new Error("dashboard callbacks were not installed");
+
+    await callbacks.onOpen("first");
+    const second = Promise.resolve(callbacks.onOpen("second"));
+    await flushMicrotasks();
+
+    expect(order).toEqual(["load:first.c", "bind:first", "unbind:first"]);
+    detach.resolve();
+    await second;
+
+    expect(writesObservedDuringLoad).not.toContain("first:second.c");
+    expect(order).toEqual([
+      "load:first.c",
+      "bind:first",
+      "unbind:first",
+      "load:second.c",
+      "bind:second",
+    ]);
+    expect(controller.activeEntry?.id).toBe("second");
+    controller.destroy();
+  });
+
+  it("creates the explicit sample through the atomic workspace create request", async () => {
+    const createDocument = vi.fn(async () => ({
+      status: "opened" as const,
+      document: document("sample"),
+    }));
+    const controller = createHarness({ createDocument });
+    const callbacks = dashboardMock.callbacks;
+    if (callbacks === null) throw new Error("dashboard callbacks were not installed");
+
+    await callbacks.onCreateSample();
+
+    expect(createDocument).toHaveBeenCalledWith({
+      kind: "sandbox",
+      title: "示例 · 插入排序",
+      initialSource: INSERTION_SORT_SAMPLE_SOURCE,
+    });
+    controller.destroy();
+  });
 });
 
 function createHarness(overrides: {
@@ -111,6 +177,8 @@ function createHarness(overrides: {
   readonly openDocument?: (
     entryId: string,
   ) => Promise<{ readonly status: "opened"; readonly document: WorkspaceDocument }>;
+  readonly load?: (document: Parameters<WorkspaceControllerOptions["load"]>[0]) => void;
+  readonly createDocument?: WorkspaceControllerOptions["api"]["createWorkspaceDocument"];
 }) {
   return createWorkspaceController({
     host: {
@@ -122,10 +190,12 @@ function createHarness(overrides: {
         status: "ready",
         snapshot: { rootName: "test", entries: [] },
       }),
-      createWorkspaceDocument: async () => ({
-        status: "opened",
-        document: document("created"),
-      }),
+      createWorkspaceDocument:
+        overrides.createDocument ??
+        (async () => ({
+          status: "opened",
+          document: document("created"),
+        })),
       openWorkspaceDocument: async ({ entryId }) =>
         overrides.openDocument?.(entryId) ?? {
           status: "opened",
@@ -138,7 +208,8 @@ function createHarness(overrides: {
     },
     saveStatus: new FakeOutputElement() as unknown as HTMLOutputElement,
     recoveryButton: new FakeButtonElement() as unknown as HTMLButtonElement,
-    load: vi.fn(),
+    load: overrides.load ?? vi.fn(),
+    getCurrentDocument: () => null,
     enterWorkbench: overrides.enterWorkbench ?? vi.fn(),
     onActiveEntryChange: overrides.onActiveEntryChange,
   });

@@ -10,6 +10,7 @@ export type WorkspaceDashboardStatus = "ready" | "loading" | "success" | "error"
 
 export interface WorkspaceDashboardCallbacks {
   readonly onCreate: (kind: WorkspaceKind, title: string) => boolean | Promise<boolean>;
+  readonly onCreateSample: () => boolean | Promise<boolean>;
   readonly onOpen: (entryId: string) => void | Promise<void>;
   readonly onRefresh: () => void | Promise<void>;
 }
@@ -18,6 +19,7 @@ export interface WorkspaceDashboard {
   readonly element: HTMLElement;
   readonly filter: WorkspaceDashboardFilter;
   setSnapshot(snapshot: WorkspaceSnapshot): void;
+  setSnapshotUnconfirmed(): void;
   setBusy(busy: boolean): void;
   setStatus(message: string, status?: WorkspaceDashboardStatus): void;
   openCreate(kind?: WorkspaceKind): void;
@@ -45,6 +47,7 @@ const COPY = Object.freeze({
     tableCaption: "本地工作区条目",
     headings: Object.freeze(["名称", "类型", "修改时间", "同步"]),
     createFirst: "新建第一个条目",
+    createSample: "打开插入排序示例",
     emptyAll: "这里还没有本地条目。",
     emptyFilter: "当前筛选没有匹配条目。",
     initialStatus: "正在读取 Documents 工作区…",
@@ -79,6 +82,7 @@ const COPY = Object.freeze({
     tableCaption: "Local workspace entries",
     headings: Object.freeze(["Name", "Type", "Modified", "Sync"]),
     createFirst: "Create your first entry",
+    createSample: "Open insertion-sort example",
     emptyAll: "No local entries yet.",
     emptyFilter: "No entries match this filter.",
     initialStatus: "Reading the Documents workspace…",
@@ -183,7 +187,8 @@ export function createWorkspaceDashboard(
   empty.hidden = true;
   const emptyCopy = ownerDocument.createElement("p");
   const emptyCreate = textButton(ownerDocument, copy().createFirst, "button button--primary");
-  empty.append(emptyCopy, emptyCreate);
+  const emptySample = textButton(ownerDocument, copy().createSample, "button button--quiet");
+  empty.append(emptyCopy, emptyCreate, emptySample);
   tableRegion.append(table, empty);
   content.append(toolbar, status, tableRegion);
   root.append(sidebar, content);
@@ -193,6 +198,7 @@ export function createWorkspaceDashboard(
   host.append(dialog.element);
 
   let snapshot: WorkspaceSnapshot = Object.freeze({ rootName: "", entries: Object.freeze([]) });
+  let snapshotConfirmed = false;
   let filter: WorkspaceDashboardFilter = "recent";
   let busy = false;
   let destroyed = false;
@@ -214,6 +220,7 @@ export function createWorkspaceDashboard(
     createButton.disabled = nextBusy;
     refreshButton.disabled = nextBusy;
     emptyCreate.disabled = nextBusy;
+    emptySample.disabled = nextBusy;
     dialog.submit.disabled = nextBusy;
     root.setAttribute("aria-busy", String(nextBusy));
   };
@@ -240,6 +247,7 @@ export function createWorkspaceDashboard(
     table.hidden = isEmpty;
     empty.hidden = !isEmpty;
     emptyCopy.textContent = snapshot.entries.length === 0 ? copy().emptyAll : copy().emptyFilter;
+    emptySample.hidden = !snapshotConfirmed || snapshot.entries.length !== 0;
   };
 
   const renderLocale = (): void => {
@@ -263,6 +271,7 @@ export function createWorkspaceDashboard(
       if (cell !== undefined) cell.textContent = heading;
     });
     emptyCreate.textContent = localized.createFirst;
+    emptySample.textContent = localized.createSample;
     dialog.setLocale(locale);
     render();
   };
@@ -303,6 +312,11 @@ export function createWorkspaceDashboard(
   };
   const onCreateClick = (): void => openCreate();
   const onEmptyCreate = (): void => openCreate();
+  const onCreateSample = (): void => {
+    void runOperation(async () => {
+      await callbacks.onCreateSample();
+    });
+  };
   const onRefresh = (): void => {
     void runOperation(callbacks.onRefresh);
   };
@@ -341,6 +355,7 @@ export function createWorkspaceDashboard(
 
   createButton.addEventListener("click", onCreateClick);
   emptyCreate.addEventListener("click", onEmptyCreate);
+  emptySample.addEventListener("click", onCreateSample);
   refreshButton.addEventListener("click", onRefresh);
   search.addEventListener("input", onSearch);
   dialog.form.addEventListener("submit", onSubmit);
@@ -364,6 +379,12 @@ export function createWorkspaceDashboard(
     setSnapshot(nextSnapshot: WorkspaceSnapshot): void {
       assertActive(destroyed);
       snapshot = copySnapshot(nextSnapshot);
+      snapshotConfirmed = true;
+      render();
+    },
+    setSnapshotUnconfirmed(): void {
+      assertActive(destroyed);
+      snapshotConfirmed = false;
       render();
     },
     setBusy,
@@ -378,6 +399,7 @@ export function createWorkspaceDashboard(
       }
       createButton.removeEventListener("click", onCreateClick);
       emptyCreate.removeEventListener("click", onEmptyCreate);
+      emptySample.removeEventListener("click", onCreateSample);
       refreshButton.removeEventListener("click", onRefresh);
       search.removeEventListener("input", onSearch);
       dialog.form.removeEventListener("submit", onSubmit);
@@ -575,7 +597,7 @@ function copySnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
 }
 
 function assertCallbacks(callbacks: WorkspaceDashboardCallbacks): void {
-  for (const name of ["onCreate", "onOpen", "onRefresh"] as const) {
+  for (const name of ["onCreate", "onCreateSample", "onOpen", "onRefresh"] as const) {
     if (typeof callbacks[name] !== "function") {
       throw new TypeError(`Dashboard callbacks.${name} 必须是函数`);
     }

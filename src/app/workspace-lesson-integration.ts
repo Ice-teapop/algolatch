@@ -22,6 +22,7 @@ export interface WorkspaceLessonIntegrationOptions {
   readonly flow: FlowWorkbenchController;
   readonly runtime: RuntimeWorkspaceController;
   readonly loadSource: (source: ImportedSource) => void;
+  readonly getCurrentDocument: () => ImportedSource | null;
   readonly onError: (message: string) => void;
   readonly onActiveEntryChange?: ((entry: WorkspaceEntrySummary | null) => void) | undefined;
   readonly isDestroyed?: (() => boolean) | undefined;
@@ -46,6 +47,7 @@ export function createWorkspaceLessonIntegration(
     saveStatus: options.elements.workspaceSaveStatus,
     recoveryButton: options.elements.workspaceRecoveryButton,
     load: options.loadSource,
+    getCurrentDocument: options.getCurrentDocument,
     enterWorkbench: () => options.elements.showPage("build"),
     onActiveEntryChange: async (entry) => {
       try {

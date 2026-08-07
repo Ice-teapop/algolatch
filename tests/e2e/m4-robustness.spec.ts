@@ -5,8 +5,17 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { showBlockTree } from "./support/c-cell-layout.js";
+
+// Every launch gets its own workspace root and Electron profile. Without them these specs
+// write into the user's real Documents workspace and share one browser profile, which both
+// pollutes real data and lets state leak between spec files under `workers: 1`.
+const e2eWorkspaceRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-workspace-"));
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 type ExpectedParserState = "ready" | "recovery";
 
@@ -32,9 +41,13 @@ test.beforeAll(async () => {
     ),
   );
   application = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
-    env: { ...inheritedEnvironment, PANEL_RUNNER_MODE: "trusted-only" },
+    env: {
+      ...inheritedEnvironment,
+      PANEL_WORKSPACE_ROOT: e2eWorkspaceRoot,
+      PANEL_RUNNER_MODE: "trusted-only",
+    },
   });
   page = await application.firstWindow();
   await page.evaluate(() =>
@@ -91,6 +104,7 @@ for (const corpusCase of corpusCases) {
       await expect(parserStatus).toHaveAttribute("data-root-type", "translation_unit");
       await expect(parserStatus).toHaveAttribute("data-roundtrip", "true");
 
+      await showBlockTree(page);
       const blockTree = page.locator("#block-tree");
       await expect(blockTree).not.toHaveAttribute("aria-disabled", "true");
       const firstBlock = blockTree.locator("button[data-block-index]").first();

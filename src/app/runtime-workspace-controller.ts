@@ -219,6 +219,7 @@ export interface RuntimeWorkspaceControllerOptions {
     path: FlowCanvasActivePath,
     evidence: FlowNodeRuntimeSnapshot | null,
   ) => void;
+  readonly onRevealFlow: () => void;
   readonly onFocusNode: (nodeId: string) => void;
   readonly onRevealRange: (range: TextRange) => void;
   readonly onLearningObservation?: ((observation: RuntimeLearningObservation) => void) | undefined;
@@ -232,6 +233,7 @@ export interface RuntimeWorkspaceController {
   readonly scenario: ScenarioWorkbenchController;
   readonly trace: TraceController;
   readonly hasPendingChanges: boolean;
+  getRuntimeInput(): ManualRunInputValue;
   getRemoteMentorContext(): MentorRemoteContext | null;
   configureTutorialCase(runCase: TutorialRuntimeCase | null): void;
   setWorkspaceEntry(entryId: string | null, fingerprint: string | null): Promise<void>;
@@ -331,6 +333,7 @@ export function createRuntimeWorkspaceController(
   let manualInputValue: ManualRunInputValue = emptyManualRunInput();
   let activeTutorialCase: ScenarioRunCase | null = null;
   let activeTutorialSuite: ConfiguredTutorialSuite | null = null;
+  let scenarioRunCase: ScenarioRunCase | null = null;
   let manualInputAcknowledged = false;
   let manualInputBindingFingerprint: string | null = null;
   const manualInput: ManualRunInput = createManualRunInput(options.elements.manualRunInputHost, {
@@ -357,8 +360,12 @@ export function createRuntimeWorkspaceController(
       getSource: options.getSource,
       getAnalyzedSource: options.getAnalyzedSource,
       getDisplayName: options.getDisplayName,
-      getManualScenario: () => manualScenario(manualInputValue, activeTutorialCase),
+      getManualScenario: () =>
+        scenarioRunCase === null
+          ? manualScenario(manualInputValue, activeTutorialCase)
+          : toManualScenario(scenarioRunCase, "real"),
       onRunComplete: (completionValue) => {
+        if (scenarioRunCase !== null) return;
         recordEvidence(completionValue);
         if (
           activeTutorialCase !== null &&
@@ -602,6 +609,11 @@ export function createRuntimeWorkspaceController(
 
   async function invokeRunAction(): Promise<void> {
     if (destroyed || primaryActionBusy) return;
+    // Reveal the runtime pane before running. #bottom-pane ships `hidden` (workbench-shell.ts:1448)
+    // and only showRuntimeView() clears it, so without this the program really does run and really
+    // does write stdout — into a section the reader cannot see. The button then flips to 再次运行,
+    // which reads as "it ran and produced nothing". observeCurrentPath already does this at :676.
+    options.elements.focusPanel("runtime");
     const sourceFingerprint = fingerprintSource(options.getSource());
     if (sourceFingerprint !== primaryActionState.sourceFingerprint) {
       resetPrimaryAction(sourceFingerprint);
@@ -622,18 +634,16 @@ export function createRuntimeWorkspaceController(
       if (scenario.hasScenarioBinding()) {
         await scenario.runReal();
       } else {
-        const previousRun = primaryActionState.run;
         await runPanel.runCurrent();
-        if (primaryActionState.run === previousRun && !tutorialCaseAdvancedDuringRun) {
-          updatePrimaryAction({ type: "run-finished", sourceFingerprint, ok: false });
-        }
       }
-    } catch {
-      updatePrimaryAction({
-        type: "run-finished",
-        sourceFingerprint,
-        ok: false,
-      });
+    } catch (error: unknown) {
+      if (!(error instanceof RunNotStartedError)) {
+        updatePrimaryAction({
+          type: "run-finished",
+          sourceFingerprint,
+          ok: false,
+        });
+      }
     } finally {
       primaryActionBusy = false;
       primaryBusyAction = null;
@@ -644,6 +654,9 @@ export function createRuntimeWorkspaceController(
 
   async function invokeObserveAction(): Promise<void> {
     if (destroyed || primaryActionBusy) return;
+    // Observation may pause for stdin before observeCurrentPath() is reached. Reveal the evidence
+    // pane first so the input prompt never opens while the Trace surface remains hidden.
+    options.elements.focusPanel("runtime");
     const sourceFingerprint = fingerprintSource(options.getSource());
     if (sourceFingerprint !== primaryActionState.sourceFingerprint) {
       resetPrimaryAction(sourceFingerprint);
@@ -762,18 +775,30 @@ export function createRuntimeWorkspaceController(
     try {
       persistScenarioState();
       assertObservedTargetBranch(options, request, observations);
-      const completion = await compileAndRun(request.runCase, source, taskGeneration);
+      scenarioRunCase = request.runCase;
+      const completion = await runPanel.runCurrent();
+      if (completion === null) {
+        throw new RunNotStartedError("本地运行器不可用，案例没有开始执行");
+      }
+      assertSnapshot(source, taskGeneration);
+      if (completion.runResult !== null) {
+        publishRunLearningObservation(request.runCase, source, completion.runResult);
+      }
       assertExpectedOutput(request.runCase, completion.runResult);
       // A normal run is deliberately one compile/run execution. Path evidence belongs to the
       // separate Observe action and must never be attached to a different process execution.
       recordEvidence(completion);
     } catch (error: unknown) {
-      updatePrimaryAction({
-        type: "run-finished",
-        sourceFingerprint: source.fingerprint,
-        ok: false,
-      });
+      if (!(error instanceof RunNotStartedError)) {
+        updatePrimaryAction({
+          type: "run-finished",
+          sourceFingerprint: source.fingerprint,
+          ok: false,
+        });
+      }
       throw error;
+    } finally {
+      scenarioRunCase = null;
     }
   }
 
@@ -783,6 +808,9 @@ export function createRuntimeWorkspaceController(
     const source = options.getSource();
     const projection = requireCurrentProjection(options, source);
     const path = structuralSimulationPath(projection, request.targetBranch?.id ?? null);
+    // The simulation's primary result is the projected path. Reveal Flow before focusing the
+    // current node so an earlier Edit/Diagnostics selection cannot hide the completed action.
+    options.onRevealFlow();
     publishActivePath(
       path,
       Object.freeze(Object.fromEntries(path.nodeIds.map((nodeId) => [nodeId, 1]))),
@@ -1060,6 +1088,12 @@ export function createRuntimeWorkspaceController(
     trace,
     get hasPendingChanges(): boolean {
       return scenarioPersistence.hasPendingChanges || evidenceDirty;
+    },
+    getRuntimeInput(): ManualRunInputValue {
+      return Object.freeze({
+        stdin: manualInputValue.stdin,
+        arguments: Object.freeze([...manualInputValue.arguments]),
+      });
     },
     getRemoteMentorContext(): MentorRemoteContext | null {
       return evidence.getRemoteMentorContext();
@@ -1546,8 +1580,19 @@ function assertExpectedOutput(runCase: ScenarioRunCase, result: RunResult | null
   if (result === null || !result.ok) throw new Error("案例没有成功的真实运行结果");
   const actual = decodeRunStdout(result);
   if (actual !== runCase.expected.stdout) {
-    throw new Error("真实输出与案例期望不一致；未写入该情景的性能历史");
+    throw new Error(
+      `真实输出与案例期望不一致：实际 ${boundedOutput(actual)}；期望 ${boundedOutput(runCase.expected.stdout)}；未写入该情景的性能历史`,
+    );
   }
+}
+
+function boundedOutput(value: string): string {
+  const limit = 400;
+  return JSON.stringify(value.length > limit ? `${value.slice(0, limit)}…` : value);
+}
+
+class RunNotStartedError extends Error {
+  override readonly name = "RunNotStartedError";
 }
 
 function decodeRunStdout(result: RunResult): string {

@@ -6,9 +6,17 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { showBlockTree, showRuntimePanel, showSourceAndBlocks } from "./support/c-cell-layout.js";
+
+// Every launch gets its own workspace root and Electron profile. Without them these specs
+// write into the user's real Documents workspace and share one browser profile, which both
+// pollutes real data and lets state leak between spec files under `workers: 1`.
+const e2eWorkspaceRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-workspace-"));
+const e2eProfileRoot = mkdtempSync(join(tmpdir(), "algolatch-e2e-profile-"));
 
 const CRLF_SOURCE = [
   "int helper(int value) {",
@@ -36,10 +44,11 @@ test.beforeAll(async () => {
     ),
   );
   electronApplication = await electron.launch({
-    args: ["."],
+    args: [".", `--user-data-dir=${e2eProfileRoot}`],
     chromiumSandbox: true,
     env: {
       ...inheritedEnvironment,
+      PANEL_WORKSPACE_ROOT: e2eWorkspaceRoot,
       PANEL_RUNNER_MODE: "trusted-only",
     },
   });
@@ -65,6 +74,7 @@ test.beforeEach(async () => {
   await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
   await expect(page.getByRole("button", { name: "粘贴源码" })).toBeEnabled();
   await showDock("工作区");
+  await showSourceAndBlocks(page);
 });
 
 test.afterAll(async () => {
@@ -78,7 +88,7 @@ test("supports direct input, bracket pairing, and exact CRLF undo", async () => 
   await expect(page.locator("#file-name")).toHaveText("m3b-crlf.c");
   await expect(page.locator("#source-meta")).toContainText("CRLF");
   await expectEditorSource(CRLF_SOURCE);
-  const content = page.locator(".cm-content");
+  const content = page.locator("#code-pane .cm-content");
   const originalMetadata = await page.locator("#source-meta").textContent();
 
   await expect(content).toHaveAttribute("contenteditable", "true");
@@ -146,7 +156,7 @@ test("previews insert and delete, respects cancel, and moves attached comments w
   await pasteSource(source);
   await selectStatement("expression_statement", "beta();");
 
-  const insertInput = page.getByRole("textbox", { name: "要插入的单行 C 语句" });
+  const insertInput = page.getByRole("textbox", { name: "要插入的 C 语句或控制块" });
   await insertInput.fill("prepare();");
   const insertBefore = structureOperation("insert-before");
   await expect(insertBefore).toBeEnabled();
@@ -196,7 +206,11 @@ test("turns deleted inline required bodies into semicolons and disables unsafe s
   await expect(structureOperation("move-next")).toBeDisabled();
   const deleteOperation = await visibleDeleteOperation();
   await expect(deleteOperation).toBeEnabled();
-  await expect(page.locator(".structure-edit-panel__hint")).toContainText("只允许安全删除");
+  await expect(
+    page
+      .locator(".structure-edit-panel .structure-edit-panel__hint")
+      .filter({ hasText: "只允许安全删除" }),
+  ).toHaveCount(1);
 
   await deleteOperation.click();
   await confirmVisibleDiff();
@@ -402,6 +416,11 @@ async function pasteSource(source: string): Promise<void> {
 }
 
 async function showDock(name: "工作区" | "编辑" | "运行"): Promise<void> {
+  // The run tab lives inside the runtime pane, which the C Cell layout keeps collapsed.
+  if (name === "运行") {
+    await showSourceAndBlocks(page);
+    await showRuntimePanel(page);
+  }
   const tab = page.getByRole("tab", { name, exact: true });
   await expect(tab).toBeVisible();
   await tab.click();
@@ -446,6 +465,9 @@ function draggableStatement(nodeType: string, excerpt: string): Locator {
 
 async function selectStatement(nodeType: string, excerpt: string): Promise<void> {
   await showDock("工作区");
+  // The edit panel and the block tree are siblings in the right column now, so selecting a
+  // block hides the tree that the next selection needs.
+  await showBlockTree(page);
   const block = statementBlock(nodeType, excerpt);
   await expect(block).toHaveCount(1);
   await block.click();
@@ -493,7 +515,7 @@ async function replaceEditorSource(source: string): Promise<void> {
 
 async function replaceEditorSourceWithoutWaiting(source: string): Promise<void> {
   await showDock("工作区");
-  const content = page.locator(".cm-content");
+  const content = page.locator("#code-pane .cm-content");
   await content.click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText(source);
@@ -523,13 +545,13 @@ function normalizedEditorSource(source: string): string {
 
 async function editorText(): Promise<string> {
   return page
-    .locator(".cm-line")
+    .locator("#code-pane .cm-line")
     .evaluateAll((lines) => lines.map((line) => line.textContent ?? "").join("\n"));
 }
 
 async function clickCodeOccurrence(needle: string, occurrence: number): Promise<void> {
   await showDock("工作区");
-  const point = await page.locator(".cm-content").evaluate(
+  const point = await page.locator("#code-pane .cm-content").evaluate(
     (content, target) => {
       const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
       let remaining = target.occurrence;
@@ -568,7 +590,7 @@ async function clickCodeOccurrence(needle: string, occurrence: number): Promise<
 
 async function clickCodeOccurrenceInLine(lineText: string, needle: string): Promise<void> {
   await showDock("工作区");
-  const line = page.locator(".cm-line").filter({ hasText: lineText });
+  const line = page.locator("#code-pane .cm-line").filter({ hasText: lineText });
   await expect(line).toHaveCount(1);
   const point = await line.evaluate((element, target) => {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -595,7 +617,7 @@ async function clickCodeOccurrenceInLine(lineText: string, needle: string): Prom
 
 async function placeCursorAfterCodeOccurrence(needle: string, occurrence: number): Promise<void> {
   await showDock("工作区");
-  const point = await page.locator(".cm-content").evaluate(
+  const point = await page.locator("#code-pane .cm-content").evaluate(
     (content, target) => {
       const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
       let remaining = target.occurrence;
@@ -624,7 +646,7 @@ async function placeCursorAfterCodeOccurrence(needle: string, occurrence: number
     { needle, occurrence },
   );
   await page.mouse.click(point.x, point.y);
-  await expect(page.locator(".cm-content")).toBeFocused();
+  await expect(page.locator("#code-pane .cm-content")).toBeFocused();
 }
 
 async function acceptTrustedRunnerPrompts(): Promise<void> {
