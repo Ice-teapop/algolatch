@@ -30,21 +30,18 @@ editor.
 
 ## Download
 
-Current installer version: `v0.1.1-preview.2`. The Universal macOS build
-supports both Apple Silicon and Intel.
-
-`v0.1.1-preview.3` is being published from the current source revision. Until
-its DMG, EXE, and checksum manifest finish the release workflow, the verified
-installer links below remain on `v0.1.1-preview.2`.
+Current installer version: `v0.1.1-preview.3`. The Universal macOS build
+supports both Apple Silicon and Intel. The macOS and Windows packages were
+built from the same source revision and passed their installed-state gates.
 
 | Platform            | Status           | Download                        |
 | ------------------- | ---------------- | ------------------------------- |
 | macOS Universal     | Unsigned preview | [DMG][mac-dmg] · [SHA-256][sum] |
 | Windows 10/11 · x64 | Unsigned preview | [EXE][win-exe] · [SHA-256][sum] |
 
-[mac-dmg]: https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.2/AlgoLatch-0.1.1-preview.2-unsigned-universal.dmg
-[win-exe]: https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.2/AlgoLatch-Setup-0.1.1-preview.2-unsigned-x64.exe
-[sum]: https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.2/SHA256SUMS.txt
+[mac-dmg]: https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.3/AlgoLatch-0.1.1-preview.3-unsigned-universal.dmg
+[win-exe]: https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.3/AlgoLatch-Setup-0.1.1-preview.3-unsigned-x64.exe
+[sum]: https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.3/SHA256SUMS.txt
 
 [Downloads and package status](./DOWNLOADS.md) ·
 [All releases](https://github.com/Ice-teapop/algolatch/releases) ·
@@ -55,7 +52,7 @@ installer links below remain on `v0.1.1-preview.2`.
 [Code signing policy](./CODE_SIGNING_POLICY.md)
 
 > The **Source code** archives generated automatically by GitHub are not
-> installers. `v0.1.1-preview.2` provides both macOS and Windows installers,
+> installers. `v0.1.1-preview.3` provides both macOS and Windows installers,
 > but both are unsigned previews, not stable releases. macOS may trigger
 > Gatekeeper, while Windows may show an unknown-publisher or SmartScreen
 > warning. Verify the SHA-256 manifest from the same Release before installing.
@@ -227,7 +224,7 @@ to rewrite source code.
 
 ### macOS Preview
 
-1. From the download table above, download the `v0.1.1-preview.2` Universal DMG
+1. From the download table above, download the `v0.1.1-preview.3` Universal DMG
    and the corresponding `SHA256SUMS.txt`.
 2. In the download directory, run:
 
@@ -258,7 +255,7 @@ The installer does not delete projects or settings.
 The Windows 10/11 x64 preview is publicly available:
 
 1. From the download table above, download
-   `AlgoLatch-Setup-0.1.1-preview.2-unsigned-x64.exe` and `SHA256SUMS.txt`.
+   `AlgoLatch-Setup-0.1.1-preview.3-unsigned-x64.exe` and `SHA256SUMS.txt`.
 2. Verify the SHA-256 digest, then double-click the installer. NSIS uses a
    one-click, per-user installation with `asInvoker`; administrator privileges
    are not required.
@@ -336,11 +333,10 @@ and filenames.
 
 ## Versions and Boundaries
 
-The current release target is `0.1.1-preview.3` for macOS Universal and Windows
-10/11 x64. Both packages are unsigned prerelease artifacts. The verified
-installer links at the top remain on `v0.1.1-preview.2` until the new assets and
-checksum manifest finish publishing. Production `v0.1.1` has not been
-released. A platform becomes a production asset only after its own signing and
+The current public prerelease is `0.1.1-preview.3` for macOS Universal and
+Windows 10/11 x64. Both packages are unsigned prerelease artifacts and have
+passed their installed-state gates. Production `v0.1.1` has not been released.
+A platform becomes a production asset only after its own signing and
 installed-state gates pass.
 
 `v0.0.1` was the first public production Release after the version-line reset.

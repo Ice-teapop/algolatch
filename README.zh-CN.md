@@ -23,13 +23,13 @@ AlgoLatch 不是 Scratch 的 C 语言复刻，也不维护一份与源码竞争�
 
 ## 下载
 
-`v0.1.1-preview.3` 正在从当前源码修订发布。在新的 DMG、EXE 与校验清单
-完成发布工作流前，下表继续提供已经验证的 `v0.1.1-preview.2` 安装包。
+当前安装包版本为 `v0.1.1-preview.3`。macOS 与 Windows 安装包由同一源码
+修订构建，并已分别通过安装态门禁。
 
 | 平台                          | 当前状态                   | 下载                                                                                                                                                                                                                                                |
 | ----------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS · Apple Silicon / Intel | `v0.1.1-preview.2`，未签名 | [Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.2/AlgoLatch-0.1.1-preview.2-unsigned-universal.dmg) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.2/SHA256SUMS.txt) |
-| Windows 10/11 · x64           | `v0.1.1-preview.2`，未签名 | [下载 EXE](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.2/AlgoLatch-Setup-0.1.1-preview.2-unsigned-x64.exe) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.2/SHA256SUMS.txt)      |
+| macOS · Apple Silicon / Intel | `v0.1.1-preview.3`，未签名 | [Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.3/AlgoLatch-0.1.1-preview.3-unsigned-universal.dmg) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.3/SHA256SUMS.txt) |
+| Windows 10/11 · x64           | `v0.1.1-preview.3`，未签名 | [下载 EXE](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.3/AlgoLatch-Setup-0.1.1-preview.3-unsigned-x64.exe) · [SHA-256](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.3/SHA256SUMS.txt)      |
 
 [下载与安装包状态](./DOWNLOADS.md) ·
 [查看所有版本](https://github.com/Ice-teapop/algolatch/releases) ·
@@ -38,7 +38,7 @@ AlgoLatch 不是 Scratch 的 C 语言复刻，也不维护一份与源码竞争�
 [安全](./SECURITY.md) · [许可说明](./LICENSING.md) ·
 [Code signing policy](./CODE_SIGNING_POLICY.md)
 
-> GitHub 自动显示的 **Source code** 压缩包不是安装器。`v0.1.1-preview.2`
+> GitHub 自动显示的 **Source code** 压缩包不是安装器。`v0.1.1-preview.3`
 > 同时提供 macOS 与 Windows 安装包，但两者都是未签名先行版，不是正式稳定
 > 版。macOS 可能触发 Gatekeeper，Windows 可能显示未知发布者或 SmartScreen
 > 提示；请先核对同一 Release 中的 SHA-256 清单。
@@ -174,7 +174,7 @@ Windows 通常对应
 
 ### macOS 先行版
 
-1. 在顶部下载表中下载 `v0.1.1-preview.2` Universal DMG 和对应的
+1. 在顶部下载表中下载 `v0.1.1-preview.3` Universal DMG 和对应的
    `SHA256SUMS.txt`。
 2. 在下载目录运行：
 
@@ -202,7 +202,7 @@ Windows 正式包。
 Windows 10/11 x64 先行版已经公开：
 
 1. 从顶部下载表下载
-   `AlgoLatch-Setup-0.1.1-preview.2-unsigned-x64.exe` 和 `SHA256SUMS.txt`。
+   `AlgoLatch-Setup-0.1.1-preview.3-unsigned-x64.exe` 和 `SHA256SUMS.txt`。
 2. 校验 SHA-256 后双击安装器。NSIS 使用 one-click per-user 安装和
    `asInvoker`，不要求管理员权限。
 3. 安装完成后直接打开 AlgoLatch。C 编译器已经包含在安装包中，不需要另装
@@ -265,10 +265,10 @@ npm run build
 
 ## 版本与边界
 
-当前发布目标为 `0.1.1-preview.3`，覆盖 macOS Universal 与 Windows 10/11
-x64；两个安装包都是未签名 prerelease。顶部的已验证下载在新资产与校验
-清单完成发布前继续指向 `v0.1.1-preview.2`。正式 `v0.1.1` 尚未发布；每个平台
-只有在自己的签名与安装态门禁通过后才能成为正式资产。
+当前公开先行版为 `0.1.1-preview.3`，覆盖 macOS Universal 与 Windows 10/11
+x64；两个安装包都是未签名 prerelease，并已通过各自的安装态门禁。正式
+`v0.1.1` 尚未发布；每个平台只有在自己的签名与安装态门禁通过后才能成为
+正式资产。
 `v0.0.1` 是版本线重置后的首个公开正式 Release。历史
 `v0.1.0-beta.1–12` 是开发快照，不是从更高版本降级到 `v0.0.1`。完整功能
 变化、迁移和已知限制见 [CHANGELOG](./CHANGELOG.md)、

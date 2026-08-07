@@ -6,12 +6,12 @@ automatically generated **Source code** archives are not application installers.
 
 ## Available cross-platform preview
 
-`v0.1.1-preview.2` is an **unsigned prerelease** built from one source revision:
+`v0.1.1-preview.3` is an **unsigned prerelease** built from one source revision:
 
-- [Download the macOS Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.2/AlgoLatch-0.1.1-preview.2-unsigned-universal.dmg)
-- [Download the Windows x64 EXE](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.2/AlgoLatch-Setup-0.1.1-preview.2-unsigned-x64.exe)
-- [Download the shared SHA-256 checksum](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.2/SHA256SUMS.txt)
-- [Read the preview release notes](https://github.com/Ice-teapop/algolatch/releases/tag/v0.1.1-preview.2)
+- [Download the macOS Universal DMG](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.3/AlgoLatch-0.1.1-preview.3-unsigned-universal.dmg)
+- [Download the Windows x64 EXE](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.3/AlgoLatch-Setup-0.1.1-preview.3-unsigned-x64.exe)
+- [Download the shared SHA-256 checksum](https://github.com/Ice-teapop/algolatch/releases/download/v0.1.1-preview.3/SHA256SUMS.txt)
+- [Read the preview release notes](https://github.com/Ice-teapop/algolatch/releases/tag/v0.1.1-preview.3)
 
 The macOS application is ad-hoc signed but has no Developer ID signature or
 Apple notarization. Gatekeeper can require Control-click → Open or approval in
