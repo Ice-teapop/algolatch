@@ -11,6 +11,7 @@ import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  pressSplitterKey,
   showBlockPalette,
   showFlowCanvas,
   showRuntimePanel,
@@ -239,10 +240,11 @@ test("keeps root scrolling locked while every meaningful region is independently
   const mainSplitter = page.locator(
     "#build-layout > .resizable-layout__splitter[data-splitter-for='left']",
   );
-  const initialSize = Number(await mainSplitter.getAttribute("aria-valuenow"));
-  await mainSplitter.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(mainSplitter).toHaveAttribute("aria-valuenow", String(initialSize + 8));
+  const minimumSize = Number(await mainSplitter.getAttribute("aria-valuemin"));
+  await pressSplitterKey(mainSplitter, "Home");
+  await expect(mainSplitter).toHaveAttribute("aria-valuenow", String(minimumSize));
+  await pressSplitterKey(mainSplitter, "ArrowRight");
+  await expect(mainSplitter).toHaveAttribute("aria-valuenow", String(minimumSize + 8));
 
   const outputPanel = page.locator(".runtime-advanced");
   await outputPanel.locator(":scope > summary").click();

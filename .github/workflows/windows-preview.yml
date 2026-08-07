@@ -128,9 +128,9 @@ jobs:
           tests/config/windows-packaging.test.ts
           tests/runner/process-host.test.ts
 
-      - name: Run full Electron end-to-end suite
-        run: npm run test:e2e
-
+      # The historical Electron suite contains macOS-only trust, Seatbelt and
+      # memory-diagnostic contracts. Windows is exercised after packaging by
+      # the installed-app gate below, with the locked compiler present.
       - name: Build unsigned Windows x64 installer
         run: npm run dist:win:beta
 

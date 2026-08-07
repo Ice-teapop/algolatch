@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
  * Opens the project source editor in the code-first C Cell layout.
@@ -48,6 +48,12 @@ export async function showBlockPalette(page: Page): Promise<void> {
   await expect(page.locator("#block-palette")).toBeVisible();
 }
 
+/** Reveals the project-tools column without selecting one of its tab panels. */
+export async function showProjectTools(page: Page): Promise<void> {
+  await closeNarrowDrawer(page);
+  await ensureProjectToolsVisible(page);
+}
+
 /** Reveals the independently collapsible runtime/evidence pane. */
 export async function showRuntimePanel(page: Page): Promise<void> {
   await closeNarrowDrawer(page);
@@ -64,6 +70,20 @@ export async function showSourceAndBlocks(page: Page): Promise<void> {
   await showBlockTree(page);
 }
 
+/**
+ * Opens the preset palette and projected block tree together for cross-pane assembly gestures.
+ * A desktop viewport is intentional here: below 1100px the product correctly turns project tools
+ * into a modal drawer, so a real drag cannot keep both its source and destination visible.
+ */
+export async function showAssemblyWorkspace(page: Page): Promise<void> {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await closeNarrowDrawer(page);
+  await showBlockPalette(page);
+  await showBlockTree(page);
+  await expect(page.locator("#left-presets-panel")).toBeVisible();
+  await expect(page.locator("#block-tree")).toBeVisible();
+}
+
 /** Opens the semantic AI panel; the native assistant window remains a separate user action. */
 export async function showAiAssistant(page: Page): Promise<void> {
   await closeNarrowDrawer(page);
@@ -71,6 +91,24 @@ export async function showAiAssistant(page: Page): Promise<void> {
   const tab = page.locator("#semantic-ai-tab");
   if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
   await expect(page.locator("#semantic-ai-panel")).toBeVisible();
+}
+
+/**
+ * Sends one keyboard resize command to the splitter itself.
+ *
+ * Electron on macOS does not guarantee that a page-level keyboard event follows a programmatic
+ * focus change while the native window is in the background. Locator.press keeps focus and the
+ * key dispatch on the same accessibility target.
+ */
+export async function pressSplitterKey(
+  splitter: Locator,
+  key: "ArrowDown" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "End" | "Enter" | "Home",
+): Promise<void> {
+  await expect(splitter).toBeVisible();
+  await splitter.scrollIntoViewIfNeeded();
+  await splitter.focus();
+  await expect(splitter).toBeFocused();
+  await splitter.press(key);
 }
 
 async function ensureProjectToolsVisible(page: Page): Promise<void> {

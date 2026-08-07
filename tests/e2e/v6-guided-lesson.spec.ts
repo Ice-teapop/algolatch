@@ -10,7 +10,7 @@ import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FIRST_ALGORITHM_SOURCE } from "../../src/tutorials/first-algorithm.js";
-import { showRuntimePanel } from "./support/c-cell-layout.js";
+import { showProjectTools, showRuntimePanel, showSourceEditor } from "./support/c-cell-layout.js";
 
 // A dedicated Electron profile: a shared one lets localStorage and window state leak
 // between spec files, which run strictly in sequence under `workers: 1`.
@@ -56,6 +56,7 @@ test.beforeAll(async () => {
   });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("#startup-loader")).toBeHidden();
+  await expect(page.locator("#parser-status")).toHaveAttribute("data-state", "ready");
 });
 
 test.afterAll(async () => {
@@ -80,8 +81,8 @@ test("starts the guided first lesson from the explicit Library help entry", asyn
   await page.getByRole("button", { name: "开始第一课", exact: true }).click();
 
   await expect(page.locator("#build-panel")).toBeVisible();
-  await expect(page.locator("#main-source-tab")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#main-source-panel")).toBeVisible();
+  await showSourceEditor(page);
+  await showProjectTools(page);
   await expect(page.getByRole("complementary", { name: /第一课/u })).toBeVisible();
   await expect(page.locator(".guided-lesson-rail__requirements li")).toHaveCount(1);
   await expect(page.getByRole("button", { name: "下一任务" })).toBeDisabled();

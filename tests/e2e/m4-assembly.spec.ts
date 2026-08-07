@@ -9,7 +9,7 @@ import {
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { showBlockPalette, showBlockTree } from "./support/c-cell-layout.js";
+import { showAssemblyWorkspace, showBlockPalette, showBlockTree } from "./support/c-cell-layout.js";
 
 // Every launch gets its own workspace root and Electron profile. Without them these specs
 // write into the user's real Documents workspace and share one browser profile, which both
@@ -81,9 +81,7 @@ test("prioritizes the assembly canvas and switches extension pages from the top 
 
 test("drags a multiline preset into a real slot and synchronizes exact C", async () => {
   await dock("工作区").click();
-  await showBlockTree(page);
-  await showBlockPalette(page);
-  await showBlockTree(page);
+  await showAssemblyWorkspace(page);
   const target = statement("return_statement", "return 0;");
   const slot = await slotFor(target, "before");
   const preset = page.locator(
@@ -118,7 +116,7 @@ test("creates, uses, deprecates and retires a custom block without deleting gene
   ).toBeNull();
 
   await dock("工作区").click();
-  await showBlockPalette(page);
+  await showAssemblyWorkspace(page);
   await page.getByRole("searchbox", { name: "筛选积木" }).fill("我的累加");
   const customPreset = page.locator(".block-palette__drag-surface").filter({ hasText: "我的累加" });
   const target = statement("return_statement", "return 0;");
